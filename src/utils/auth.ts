@@ -1,0 +1,549 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+export type UserRole = string;
+
+export interface RolePermissionSet {
+  // Main Tab Access (Ticked active by Admin)
+  accessRentals: boolean;   // "Rental Desk"
+  accessHistory: boolean;   // "Daily History"
+  accessUsers: boolean;     // "User & Role"
+  accessSettings: boolean;  // "Rate & Inventory"
+
+  // Functional operational privileges
+  canRent: boolean;
+  canSettle: boolean;
+  canExportReports: boolean;
+  canEditPricing: boolean;
+  canEditFleet: boolean;
+  canManageUsers: boolean;
+  canManageRoles: boolean;
+}
+
+export interface RoleDefinition {
+  id: string;
+  name: string;
+  description: string;
+  color: 'emerald' | 'blue' | 'purple' | 'amber' | 'rose' | 'teal' | 'indigo' | 'cyan';
+  isSystem?: boolean;
+  permissions: RolePermissionSet;
+}
+
+export interface UserAccount {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  role: UserRole;
+  phone?: string;
+  createdAt: number;
+  avatarColor?: string;
+}
+
+const STORAGE_USERS_KEY = 'v_rental_users';
+const STORAGE_CURRENT_USER_KEY = 'v_rental_current_user';
+const STORAGE_ROLES_KEY = 'v_rental_roles';
+
+export const DEFAULT_ROLES: RoleDefinition[] = [
+  {
+    id: 'admin',
+    name: 'Administrator',
+    description: 'Full unrestricted access across all primary tabs, pricing rates, and user administration.',
+    color: 'emerald',
+    isSystem: true,
+    permissions: {
+      accessRentals: true,
+      accessHistory: true,
+      accessUsers: true,
+      accessSettings: true,
+      canRent: true,
+      canSettle: true,
+      canExportReports: true,
+      canEditPricing: true,
+      canEditFleet: true,
+      canManageUsers: true,
+      canManageRoles: true,
+    },
+  },
+  {
+    id: 'manager',
+    name: 'Store Manager',
+    description: 'Manages fleet vehicle inventory, rates, views historical settlement reports, and executes daily cash audits.',
+    color: 'blue',
+    isSystem: true,
+    permissions: {
+      accessRentals: true,
+      accessHistory: true,
+      accessUsers: false,
+      accessSettings: true,
+      canRent: true,
+      canSettle: true,
+      canExportReports: true,
+      canEditPricing: true,
+      canEditFleet: true,
+      canManageUsers: false,
+      canManageRoles: false,
+    },
+  },
+  {
+    id: 'cashier',
+    name: 'Cashier POS',
+    description: 'Operates the live rental counter, starts rental timers, checks in returned vehicles, and issues receipts.',
+    color: 'purple',
+    isSystem: true,
+    permissions: {
+      accessRentals: true,
+      accessHistory: true,
+      accessUsers: false,
+      accessSettings: false,
+      canRent: true,
+      canSettle: true,
+      canExportReports: false,
+      canEditPricing: false,
+      canEditFleet: false,
+      canManageUsers: false,
+      canManageRoles: false,
+    },
+  },
+];
+
+export function getStoredRoles(): RoleDefinition[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_ROLES_KEY);
+    if (!raw) {
+      localStorage.setItem(STORAGE_ROLES_KEY, JSON.stringify(DEFAULT_ROLES));
+      return DEFAULT_ROLES;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return DEFAULT_ROLES;
+    }
+    // Ensure all standard system roles exist and have proper tab access permissions
+    const systemIds = DEFAULT_ROLES.map(r => r.id);
+    const existingIds = parsed.map((r: any) => r.id);
+    const missingSystemRoles = DEFAULT_ROLES.filter(r => !existingIds.includes(r.id));
+    
+    // Normalize permissions to make sure tab access flags are present
+    const normalized: RoleDefinition[] = [...parsed, ...missingSystemRoles].map((role) => {
+      const defaultMatch = DEFAULT_ROLES.find(d => d.id === role.id);
+      return {
+        ...role,
+        permissions: {
+          accessRentals: role.permissions?.accessRentals ?? (defaultMatch ? defaultMatch.permissions.accessRentals : true),
+          accessHistory: role.permissions?.accessHistory ?? (defaultMatch ? defaultMatch.permissions.accessHistory : true),
+          accessUsers: role.permissions?.accessUsers ?? (defaultMatch ? defaultMatch.permissions.accessUsers : false),
+          accessSettings: role.permissions?.accessSettings ?? (defaultMatch ? defaultMatch.permissions.accessSettings : false),
+          canRent: role.permissions?.canRent ?? true,
+          canSettle: role.permissions?.canSettle ?? true,
+          canExportReports: role.permissions?.canExportReports ?? false,
+          canEditPricing: role.permissions?.canEditPricing ?? false,
+          canEditFleet: role.permissions?.canEditFleet ?? false,
+          canManageUsers: role.permissions?.canManageUsers ?? false,
+          canManageRoles: role.permissions?.canManageRoles ?? false,
+        },
+      };
+    });
+
+    return normalized;
+  } catch (err) {
+    return DEFAULT_ROLES;
+  }
+}
+
+export function saveStoredRoles(roles: RoleDefinition[]): void {
+  try {
+    localStorage.setItem(STORAGE_ROLES_KEY, JSON.stringify(roles));
+  } catch (err) {
+    console.error('Failed to save roles to localStorage', err);
+  }
+}
+
+export function updateRolePermissions(
+  roleId: string, 
+  newPermissions: Partial<RolePermissionSet>
+): { success: boolean; error?: string } {
+  const roles = getStoredRoles();
+  const idx = roles.findIndex(r => r.id === roleId);
+  if (idx === -1) {
+    return { success: false, error: 'Role not found.' };
+  }
+
+  // Admin role should always retain user management & role editing
+  const updatedPerms: RolePermissionSet = {
+    ...roles[idx].permissions,
+    ...newPermissions,
+  };
+
+  if (roleId === 'admin') {
+    updatedPerms.accessUsers = true;
+    updatedPerms.accessSettings = true;
+    updatedPerms.canManageUsers = true;
+    updatedPerms.canManageRoles = true;
+  }
+
+  roles[idx] = {
+    ...roles[idx],
+    permissions: updatedPerms,
+  };
+
+  saveStoredRoles(roles);
+  return { success: true };
+}
+
+export function getUserPermissions(user: UserAccount | null | undefined): RolePermissionSet {
+  if (!user) {
+    return {
+      accessRentals: true,
+      accessHistory: false,
+      accessUsers: false,
+      accessSettings: false,
+      canRent: true,
+      canSettle: false,
+      canExportReports: false,
+      canEditPricing: false,
+      canEditFleet: false,
+      canManageUsers: false,
+      canManageRoles: false,
+    };
+  }
+
+  if (user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || user.role === 'admin') {
+    return {
+      accessRentals: true,
+      accessHistory: true,
+      accessUsers: true,
+      accessSettings: true,
+      canRent: true,
+      canSettle: true,
+      canExportReports: true,
+      canEditPricing: true,
+      canEditFleet: true,
+      canManageUsers: true,
+      canManageRoles: true,
+    };
+  }
+
+  const roles = getStoredRoles();
+  const found = roles.find(r => r.id === user.role);
+  if (found) {
+    return found.permissions;
+  }
+
+  // Default fallback for any unspecified role
+  return {
+    accessRentals: true,
+    accessHistory: true,
+    accessUsers: false,
+    accessSettings: false,
+    canRent: true,
+    canSettle: true,
+    canExportReports: false,
+    canEditPricing: false,
+    canEditFleet: false,
+    canManageUsers: false,
+    canManageRoles: false,
+  };
+}
+
+export function createCustomRole(params: {
+  name: string;
+  description?: string;
+  color?: RoleDefinition['color'];
+  permissions?: Partial<RolePermissionSet>;
+}): { success: boolean; role?: RoleDefinition; error?: string } {
+  const roles = getStoredRoles();
+  const trimmedName = params.name.trim();
+  if (!trimmedName) {
+    return { success: false, error: 'Role name cannot be empty.' };
+  }
+
+  const generatedId = trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  if (roles.some(r => r.id === generatedId || r.name.toLowerCase() === trimmedName.toLowerCase())) {
+    return { success: false, error: `A role with the name "${trimmedName}" already exists.` };
+  }
+
+  const newRole: RoleDefinition = {
+    id: generatedId,
+    name: trimmedName,
+    description: params.description?.trim() || `Custom role for ${trimmedName}`,
+    color: params.color || 'teal',
+    isSystem: false,
+    permissions: {
+      accessRentals: params.permissions?.accessRentals ?? true,
+      accessHistory: params.permissions?.accessHistory ?? true,
+      accessUsers: params.permissions?.accessUsers ?? false,
+      accessSettings: params.permissions?.accessSettings ?? false,
+      canRent: params.permissions?.canRent ?? true,
+      canSettle: params.permissions?.canSettle ?? true,
+      canExportReports: params.permissions?.canExportReports ?? false,
+      canEditPricing: params.permissions?.canEditPricing ?? false,
+      canEditFleet: params.permissions?.canEditFleet ?? false,
+      canManageUsers: params.permissions?.canManageUsers ?? false,
+      canManageRoles: params.permissions?.canManageRoles ?? false,
+    },
+  };
+
+  const updated = [...roles, newRole];
+  saveStoredRoles(updated);
+  return { success: true, role: newRole };
+}
+
+export function deleteCustomRole(roleId: string): { success: boolean; error?: string } {
+  const roles = getStoredRoles();
+  const target = roles.find(r => r.id === roleId);
+  if (!target) {
+    return { success: false, error: 'Role not found.' };
+  }
+  if (target.isSystem) {
+    return { success: false, error: 'System standard roles (Administrator, Store Manager, Cashier POS) cannot be deleted.' };
+  }
+
+  // Check if any users have this role, reassign them to cashier
+  const users = getStoredUsers();
+  let usersUpdated = false;
+  const updatedUsers = users.map(u => {
+    if (u.role === roleId) {
+      usersUpdated = true;
+      return { ...u, role: 'cashier' };
+    }
+    return u;
+  });
+
+  if (usersUpdated) {
+    saveStoredUsers(updatedUsers);
+  }
+
+  const filteredRoles = roles.filter(r => r.id !== roleId);
+  saveStoredRoles(filteredRoles);
+  return { success: true };
+}
+
+export const DEFAULT_USER: UserAccount = {
+  id: 'user-default-admin',
+  name: 'Absir Aiva',
+  email: 'absiraiva@gmail.com',
+  password: 'Ab@12345',
+  role: 'admin',
+  phone: '+94 77 123 4567',
+  createdAt: 1700000000000,
+  avatarColor: 'emerald',
+};
+
+export function getStoredUsers(): UserAccount[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_USERS_KEY);
+    if (!raw) {
+      const initial = [DEFAULT_USER];
+      localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(initial));
+      return initial;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [DEFAULT_USER];
+    }
+    // Filter out invalid items
+    const validUsers: UserAccount[] = parsed.filter(
+      (u): u is UserAccount => Boolean(u && typeof u === 'object' && typeof u.email === 'string' && u.email.trim().length > 0)
+    );
+
+    // Ensure default admin user exists
+    const hasDefault = validUsers.some(
+      (u) => u.email && u.email.toLowerCase() === DEFAULT_USER.email.toLowerCase()
+    );
+    if (!hasDefault) {
+      const updated = [DEFAULT_USER, ...validUsers];
+      localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(updated));
+      return updated;
+    }
+    return validUsers.length > 0 ? validUsers : [DEFAULT_USER];
+  } catch (err) {
+    return [DEFAULT_USER];
+  }
+}
+
+export function saveStoredUsers(users: UserAccount[]): void {
+  try {
+    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
+  } catch (err) {
+    console.error('Failed to save users to localStorage', err);
+  }
+}
+
+export function getCurrentUser(): UserAccount | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_CURRENT_USER_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.email === 'string' && parsed.email.trim().length > 0) {
+        // Validate against current users in storage
+        const users = getStoredUsers();
+        const found = users.find((u) => u.email.toLowerCase() === parsed.email.toLowerCase());
+        if (found) {
+          return found;
+        }
+        return {
+          id: parsed.id || DEFAULT_USER.id,
+          name: parsed.name || DEFAULT_USER.name,
+          email: parsed.email || DEFAULT_USER.email,
+          password: parsed.password || DEFAULT_USER.password,
+          role: parsed.role || DEFAULT_USER.role,
+          phone: parsed.phone || DEFAULT_USER.phone,
+          createdAt: parsed.createdAt || DEFAULT_USER.createdAt,
+          avatarColor: parsed.avatarColor || DEFAULT_USER.avatarColor,
+        };
+      }
+    }
+  } catch (err) {
+    // fallback
+  }
+  // Default to pre-configured admin user
+  return DEFAULT_USER;
+}
+
+export function setCurrentUserSession(user: UserAccount | null): void {
+  try {
+    if (user && user.email) {
+      localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(STORAGE_CURRENT_USER_KEY);
+    }
+  } catch (err) {
+    console.error('Failed to update current user in storage', err);
+  }
+}
+
+export function authenticateUser(email: string, password: string): { success: boolean; user?: UserAccount; error?: string } {
+  const users = getStoredUsers();
+  const normalizedEmail = (email || '').trim().toLowerCase();
+  const found = users.find((u) => u && u.email && u.email.toLowerCase() === normalizedEmail);
+
+  if (!found) {
+    return { success: false, error: 'No account found with this email address.' };
+  }
+
+  if (found.password !== password) {
+    return { success: false, error: 'Incorrect password. Please verify and try again.' };
+  }
+
+  setCurrentUserSession(found);
+  return { success: true, user: found };
+}
+
+export function registerNewUser(params: {
+  name: string;
+  email: string;
+  password: string;
+  role?: UserRole;
+  phone?: string;
+}): { success: boolean; user?: UserAccount; error?: string } {
+  const users = getStoredUsers();
+  const normalizedEmail = (params.email || '').trim().toLowerCase();
+
+  if (users.some((u) => u && u.email && u.email.toLowerCase() === normalizedEmail)) {
+    return { success: false, error: 'An account with this email already exists. Please sign in.' };
+  }
+
+  const colors = ['emerald', 'blue', 'violet', 'amber', 'rose', 'teal'];
+  const avatarColor = colors[Math.floor(Math.random() * colors.length)];
+
+  const newUser: UserAccount = {
+    id: `user-${Date.now()}`,
+    name: params.name.trim(),
+    email: normalizedEmail,
+    password: params.password,
+    role: params.role || 'cashier',
+    phone: params.phone?.trim() || '',
+    createdAt: Date.now(),
+    avatarColor,
+  };
+
+  const updatedUsers = [...users, newUser];
+  saveStoredUsers(updatedUsers);
+  return { success: true, user: newUser };
+}
+
+export function resetUserPassword(email: string, newPassword: string): { success: boolean; error?: string } {
+  const users = getStoredUsers();
+  const normalizedEmail = (email || '').trim().toLowerCase();
+  const idx = users.findIndex((u) => u && u.email && u.email.toLowerCase() === normalizedEmail);
+
+  if (idx === -1) {
+    return { success: false, error: 'No user account registered with this email address.' };
+  }
+
+  users[idx] = {
+    ...users[idx],
+    password: newPassword,
+  };
+
+  saveStoredUsers(users);
+
+  // If current logged-in user is this one, update session too
+  const current = getCurrentUser();
+  if (current && current.email && current.email.toLowerCase() === normalizedEmail) {
+    setCurrentUserSession(users[idx]);
+  }
+
+  return { success: true };
+}
+
+/**
+ * Admin action: Update a user's role and details
+ */
+export function updateUserRoleAndDetails(
+  userId: string, 
+  newRole: UserRole,
+  updatedData?: Partial<Pick<UserAccount, 'name' | 'phone'>>
+): { success: boolean; user?: UserAccount; error?: string } {
+  const users = getStoredUsers();
+  const idx = users.findIndex((u) => u.id === userId);
+
+  if (idx === -1) {
+    return { success: false, error: 'User not found in system records.' };
+  }
+
+  // Prevent demoting the primary admin if it's the only admin
+  if (users[idx].email.toLowerCase() === DEFAULT_USER.email.toLowerCase() && newRole !== 'admin') {
+    return { success: false, error: 'Cannot remove admin role from primary root administrator.' };
+  }
+
+  users[idx] = {
+    ...users[idx],
+    role: newRole,
+    name: updatedData?.name?.trim() || users[idx].name,
+    phone: updatedData?.phone !== undefined ? updatedData.phone.trim() : users[idx].phone,
+  };
+
+  saveStoredUsers(users);
+
+  // Update session if it's the current user
+  const current = getCurrentUser();
+  if (current && current.id === userId) {
+    setCurrentUserSession(users[idx]);
+  }
+
+  return { success: true, user: users[idx] };
+}
+
+/**
+ * Admin action: Delete user account
+ */
+export function deleteUserAccount(userId: string): { success: boolean; error?: string } {
+  const users = getStoredUsers();
+  const target = users.find((u) => u.id === userId);
+
+  if (!target) {
+    return { success: false, error: 'User not found.' };
+  }
+
+  if (target.email.toLowerCase() === DEFAULT_USER.email.toLowerCase()) {
+    return { success: false, error: 'Primary root admin account cannot be deleted.' };
+  }
+
+  const filtered = users.filter((u) => u.id !== userId);
+  saveStoredUsers(filtered);
+
+  return { success: true };
+}

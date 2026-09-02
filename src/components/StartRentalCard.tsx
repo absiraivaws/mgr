@@ -1,0 +1,554 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Play, 
+  Tag, 
+  Hash, 
+  User, 
+  Phone, 
+  IdCard, 
+  AlertCircle, 
+  CheckCircle2, 
+  Search, 
+  X, 
+  Sparkles, 
+  UserCheck, 
+  Info,
+  ChevronDown
+} from 'lucide-react';
+import { AppSettings, Customer, Vehicle, VehicleType } from '../types';
+import { VehicleIcon } from './VehicleIcon';
+import { formatCurrency, playSoundEffect } from '../utils/pricing';
+import { findCustomerByNic, searchCustomers } from '../utils/customer';
+import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
+
+interface StartRentalCardProps {
+  vehicleTypes: VehicleType[];
+  vehicles: Vehicle[];
+  customers?: Customer[];
+  settings: AppSettings;
+  themeMode?: ThemeMode;
+  accent?: AccentColor;
+  onStartRental: (params: {
+    vehicleTypeId: string;
+    vehicleSerialNumber: string;
+    customerName?: string;
+    customerPhone?: string;
+    customerNicPassport?: string;
+    customerNotes?: string;
+    depositAmount?: number;
+  }) => void;
+  onQuickAddSerial?: (typeId: string, serial: string) => void;
+}
+
+export const StartRentalCard: React.FC<StartRentalCardProps> = ({
+  vehicleTypes,
+  vehicles,
+  customers = [],
+  settings,
+  themeMode = 'dark',
+  accent = 'emerald',
+  onStartRental,
+}) => {
+  const [selectedTypeId, setSelectedTypeId] = useState<string>(vehicleTypes[0]?.id || '');
+  const [selectedSerial, setSelectedSerial] = useState<string>('');
+  const [customerName, setCustomerName] = useState<string>('');
+  const [customerPhone, setCustomerPhone] = useState<string>('');
+  const [customerNicPassport, setCustomerNicPassport] = useState<string>('');
+  const [customerNotes, setCustomerNotes] = useState<string>('');
+  const [depositAmount, setDepositAmount] = useState<string>('');
+  const [customSerialMode, setCustomSerialMode] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Customer Auto-Lookup & Suggestion state
+  const [matchedCustomer, setMatchedCustomer] = useState<Customer | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
+  const [suggestions, setSuggestions] = useState<Customer[]>([]);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  const t = getThemeClasses(themeMode, accent);
+
+  // Update selected type if list changes
+  useEffect(() => {
+    if (!selectedTypeId && vehicleTypes.length > 0) {
+      setSelectedTypeId(vehicleTypes[0].id);
+    }
+  }, [vehicleTypes, selectedTypeId]);
+
+  // Available vehicles for selected type
+  const availableVehicles = vehicles.filter(
+    (v) => v.typeId === selectedTypeId && v.status === 'available'
+  );
+
+  // Auto-select first available serial when type changes
+  useEffect(() => {
+    if (!customSerialMode) {
+      if (availableVehicles.length > 0) {
+        setSelectedSerial(availableVehicles[0].serialNumber);
+      } else {
+        setSelectedSerial('');
+      }
+    }
+  }, [selectedTypeId, vehicles, customSerialMode]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Handle NIC Input change and search database
+  const handleNicChange = (val: string) => {
+    const uppercaseVal = val.toUpperCase();
+    setCustomerNicPassport(uppercaseVal);
+
+    if (!uppercaseVal.trim()) {
+      setMatchedCustomer(null);
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    // 1. Direct exact lookup
+    const foundExact = findCustomerByNic(uppercaseVal, customers);
+    if (foundExact) {
+      setMatchedCustomer(foundExact);
+      setCustomerName(foundExact.name || '');
+      setCustomerPhone(foundExact.phone || '');
+      if (foundExact.notes) setCustomerNotes(foundExact.notes);
+      setShowSuggestions(false);
+      return;
+    }
+
+    // 2. Partial search for suggestions dropdown
+    const matches = searchCustomers(uppercaseVal, customers);
+    setSuggestions(matches);
+    setShowSuggestions(matches.length > 0);
+    setMatchedCustomer(null);
+  };
+
+  // Select a customer from suggestions or quick lookup
+  const handleSelectCustomer = (customer: Customer) => {
+    setCustomerNicPassport(customer.nicPassport);
+    setCustomerName(customer.name);
+    setCustomerPhone(customer.phone || '');
+    if (customer.notes) setCustomerNotes(customer.notes);
+    setMatchedCustomer(customer);
+    setShowSuggestions(false);
+  };
+
+  // Clear customer fields
+  const handleClearCustomer = () => {
+    setCustomerNicPassport('');
+    setCustomerName('');
+    setCustomerPhone('');
+    setCustomerNotes('');
+    setMatchedCustomer(null);
+    setShowSuggestions(false);
+  };
+
+  const selectedType = vehicleTypes.find((t) => t.id === selectedTypeId) || vehicleTypes[0];
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+
+    const cleanSerial = selectedSerial.trim().toUpperCase();
+
+    if (!selectedTypeId) {
+      setErrorMsg('Please select a vehicle type.');
+      return;
+    }
+
+    if (!cleanSerial) {
+      setErrorMsg('Please select or enter a vehicle serial number.');
+      return;
+    }
+
+    // Check if vehicle is already rented
+    const existingVehicle = vehicles.find(
+      (v) => v.serialNumber.toUpperCase() === cleanSerial
+    );
+
+    if (existingVehicle && existingVehicle.status === 'rented') {
+      setErrorMsg(`Vehicle serial "${cleanSerial}" is currently already active in rental!`);
+      return;
+    }
+
+    if (existingVehicle && existingVehicle.status === 'maintenance') {
+      setErrorMsg(`Vehicle serial "${cleanSerial}" is currently under maintenance.`);
+      return;
+    }
+
+    if (settings.soundEnabled) {
+      playSoundEffect('start');
+    }
+
+    onStartRental({
+      vehicleTypeId: selectedTypeId,
+      vehicleSerialNumber: cleanSerial,
+      customerName: customerName.trim() || undefined,
+      customerPhone: customerPhone.trim() || undefined,
+      customerNicPassport: customerNicPassport.trim() || undefined,
+      customerNotes: customerNotes.trim() || undefined,
+      depositAmount: depositAmount ? parseFloat(depositAmount) : undefined,
+    });
+
+    // Reset customer fields
+    setCustomerName('');
+    setCustomerPhone('');
+    setCustomerNicPassport('');
+    setCustomerNotes('');
+    setDepositAmount('');
+    setMatchedCustomer(null);
+    setShowSuggestions(false);
+    setErrorMsg(null);
+  };
+
+  return (
+    <div className={`${t.cardBg} rounded-2xl p-4 sm:p-6 border shadow-xl transition-all`}>
+      
+      {/* Header */}
+      <div className={`flex items-center justify-between pb-3 sm:pb-4 border-b ${t.divider} mb-4 sm:mb-5`}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 text-white flex items-center justify-center shrink-0 shadow-md">
+            <Play className="w-5 h-5 fill-white" />
+          </div>
+          <div>
+            <h2 className={`text-base sm:text-lg font-bold tracking-tight leading-snug ${t.textHeading}`}>
+              Start New Rental
+            </h2>
+            <p className={`text-xs ${t.textMuted}`}>
+              Select vehicle, enter customer details & start
+            </p>
+          </div>
+        </div>
+
+        {/* Visual Badge Indicator */}
+        <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${t.badge}`}>
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>POS Desk</span>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
+        {errorMsg && (
+          <div className="p-3 bg-rose-500/15 border border-rose-500/30 rounded-xl flex items-center gap-2.5 text-rose-400 text-xs font-medium">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        {/* ================= STEP 1: DROPDOWN (Vehicle Type) ================= */}
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-wider mb-2 flex items-center justify-between">
+            <span className={`flex items-center gap-1.5 ${t.textHeading}`}>
+              <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
+                1
+              </span>
+              Vehicle Category (Dropdown)
+            </span>
+            <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${t.dropdownBadge}`}>
+              Dropdown Menu
+            </span>
+          </label>
+
+          <div className="relative">
+            <select
+              id="select-vehicle-type"
+              value={selectedTypeId}
+              onChange={(e) => setSelectedTypeId(e.target.value)}
+              className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-semibold transition appearance-none cursor-pointer pr-10 shadow-xs ${t.dropdownInput}`}
+            >
+              {vehicleTypes.map((type) => {
+                const availCount = vehicles.filter(
+                  (v) => v.typeId === type.id && v.status === 'available'
+                ).length;
+                return (
+                  <option key={type.id} value={type.id} className="bg-slate-900 text-white">
+                    {type.name} — ({availCount} Available in Fleet)
+                  </option>
+                );
+              })}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-indigo-400">
+              <ChevronDown className="w-4 h-4" />
+            </div>
+          </div>
+
+          {/* Quick Rate Structure Banner for Selected Type */}
+          {selectedType && (
+            <div className={`mt-2.5 p-2.5 sm:p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs ${t.cardSubtleBg}`}>
+              <div className="flex items-center gap-2">
+                <VehicleIcon type={selectedType.icon} className="w-4 h-4 text-emerald-500 shrink-0" />
+                <span className={`font-semibold ${t.textHeading}`}>{selectedType.name} Rates:</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
+                <span className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-0.5 rounded-md whitespace-nowrap font-bold">
+                  1st 60m:{' '}
+                  <strong>
+                    {formatCurrency(selectedType.rates.firstHour, settings.currencySymbol, settings.currencyPosition)}
+                  </strong>
+                </span>
+                <span className="bg-teal-500/10 text-teal-500 border border-teal-500/20 px-2 py-0.5 rounded-md whitespace-nowrap font-bold">
+                  Every +30m:{' '}
+                  <strong>
+                    +{formatCurrency(selectedType.rates.every30Min ?? selectedType.rates.next30Min ?? 0, settings.currencySymbol, settings.currencyPosition)}
+                  </strong>
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ================= STEP 2: Vehicle Serial Number ================= */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 ${t.textHeading}`}>
+              <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
+                2
+              </span>
+              Vehicle Serial Number
+            </label>
+            <button
+              type="button"
+              id="btn-toggle-custom-serial"
+              onClick={() => {
+                setCustomSerialMode(!customSerialMode);
+                setSelectedSerial('');
+              }}
+              className="text-[11px] text-emerald-500 hover:underline font-semibold cursor-pointer"
+            >
+              {customSerialMode ? '← Pick from dropdown list' : '+ Key-in custom serial'}
+            </button>
+          </div>
+
+          {!customSerialMode ? (
+            <div className="relative">
+              {availableVehicles.length > 0 ? (
+                <>
+                  <select
+                    id="select-vehicle-serial"
+                    value={selectedSerial}
+                    onChange={(e) => setSelectedSerial(e.target.value)}
+                    className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-mono font-bold transition appearance-none cursor-pointer pr-10 shadow-xs ${t.dropdownInput}`}
+                  >
+                    {availableVehicles.map((v) => (
+                      <option key={v.id} value={v.serialNumber} className="bg-slate-900 text-white">
+                        {v.serialNumber} {v.modelName ? `— ${v.modelName}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-indigo-400">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </>
+              ) : (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Info className="w-4 h-4 shrink-0" />
+                    <span>No {selectedType?.name} is currently available in inventory.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCustomSerialMode(true)}
+                    className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 rounded-lg text-[11px] font-bold transition self-start sm:self-auto cursor-pointer"
+                  >
+                    Enter Custom Serial
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="relative">
+              <input
+                id="input-custom-serial"
+                type="text"
+                placeholder="e.g. BIKE-105 or MOTO-205"
+                value={selectedSerial}
+                onChange={(e) => setSelectedSerial(e.target.value.toUpperCase())}
+                className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-mono font-bold uppercase pr-10 ${t.textInput}`}
+                autoFocus
+              />
+              <div className={`pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 ${t.textMuted}`}>
+                <Hash className="w-4 h-4" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ================= STEP 3: Customer Details ================= */}
+        <div className={`space-y-3 pt-3 border-t ${t.divider}`}>
+          
+          {/* ================= FIND / SEARCH BAR: NIC Search (Cyan Theme) ================= */}
+          <div className="relative" ref={suggestionsRef}>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-cyan-500 flex items-center gap-1.5">
+                <Search className="w-3.5 h-3.5" />
+                <span>Find Customer Search Bar (NIC / Passport)</span>
+              </label>
+              <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${t.searchBadge}`}>
+                Search Bar
+              </span>
+            </div>
+
+            <div className="relative">
+              <input
+                id="input-customer-nic"
+                type="text"
+                placeholder="Search database by NIC or Passport (e.g. 199245102394)..."
+                value={customerNicPassport}
+                onChange={(e) => handleNicChange(e.target.value)}
+                onFocus={() => {
+                  if (customerNicPassport.trim() && !matchedCustomer) {
+                    const matches = searchCustomers(customerNicPassport, customers);
+                    setSuggestions(matches);
+                    setShowSuggestions(matches.length > 0);
+                  }
+                }}
+                className={`w-full rounded-xl px-4 py-2.5 text-xs font-mono uppercase focus:outline-none pr-10 ${t.searchInput}`}
+              />
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                {matchedCustomer ? (
+                  <UserCheck className="w-4 h-4 text-emerald-500" />
+                ) : (
+                  <Search className="w-4 h-4 text-cyan-500" />
+                )}
+              </div>
+            </div>
+
+            {/* Suggestions Dropdown for NIC Search */}
+            {showSuggestions && suggestions.length > 0 && (
+              <div className={`absolute z-30 left-0 right-0 mt-1.5 border rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto divide-y ${t.modalBg} ${t.divider}`}>
+                <div className={`px-3 py-1.5 text-[10px] uppercase font-bold tracking-wider flex items-center justify-between ${t.cardSubtleBg} ${t.textMuted}`}>
+                  <span>Found in Database ({suggestions.length})</span>
+                  <span>Click to auto-fill</span>
+                </div>
+                {suggestions.map((cust) => (
+                  <button
+                    key={cust.id || cust.nicPassport}
+                    type="button"
+                    onClick={() => handleSelectCustomer(cust)}
+                    className="w-full px-3 py-2.5 text-left hover:bg-cyan-500/10 transition flex items-center justify-between gap-2 group cursor-pointer"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-cyan-500">
+                          {cust.nicPassport}
+                        </span>
+                        <span className={`text-xs font-semibold ${t.textHeading}`}>
+                          {cust.name}
+                        </span>
+                      </div>
+                      {cust.phone && (
+                        <span className={`text-[11px] block mt-0.5 ${t.textMuted}`}>
+                          📞 {cust.phone}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${t.badge}`}>
+                        {cust.totalRentalsCount ? `${cust.totalRentalsCount} trips` : 'Saved'}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Matched Customer Notification Banner */}
+            {matchedCustomer && (
+              <div className={`mt-2 p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs bg-emerald-500/10 border-emerald-500/30 text-emerald-500`}>
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  <div>
+                    <div className="font-bold flex items-center gap-1.5">
+                      <span>{matchedCustomer.name}</span>
+                      {matchedCustomer.totalRentalsCount && (
+                        <span className="text-[10px] font-normal bg-emerald-500/20 px-1.5 py-0.2 rounded">
+                          {matchedCustomer.totalRentalsCount} past rentals
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px]">
+                      Customer data auto-filled from database.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearCustomer}
+                  className="px-2 py-1 bg-slate-800 text-slate-200 hover:bg-slate-700 rounded text-[10px] font-medium shrink-0 cursor-pointer"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ================= USER KEY-IN TEXTBOXES (Name, Phone, Deposit) ================= */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            
+            {/* Customer Name Key-in Textbox */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className={`text-xs font-semibold flex items-center gap-1 ${t.textHeading}`}>
+                  <User className="w-3.5 h-3.5 text-slate-400" />
+                  Customer Name (Key-in)
+                </label>
+              </div>
+              <input
+                id="input-customer-name"
+                type="text"
+                placeholder="Type customer full name..."
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className={`w-full rounded-xl px-3 py-2.5 text-xs ${t.textInput}`}
+              />
+            </div>
+
+            {/* Customer Phone Key-in Textbox */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className={`text-xs font-semibold flex items-center gap-1 ${t.textHeading}`}>
+                  <Phone className="w-3.5 h-3.5 text-slate-400" />
+                  Phone Number (Key-in)
+                </label>
+              </div>
+              <input
+                id="input-customer-phone"
+                type="tel"
+                placeholder="e.g. +94 77 123 4567"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+                className={`w-full rounded-xl px-3 py-2.5 text-xs ${t.textInput}`}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Start Rental Primary Action Button */}
+        <div className="pt-2">
+          <button
+            id="btn-start-rental"
+            type="submit"
+            disabled={!selectedSerial && !customSerialMode}
+            className={`w-full py-3.5 px-4 sm:px-6 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed font-bold text-sm sm:text-base flex items-center justify-center gap-2 sm:gap-3 transition cursor-pointer active:scale-[0.99] min-h-[48px] shadow-lg ${t.primaryBtn}`}
+          >
+            <Play className="w-5 h-5 fill-white shrink-0" />
+            <span>Start Rental Timer</span>
+            {selectedSerial && (
+              <span className="font-mono text-xs bg-black/30 text-white px-2 py-0.5 rounded border border-white/20 truncate max-w-[120px]">
+                {selectedSerial}
+              </span>
+            )}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};

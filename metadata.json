@@ -1,0 +1,8 @@
+{
+  "name": "Vehicle Rental Cashier",
+  "description": "Cashier billing and live rental tracking system for bicycle and motorcycle rental businesses with customizable tiered rates and inventory management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+/* Ensure date input calendar picker indicator is clearly visible in dark and light modes */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.95;
+  filter: invert(0.85) sepia(1) saturate(6) hue-rotate(110deg);
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  padding: 4px;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  transform: scale(1.15);
+}
+
+.theme-light input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.2) sepia(1) saturate(5) hue-rotate(110deg);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
