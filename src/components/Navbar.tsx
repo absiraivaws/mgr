@@ -263,32 +263,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </p>
                   </div>
 
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowUserMenu(false);
-                        setActiveTab('users');
-                      }}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg text-emerald-500 hover:bg-emerald-500/10 transition cursor-pointer text-left`}
-                    >
-                      <ShieldCheck className="w-4 h-4 shrink-0" />
-                      <span>User Roles & Permissions</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowUserMenu(false);
-                      handleOpenAuth();
-                    }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg hover:bg-slate-500/10 ${t.textMain} transition cursor-pointer text-left`}
-                  >
-                    <LogIn className="w-4 h-4 shrink-0" />
-                    <span>Sign In / Switch Account</span>
-                  </button>
-
                   <button
                     type="button"
                     onClick={() => {
@@ -299,7 +273,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         handleOpenAuth();
                       }
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg text-rose-500 hover:bg-rose-500/10 transition cursor-pointer text-left"
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg hover:bg-slate-500/10 ${t.textMain} transition cursor-pointer text-left`}
                   >
                     <LogOut className="w-4 h-4 shrink-0" />
                     <span>Sign Out</span>
@@ -359,23 +333,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   {todayCompletedRentals.length}
                 </span>
               )}
-            </button>
-          )}
-
-          {/* Tab 3: User Creation & Roles */}
-          {(userPerms.accessUsers || isAdmin) && (
-            <button
-              id="tab-users"
-              type="button"
-              onClick={() => setActiveTab('users')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'users'
-                  ? t.activeTab
-                  : t.inactiveTab
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>Users & Role Management</span>
             </button>
           )}
 

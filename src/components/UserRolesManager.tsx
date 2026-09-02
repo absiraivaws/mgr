@@ -275,7 +275,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     }
   };
 
-  const handleCreateUserSubmit = (e: React.FormEvent) => {
+  const handleCreateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
@@ -292,7 +292,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       return;
     }
 
-    const res = registerNewUser({
+    const res = await registerNewUser({
       name: newName,
       email: newEmail,
       password: newPassword,

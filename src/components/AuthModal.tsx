@@ -75,7 +75,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   // Handle Login Submission
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearMessages();
 
@@ -84,7 +84,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    const res = authenticateUser(loginEmail, loginPassword);
+    const res = await authenticateUser(loginEmail, loginPassword);
     if (res.success && res.user) {
       onUserChange(res.user);
       setSuccessMessage(`Welcome back, ${res.user.name}! Logged in as ${res.user.role.toUpperCase()}.`);
@@ -97,7 +97,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   // Handle Forgot Password Reset
-  const handleForgotSubmit = (e: React.FormEvent) => {
+  const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearMessages();
 
@@ -114,7 +114,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    const res = resetUserPassword(forgotEmail, newPassword);
+    const res = await resetUserPassword(forgotEmail, newPassword);
     if (res.success) {
       setSuccessMessage('Password reset successfully! You can now log in with your updated password.');
       setLoginEmail(forgotEmail);

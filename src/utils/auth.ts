@@ -3,6 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
+import { getSupabaseCredentials } from '../lib/supabase';
+
+let supabaseInstance: SupabaseClient | null = null;
+
+export function getSupabaseAuth(): SupabaseClient {
+  if (!supabaseInstance) {
+    const { url, anonKey } = getSupabaseCredentials();
+    if (url && anonKey) {
+      supabaseInstance = createClient(url, anonKey);
+    }
+  }
+  return supabaseInstance || null;
+}
+
 export type UserRole = string;
 
 export interface RolePermissionSet {
@@ -414,7 +429,47 @@ export function setCurrentUserSession(user: UserAccount | null): void {
   }
 }
 
-export function authenticateUser(email: string, password: string): { success: boolean; user?: UserAccount; error?: string } {
+export async function authenticateUser(email: string, password: string): Promise<{ success: boolean; user?: UserAccount; error?: string }> {
+  // Try Supabase Auth first if configured
+  const supaAuth = getSupabaseAuth();
+  if (supaAuth) {
+    try {
+      const { data, error } = await supaAuth.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) {
+        // Fall through to localStorage fallback
+      } else if (data.user) {
+        // Map Supabase user to App UserAccount
+        const users = getStoredUsers();
+        const found = users.find((u) => u && u.email && u.email.toLowerCase() === data.user.email.toLowerCase());
+        if (found) {
+          setCurrentUserSession(found);
+          return { success: true, user: found };
+        }
+        // Create new user profile from Supabase auth
+        const newUser: UserAccount = {
+          id: `supa-${data.user.id}`,
+          name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'Supabase User',
+          email: data.user.email,
+          role: 'cashier', // default role for new Supabase users
+          password: '', // placeholder - auth happens via Supabase, not localStorage password check
+          phone: data.user.phone || undefined,
+          createdAt: data.user.created_at ? Number(data.user.created_at) : Date.now(),
+          avatarColor: 'emerald',
+        };
+        const usersUpdated = [newUser, ...users];
+        saveStoredUsers(usersUpdated);
+        setCurrentUserSession(newUser);
+        return { success: true, user: newUser };
+      }
+    } catch (e) {
+      // Supabase Auth not available or error, fall through to localStorage
+    }
+  }
+
+  // Fallback to localStorage-based authentication
   const users = getStoredUsers();
   const normalizedEmail = (email || '').trim().toLowerCase();
   const found = users.find((u) => u && u.email && u.email.toLowerCase() === normalizedEmail);
@@ -431,13 +486,62 @@ export function authenticateUser(email: string, password: string): { success: bo
   return { success: true, user: found };
 }
 
-export function registerNewUser(params: {
+export async function registerNewUser(params: {
   name: string;
   email: string;
   password: string;
   role?: UserRole;
   phone?: string;
-}): { success: boolean; user?: UserAccount; error?: string } {
+}): Promise<{ success: boolean; user?: UserAccount; error?: string }> {
+  // Try Supabase Auth first if configured
+  const supaAuth = getSupabaseAuth();
+  if (supaAuth) {
+    try {
+      const { data, error } = await supaAuth.auth.signUp({
+        email: params.email,
+        password: params.password,
+        options: {
+          data: {
+            name: params.name.trim(),
+            role: params.role || 'cashier',
+          },
+        },
+      });
+      if (error) {
+        // Fall through to localStorage fallback
+      } else if (data.user) {
+        // Map Supabase user to App UserAccount
+        const users = getStoredUsers();
+        // Check if user already exists in localStorage
+        const existing = users.find(
+          (u) => u && u.email && u.email.toLowerCase() === data.user.email.toLowerCase()
+        );
+        if (existing) {
+          setCurrentUserSession(existing);
+          return { success: true, user: existing };
+        }
+        // Create new user profile from Supabase auth
+        const newUser: UserAccount = {
+          id: `supa-${data.user.id}`,
+          name: data.user.user_metadata?.name || params.name.trim(),
+          email: data.user.email,
+          role: params.role || 'cashier',
+          password: '', // placeholder - auth happens via Supabase, not localStorage password check
+          phone: params.phone?.trim() || undefined,
+          createdAt: Date.now(),
+          avatarColor: 'emerald',
+        };
+        const usersUpdated = [newUser, ...users];
+        saveStoredUsers(usersUpdated);
+        setCurrentUserSession(newUser);
+        return { success: true, user: newUser };
+      }
+    } catch (e) {
+      // Supabase Auth not available or error, fall through to localStorage
+    }
+  }
+
+  // Fallback to localStorage-based registration
   const users = getStoredUsers();
   const normalizedEmail = (params.email || '').trim().toLowerCase();
 
@@ -464,7 +568,21 @@ export function registerNewUser(params: {
   return { success: true, user: newUser };
 }
 
-export function resetUserPassword(email: string, newPassword: string): { success: boolean; error?: string } {
+export async function resetUserPassword(email: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
+  // Try Supabase Auth first if configured - send reset link
+  const supaAuth = getSupabaseAuth();
+  if (supaAuth) {
+    try {
+      await supaAuth.auth.resetPasswordForEmail(email);
+      // Supabase sends reset link to user's email
+      // For immediate password update, we fall back to localStorage
+      console.log('Supabase reset password link sent to', email);
+    } catch (e) {
+      // Supabase Auth not available or error, fall through to localStorage
+    }
+  }
+
+  // Fallback to localStorage-based password reset
   const users = getStoredUsers();
   const normalizedEmail = (email || '').trim().toLowerCase();
   const idx = users.findIndex((u) => u && u.email && u.email.toLowerCase() === normalizedEmail);

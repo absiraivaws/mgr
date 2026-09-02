@@ -70,7 +70,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setSuccessMessage(null);
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearMessages();
 
@@ -79,7 +79,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
-    const res = authenticateUser(email, password);
+    const res = await authenticateUser(email, password);
     if (res.success && res.user) {
       setSuccessMessage(`Welcome, ${res.user.name}!`);
       setTimeout(() => {
@@ -90,7 +90,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
   };
 
-  const handleForgotSubmit = (e: React.FormEvent) => {
+  const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearMessages();
 
@@ -109,7 +109,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
-    const res = resetUserPassword(forgotEmail, newPassword);
+    const res = await resetUserPassword(forgotEmail, newPassword);
     if (res.success) {
       setSuccessMessage('Password reset successfully. You can now log in.');
       setEmail(forgotEmail);

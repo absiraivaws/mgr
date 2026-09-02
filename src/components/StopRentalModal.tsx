@@ -54,6 +54,8 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
   );
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'qr_transfer'>('cash');
   const [amountReceivedInput, setAmountReceivedInput] = useState<string>('');
+  const [damageAmountInput, setDamageAmountInput] = useState<string>('');
+  const [discountInput, setDiscountInput] = useState<string>('');
 
   const t = getThemeClasses(themeMode, accent);
 
@@ -66,7 +68,9 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
 
   const totalDue = breakdown.totalAmount;
   const amountReceived = parseFloat(amountReceivedInput) || 0;
-  const changeDue = Math.max(0, amountReceived - totalDue);
+  const damageAmount = parseFloat(damageAmountInput) || 0;
+  const discountAmount = parseFloat(discountInput) || 0;
+  const changeDue = Math.max(0, amountReceived - totalDue + discountAmount - damageAmount);
 
   const handleComplete = () => {
     if (settings.soundEnabled) {
@@ -92,6 +96,8 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
       paymentMethod: paymentMethod,
       amountReceived: amountReceived,
       changeAmount: changeDue,
+      damageAmount: damageAmount,
+      discountAmount: discountAmount,
       completedAt: stopTimestamp,
     };
 
@@ -205,6 +211,51 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
               <span className={t.textHeading}>TOTAL AMOUNT DUE:</span>
               <span className="font-mono text-emerald-500 text-lg sm:text-xl">
                 {formatCurrency(totalDue, settings.currencySymbol, settings.currencyPosition)}
+              </span>
+            </div>
+          </div>
+
+          {/* Damages, Discount & Total Payment */}
+          <div className={`p-4 rounded-xl border space-y-2 text-xs ${t.cardSubtleBg}`}>
+            <div className={`font-semibold uppercase tracking-wider text-[11px] mb-2 ${t.textMuted}`}>
+              Payment Adjustments
+            </div>
+            
+            {/* Damage Amount */}
+            <div className="flex items-center justify-between">
+              <span className={t.textMuted}>Damage Amount:</span>
+              <div>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={damageAmountInput}
+                  onChange={(e) => setDamageAmountInput(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2 text-xs font-mono font-bold ${t.textInput}`}
+                />
+              </div>
+            </div>
+
+            {/* Discount Amount */}
+            <div className="flex items-center justify-between">
+              <span className={t.textMuted}>Discount:</span>
+              <div>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={discountInput}
+                  onChange={(e) => setDiscountInput(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2 text-xs font-mono font-bold ${t.textInput}`}
+                />
+              </div>
+            </div>
+
+            {/* Final Total Calculation */}
+            <div className={`border-t ${t.divider} pt-2.5 flex justify-between items-center text-sm sm:text-base font-black text-emerald-600`}>
+              <span>Final Total:</span>
+              <span>
+                {formatCurrency(totalDue - discountAmount + damageAmount, settings.currencySymbol, settings.currencyPosition)}
               </span>
             </div>
           </div>
