@@ -217,6 +217,24 @@ export async function syncRentalToSupabase(rental: RentalRecord) {
 }
 
 /**
+ * Delete a rental record from Supabase
+ */
+export async function deleteRentalFromSupabase(id: string, rentalNumber?: string) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    if (rentalNumber) {
+      await supabase.from('rentals').delete().eq('rental_number', rentalNumber);
+    } else {
+      await supabase.from('rentals').delete().eq('id', id);
+    }
+  } catch (err) {
+    console.error('Failed to delete rental from Supabase:', err);
+  }
+}
+
+/**
  * Sync customer profile to Supabase
  */
 export async function syncCustomerToSupabase(customer: Customer) {

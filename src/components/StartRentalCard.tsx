@@ -83,17 +83,24 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   const todayCompletedCount = todayCompleted.length;
   const todayCompletedAmount = todayCompleted.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
 
+  // Sorted vehicle types A-Z by Category name
+  const sortedVehicleTypes = useMemo(() => {
+    return [...vehicleTypes].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }, [vehicleTypes]);
+
+  // Available vehicles for selected type sorted A-Z by Serial Number
+  const availableVehicles = useMemo(() => {
+    return vehicles
+      .filter((v) => v.typeId === selectedTypeId && v.status === 'available')
+      .sort((a, b) => a.serialNumber.localeCompare(b.serialNumber, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [vehicles, selectedTypeId]);
+
   // Update selected type if list changes
   useEffect(() => {
-    if (!selectedTypeId && vehicleTypes.length > 0) {
-      setSelectedTypeId(vehicleTypes[0].id);
+    if (!selectedTypeId && sortedVehicleTypes.length > 0) {
+      setSelectedTypeId(sortedVehicleTypes[0].id);
     }
-  }, [vehicleTypes, selectedTypeId]);
-
-  // Available vehicles for selected type
-  const availableVehicles = vehicles.filter(
-    (v) => v.typeId === selectedTypeId && v.status === 'available'
-  );
+  }, [sortedVehicleTypes, selectedTypeId]);
 
   // Auto-select first available serial when type changes
   useEffect(() => {
@@ -295,7 +302,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
               onChange={(e) => setSelectedTypeId(e.target.value)}
               className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-semibold transition appearance-none cursor-pointer pr-10 shadow-xs ${t.dropdownInput}`}
             >
-              {vehicleTypes.map((type) => {
+              {sortedVehicleTypes.map((type) => {
                 const availCount = vehicles.filter(
                   (v) => v.typeId === type.id && v.status === 'available'
                 ).length;

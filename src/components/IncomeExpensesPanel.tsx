@@ -12,11 +12,12 @@ import {
   Sparkles,
   X,
   Filter,
+  Lock,
 } from 'lucide-react';
 import { AppSettings, IncomeEntry } from '../types';
 import { formatCurrency } from '../utils/pricing';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
-import { UserAccount } from '../utils/auth';
+import { DEFAULT_USER, UserAccount } from '../utils/auth';
 
 interface IncomeExpensesPanelProps {
   entries: IncomeEntry[];
@@ -50,6 +51,10 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
   onDeleteEntry,
 }) => {
   const t = getThemeClasses(themeMode, accent);
+
+  // Admin Authorization check - Strictly root admin or admin role
+  const isRootAdmin = currentUser?.email?.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+  const isAdmin = currentUser?.role === 'admin' || isRootAdmin;
 
   // Form state
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
@@ -427,37 +432,48 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
                       {entry.type === 'expense' ? '-' : ''}{formatCurrency(entry.amount, settings.currencySymbol, settings.currencyPosition)}
                     </td>
 
-                    {/* Delete */}
+                    {/* Delete: Admin Only */}
                     <td className="px-4 py-3 text-center">
-                      {deleteConfirmId === entry.id ? (
-                        <div className="flex items-center justify-center gap-1.5">
+                      {isAdmin ? (
+                        deleteConfirmId === entry.id ? (
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onDeleteEntry(entry.id);
+                                setDeleteConfirmId(null);
+                              }}
+                              className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition cursor-pointer"
+                            >
+                              Yes
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirmId(null)}
+                              className={`px-2 py-1 text-[10px] font-bold rounded-lg transition cursor-pointer ${t.cardSubtleBg} ${t.textMuted}`}
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
                           <button
                             type="button"
-                            onClick={() => {
-                              onDeleteEntry(entry.id);
-                              setDeleteConfirmId(null);
-                            }}
-                            className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition cursor-pointer"
+                            id={`btn-delete-entry-${entry.id}`}
+                            onClick={() => setDeleteConfirmId(entry.id)}
+                            className={`p-1.5 rounded-lg transition cursor-pointer text-rose-500 hover:bg-rose-500/10`}
+                            title="Delete entry (Admin Only)"
                           >
-                            Yes
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeleteConfirmId(null)}
-                            className={`px-2 py-1 text-[10px] font-bold rounded-lg transition cursor-pointer ${t.cardSubtleBg} ${t.textMuted}`}
-                          >
-                            No
-                          </button>
-                        </div>
+                        )
                       ) : (
                         <button
                           type="button"
-                          id={`btn-delete-entry-${entry.id}`}
-                          onClick={() => setDeleteConfirmId(entry.id)}
-                          className={`p-1.5 rounded-lg transition cursor-pointer text-rose-500 hover:bg-rose-500/10`}
-                          title="Delete entry"
+                          onClick={() => alert('Permission Denied: Only an Administrator can delete income/expense records.')}
+                          className="p-1.5 rounded-lg transition text-slate-500 opacity-40 border border-slate-500/20 cursor-not-allowed inline-flex items-center justify-center"
+                          title="Admin Only: Only administrators can delete records"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Lock className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </td>

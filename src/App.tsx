@@ -72,7 +72,8 @@ import {
   syncAllUsersToSupabase,
   syncAllRolesToSupabase,
   fetchIncomeEntries,
-  deleteIncomeEntryFromSupabase
+  deleteIncomeEntryFromSupabase,
+  deleteRentalFromSupabase
 } from './lib/supabaseSync';
 import { isSupabaseConfigured } from './lib/supabase';
 import { 
@@ -453,6 +454,25 @@ export default function App() {
     setSettlingRental(null);
   };
 
+  // Handler: Delete Completed Rental (Admin user only)
+  const handleDeleteRental = (rentalId: string) => {
+    const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+    const isAdmin = activeUser.role === 'admin' || isRootAdmin;
+    if (!isAdmin) {
+      alert('Permission Denied: Only an administrator can delete settled rental records.');
+      return;
+    }
+
+    const target = completedRentals.find((r) => r.id === rentalId);
+    if (!target) return;
+
+    setCompletedRentals((prev) => prev.filter((r) => r.id !== rentalId));
+
+    if (isSupabaseConfigured()) {
+      deleteRentalFromSupabase(target.id, target.rentalNumber);
+    }
+  };
+
   // Reset to default sample fleet
   const handleResetSampleData = () => {
     setVehicleTypes(INITIAL_VEHICLE_TYPES);
@@ -554,6 +574,8 @@ export default function App() {
             <RentalHistoryPanel
               completedRentals={completedRentals}
               settings={settings}
+              currentUser={activeUser}
+              onDeleteRental={handleDeleteRental}
               themeMode={themeMode}
               accent={accent}
             />

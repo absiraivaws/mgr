@@ -28,6 +28,10 @@ import {
   ArrowDown,
   ChevronLeft,
   ChevronRight,
+  Trash2,
+  Lock,
+  AlertTriangle,
+  ShieldCheck,
 } from 'lucide-react';
 import { AppSettings, RentalRecord } from '../types';
 import { VehicleIcon } from './VehicleIcon';
@@ -38,10 +42,13 @@ import {
   formatTime 
 } from '../utils/pricing';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
+import { DEFAULT_USER, UserAccount } from '../utils/auth';
 
 interface RentalHistoryPanelProps {
   completedRentals: RentalRecord[];
   settings: AppSettings;
+  currentUser?: UserAccount;
+  onDeleteRental?: (id: string) => void;
   themeMode?: ThemeMode;
   accent?: AccentColor;
 }
@@ -79,9 +86,15 @@ function getSortValue(rental: RentalRecord, key: SortKey): string | number {
 export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   completedRentals,
   settings,
+  currentUser,
+  onDeleteRental,
   themeMode = 'dark',
   accent = 'emerald',
 }) => {
+  // Admin Authorization check - Strictly root admin or admin role
+  const isRootAdmin = currentUser?.email?.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+  const isAdmin = currentUser?.role === 'admin' || isRootAdmin;
+
   // Get today's ISO date string (YYYY-MM-DD)
   const getTodayISO = () => {
     const d = new Date();
@@ -99,11 +112,14 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   const [filterPayment, setFilterPayment] = useState<string>('all');
   const [selectedRentalForReceipt, setSelectedRentalForReceipt] = useState<RentalRecord | null>(null);
 
-  // Sorting state — default: vehicleTypeName A→Z
+  // Delete modal confirmation state (Admin only)
+  const [rentalToDelete, setRentalToDelete] = useState<RentalRecord | null>(null);
+
+  // Sorting state — default: vehicleTypeName A→Z with vehicleSerialNumber A→Z secondary
   const [sortKey, setSortKey] = useState<SortKey>('vehicleTypeName');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
-  // Pagination state
+  // Pagination state (Max 20 rows per page)
   const [currentPage, setCurrentPage] = useState(1);
 
   const t = getThemeClasses(themeMode, accent);
@@ -122,8 +138,11 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   };
 
   // Handle column header click for sorting
-  const handleSort = (key: SortKey) => {
-    if (sortKey === key) {
+  const handleSort = (key: SortKey, explicitDir?: SortDir) => {
+    if (explicitDir) {
+      setSortKey(key);
+      setSortDir(explicitDir);
+    } else if (sortKey === key) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     } else {
       setSortKey(key);
@@ -139,12 +158,8 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
       const rentalDateISO = `${rentalDate.getFullYear()}-${String(rentalDate.getMonth() + 1).padStart(2, '0')}-${String(rentalDate.getDate()).padStart(2, '0')}`;
 
       // 1. Calendar Date Range Filter
-      if (fromDate && rentalDateISO < fromDate) {
-        return false;
-      }
-      if (toDate && rentalDateISO > toDate) {
-        return false;
-      }
+      if (fromDate && rentalDateISO < fromDate) return false;
+      if (toDate && rentalDateISO > toDate) return false;
 
       // 2. Search Term Filter
       if (searchTerm.trim()) {
@@ -157,41 +172,60 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
           (rental.customerNicPassport && rental.customerNicPassport.toLowerCase().includes(term)) ||
           (rental.customerPhone && rental.customerPhone.includes(term)) ||
           (rental.cashierName && rental.cashierName.toLowerCase().includes(term));
-
         if (!matchesTerm) return false;
       }
 
       // 3. Vehicle Type Filter
-      if (filterType !== 'all' && rental.vehicleTypeId !== filterType) {
-        return false;
-      }
+      if (filterType !== 'all' && rental.vehicleTypeId !== filterType) return false;
 
       // 4. Payment Method Filter
-      if (filterPayment !== 'all' && (rental.paymentMethod || 'cash') !== filterPayment) {
-        return false;
-      }
+      if (filterPayment !== 'all' && (rental.paymentMethod || 'cash') !== filterPayment) return false;
 
       return true;
     });
   }, [completedRentals, fromDate, toDate, searchTerm, filterType, filterPayment]);
 
-  // Sorted rentals
+  // Sorted rentals: Vehicle Category and Vehicle Serial Number ordered A-Z by default
   const sortedRentals = useMemo(() => {
     return [...filteredRentals].sort((a, b) => {
+      // 1. Sorting by Vehicle Category
+      if (sortKey === 'vehicleTypeName') {
+        const catCompare = (a.vehicleTypeName || '').localeCompare(b.vehicleTypeName || '', undefined, { sensitivity: 'base' });
+        if (catCompare !== 0) {
+          return sortDir === 'asc' ? catCompare : -catCompare;
+        }
+        // Within same Category: Vehicle Serial Number in A-Z order
+        return (a.vehicleSerialNumber || '').localeCompare(b.vehicleSerialNumber || '', undefined, { numeric: true, sensitivity: 'base' });
+      }
+
+      // 2. Sorting by Vehicle Serial Number
+      if (sortKey === 'vehicleSerialNumber') {
+        const serialCompare = (a.vehicleSerialNumber || '').localeCompare(b.vehicleSerialNumber || '', undefined, { numeric: true, sensitivity: 'base' });
+        if (serialCompare !== 0) {
+          return sortDir === 'asc' ? serialCompare : -serialCompare;
+        }
+        return (a.vehicleTypeName || '').localeCompare(b.vehicleTypeName || '', undefined, { sensitivity: 'base' });
+      }
+
+      // 3. Other fields
       const aVal = getSortValue(a, sortKey);
       const bVal = getSortValue(b, sortKey);
-      if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
-      // Secondary sort: vehicleSerialNumber A-Z
-      const aSerial = (a.vehicleSerialNumber || '').toLowerCase();
-      const bSerial = (b.vehicleSerialNumber || '').toLowerCase();
-      if (aSerial < bSerial) return -1;
-      if (aSerial > bSerial) return 1;
-      return 0;
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        const strComp = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' });
+        if (strComp !== 0) return sortDir === 'asc' ? strComp : -strComp;
+      } else {
+        if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+      }
+
+      // Tie-breaker: Vehicle Category A-Z, then Vehicle Serial Number A-Z
+      const catCompare = (a.vehicleTypeName || '').localeCompare(b.vehicleTypeName || '', undefined, { sensitivity: 'base' });
+      if (catCompare !== 0) return catCompare;
+      return (a.vehicleSerialNumber || '').localeCompare(b.vehicleSerialNumber || '', undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [filteredRentals, sortKey, sortDir]);
 
-  // Pagination
+  // Pagination (Max 20 rows per page)
   const totalPages = Math.max(1, Math.ceil(sortedRentals.length / PAGE_SIZE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const pageStart = (safeCurrentPage - 1) * PAGE_SIZE;
@@ -262,7 +296,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
     document.body.removeChild(link);
   };
 
-  // Sortable column header component
+  // Sortable column header component with literal A-Z and Z-A options
   const SortTh: React.FC<{
     label: string;
     colKey: SortKey;
@@ -271,22 +305,69 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   }> = ({ label, colKey, className = '', align = 'left' }) => {
     const isActive = sortKey === colKey;
     return (
-      <th
-        className={`px-3.5 py-3 cursor-pointer select-none group ${className}`}
-        onClick={() => handleSort(colKey)}
-      >
-        <span className={`inline-flex items-center gap-1 ${align === 'right' ? 'justify-end w-full' : ''}`}>
-          <span className={isActive ? t.textHeading : ''}>{label}</span>
-          {isActive ? (
-            sortDir === 'asc'
-              ? <ArrowUp className="w-3 h-3 text-emerald-400 shrink-0" />
-              : <ArrowDown className="w-3 h-3 text-emerald-400 shrink-0" />
-          ) : (
-            <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-60 shrink-0 transition" />
-          )}
-        </span>
+      <th className={`px-3 py-2.5 select-none ${className}`}>
+        <div className={`flex items-center justify-between gap-1.5 ${align === 'right' ? 'flex-row-reverse' : ''}`}>
+          <button
+            type="button"
+            onClick={() => handleSort(colKey)}
+            className={`font-semibold text-xs tracking-wider cursor-pointer hover:underline flex items-center gap-1 ${
+              isActive ? `${t.textHeading} font-bold` : t.textMuted
+            }`}
+            title={`Click to sort by ${label}`}
+          >
+            <span>{label}</span>
+          </button>
+          {/* Explicit A-Z and Z-A options on the heading */}
+          <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSort(colKey, 'asc');
+              }}
+              title={`Sort ${label} A-Z (Ascending)`}
+              className={`px-1.5 py-0.5 transition cursor-pointer flex items-center gap-0.5 ${
+                isActive && sortDir === 'asc'
+                  ? 'bg-emerald-500 text-white font-black shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-500/20'
+              }`}
+            >
+              <span>A-Z</span>
+              {isActive && sortDir === 'asc' && <ArrowUp className="w-2.5 h-2.5" />}
+            </button>
+            <div className="w-[1px] h-3 bg-slate-500/30" />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSort(colKey, 'desc');
+              }}
+              title={`Sort ${label} Z-A (Descending)`}
+              className={`px-1.5 py-0.5 transition cursor-pointer flex items-center gap-0.5 ${
+                isActive && sortDir === 'desc'
+                  ? 'bg-emerald-500 text-white font-black shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-500/20'
+              }`}
+            >
+              <span>Z-A</span>
+              {isActive && sortDir === 'desc' && <ArrowDown className="w-2.5 h-2.5" />}
+            </button>
+          </div>
+        </div>
       </th>
     );
+  };
+
+  // Handler for confirmed delete
+  const handleConfirmDelete = () => {
+    if (!isAdmin) {
+      alert('Permission Denied: Only an Administrator can delete settled rental records.');
+      return;
+    }
+    if (rentalToDelete && onDeleteRental) {
+      onDeleteRental(rentalToDelete.id);
+      setRentalToDelete(null);
+    }
   };
 
   return (
@@ -519,14 +600,110 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               {filteredRentals.length} {filteredRentals.length === 1 ? 'Record' : 'Records'}
             </span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <span className={`text-xs font-mono font-bold text-emerald-500`}>
               Total: {formatCurrency(filteredTotalValue, settings.currencySymbol, settings.currencyPosition)}
             </span>
-            <span className={`text-[10px] ${t.textMuted} hidden sm:inline`}>
-              ↑↓ Click column headers to sort A→Z / Z→A
+            <span className={`text-[10px] ${t.textMuted}`}>
+              Default: Vehicle Category (A-Z) → Serial No. (A-Z)
             </span>
           </div>
+        </div>
+
+        {/* Quick Sorting Pills Bar */}
+        <div className={`flex items-center gap-1.5 flex-wrap p-2 rounded-xl border ${t.cardSubtleBg} ${t.divider} text-xs`}>
+          <span className={`text-[10px] font-bold uppercase tracking-wider ${t.textMuted} mr-1`}>
+            Quick Order:
+          </span>
+          <button
+            type="button"
+            onClick={() => handleSort('vehicleTypeName', 'asc')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+              sortKey === 'vehicleTypeName' && sortDir === 'asc'
+                ? 'bg-emerald-500 text-white shadow-sm font-bold'
+                : `${t.inactiveTab}`
+            }`}
+          >
+            <span>Category & Serial (A-Z)</span>
+            {sortKey === 'vehicleTypeName' && sortDir === 'asc' && <span className="text-[10px]">✓</span>}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSort('vehicleTypeName', 'desc')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+              sortKey === 'vehicleTypeName' && sortDir === 'desc'
+                ? 'bg-emerald-500 text-white shadow-sm font-bold'
+                : `${t.inactiveTab}`
+            }`}
+          >
+            <span>Category (Z-A)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSort('vehicleSerialNumber', 'asc')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+              sortKey === 'vehicleSerialNumber' && sortDir === 'asc'
+                ? 'bg-emerald-500 text-white shadow-sm font-bold'
+                : `${t.inactiveTab}`
+            }`}
+          >
+            <span>Serial No. (A-Z)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSort('vehicleSerialNumber', 'desc')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+              sortKey === 'vehicleSerialNumber' && sortDir === 'desc'
+                ? 'bg-emerald-500 text-white shadow-sm font-bold'
+                : `${t.inactiveTab}`
+            }`}
+          >
+            <span>Serial No. (Z-A)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSort('rentalNumber', 'asc')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+              sortKey === 'rentalNumber' && sortDir === 'asc'
+                ? 'bg-emerald-500 text-white shadow-sm font-bold'
+                : `${t.inactiveTab}`
+            }`}
+          >
+            <span>Receipt # (A-Z)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSort('customerName', 'asc')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+              sortKey === 'customerName' && sortDir === 'asc'
+                ? 'bg-emerald-500 text-white shadow-sm font-bold'
+                : `${t.inactiveTab}`
+            }`}
+          >
+            <span>Customer (A-Z)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSort('startTime', 'desc')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+              sortKey === 'startTime' && sortDir === 'desc'
+                ? 'bg-emerald-500 text-white shadow-sm font-bold'
+                : `${t.inactiveTab}`
+            }`}
+          >
+            <span>Newest First</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSort('totalAmount', 'desc')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+              sortKey === 'totalAmount' && sortDir === 'desc'
+                ? 'bg-emerald-500 text-white shadow-sm font-bold'
+                : `${t.inactiveTab}`
+            }`}
+          >
+            <span>Highest Amount</span>
+          </button>
         </div>
 
         {filteredRentals.length === 0 ? (
@@ -550,7 +727,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                     <SortTh label="Duration"     colKey="breakdown.totalMinutes" />
                     <SortTh label="Paid Amount"  colKey="totalAmount" />
                     <SortTh label="Payment"      colKey="paymentMethod" />
-                    <th className="px-3.5 py-3 text-right">Receipt</th>
+                    <th className="px-3.5 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${t.divider}`}>
@@ -631,16 +808,44 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                           {rental.paymentMethod || 'cash'}
                         </span>
                       </td>
-                      {/* View receipt button */}
+                      {/* Actions Column: View Receipt + Admin-Only Delete */}
                       <td className="px-3.5 py-3 text-right">
-                        <button
-                          id={`btn-view-receipt-${rental.rentalNumber}`}
-                          onClick={() => setSelectedRentalForReceipt(rental)}
-                          className={`px-2.5 py-1.5 rounded-lg transition inline-flex items-center gap-1 text-[11px] font-semibold cursor-pointer ${t.inactiveTab}`}
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>View</span>
-                        </button>
+                        <div className="inline-flex items-center justify-end gap-1.5">
+                          {/* View receipt button */}
+                          <button
+                            id={`btn-view-receipt-${rental.rentalNumber}`}
+                            onClick={() => setSelectedRentalForReceipt(rental)}
+                            className={`px-2.5 py-1.5 rounded-lg transition inline-flex items-center gap-1 text-[11px] font-semibold cursor-pointer ${t.inactiveTab}`}
+                            title="View / Print Receipt"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>View</span>
+                          </button>
+
+                          {/* Delete Action: Admin user ONLY */}
+                          {isAdmin ? (
+                            <button
+                              id={`btn-delete-receipt-${rental.rentalNumber}`}
+                              type="button"
+                              onClick={() => setRentalToDelete(rental)}
+                              className="px-2.5 py-1.5 rounded-lg transition inline-flex items-center gap-1 text-[11px] font-semibold text-rose-500 hover:bg-rose-500/10 border border-rose-500/30 hover:border-rose-500/60 cursor-pointer shadow-sm"
+                              title="Delete Settled Rental Record (Admin Only)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Delete</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => alert('Permission Denied: Only an Administrator can delete settled rental records.')}
+                              className="px-2 py-1.5 rounded-lg transition inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 opacity-40 border border-slate-500/20 cursor-not-allowed"
+                              title="Admin Only: Only administrators can delete records"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                              <span className="text-[10px]">Delete</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -871,6 +1076,78 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print Receipt</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Record Confirmation Modal (Admin Only) */}
+      {rentalToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
+          <div className={`${t.modalBg} rounded-2xl w-full max-w-md p-5 sm:p-6 space-y-4 shadow-2xl my-auto border border-rose-500/30`}>
+            <div className={`flex items-center justify-between pb-3 border-b ${t.divider}`}>
+              <div className="flex items-center gap-2 text-rose-500">
+                <AlertTriangle className="w-5 h-5 shrink-0" />
+                <h3 className={`font-bold text-base ${t.textHeading}`}>
+                  Delete Settled Rental Record
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRentalToDelete(null)}
+                className={`${t.textMuted} hover:${t.textMain} cursor-pointer`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              <span><strong>Administrator Action:</strong> This will permanently delete this record from history and Supabase. This cannot be undone.</span>
+            </div>
+
+            <div className={`p-3 rounded-xl border ${t.divider} ${t.cardSubtleBg} space-y-2 text-xs font-mono`}>
+              <div className="flex justify-between">
+                <span className={t.textMuted}>Receipt #:</span>
+                <span className={`font-bold ${t.textHeading}`}>#{rentalToDelete.rentalNumber}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className={t.textMuted}>Vehicle:</span>
+                <span className={`font-bold ${t.textHeading}`}>{rentalToDelete.vehicleSerialNumber} ({rentalToDelete.vehicleTypeName})</span>
+              </div>
+              <div className="flex justify-between">
+                <span className={t.textMuted}>Customer:</span>
+                <span className={t.textMain}>{rentalToDelete.customerName || 'Walk-in'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className={t.textMuted}>Date & Time:</span>
+                <span className={t.textMain}>{formatDateTime(rentalToDelete.startTime)}</span>
+              </div>
+              <div className="flex justify-between pt-1 border-t border-slate-500/20">
+                <span className="font-bold text-emerald-500">Paid Amount:</span>
+                <span className="font-bold text-emerald-500">
+                  {formatCurrency(rentalToDelete.totalAmount, settings.currencySymbol, settings.currencyPosition)}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setRentalToDelete(null)}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer ${t.inactiveTab}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id="btn-confirm-delete-receipt"
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer bg-rose-600 hover:bg-rose-500 text-white shadow-lg transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Yes, Delete Record</span>
               </button>
             </div>
           </div>

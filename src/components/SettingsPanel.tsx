@@ -29,7 +29,8 @@ import {
   Sun,
   Moon,
   Users,
-  ShieldCheck
+  ShieldCheck,
+  Lock
 } from 'lucide-react';
 import { AppSettings, Customer, PricingRates, RentalRecord, Vehicle, VehicleIconType, VehicleType } from '../types';
 import { VehicleIcon } from './VehicleIcon';
@@ -78,6 +79,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'types' | 'inventory' | 'store' | 'supabase'>('types');
   const t = getThemeClasses(themeMode, accent);
+
+  // Admin Authorization check - Strictly root admin or admin role
+  const isRootAdmin = currentUser?.email?.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+  const isAdmin = currentUser?.role === 'admin' || isRootAdmin;
 
   // Form State for Adding / Editing Vehicle Type
   const [isAddingType, setIsAddingType] = useState(false);
@@ -176,6 +181,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   };
 
   const handleDeleteType = (id: string) => {
+    if (!isAdmin) {
+      alert('Permission Denied: Only an administrator can delete vehicle categories.');
+      return;
+    }
     if (vehicleTypes.length <= 1) {
       alert('You must have at least one vehicle type.');
       return;
@@ -212,45 +221,66 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       modelName: vehModel.trim() || undefined,
       status: 'available',
       notes: vehNotes.trim() || undefined,
+      totalRentalsCount: 0,
     };
 
-    onUpdateVehicles([...vehicles, newVehicle]);
+    onUpdateVehicles([newVehicle, ...vehicles]);
     setVehSerial('');
     setVehModel('');
     setVehNotes('');
     setIsAddingVehicle(false);
   };
 
+  // Bulk Generator Handler
   const handleBulkGenerate = (e: React.FormEvent) => {
     e.preventDefault();
-    const count = Math.min(50, Math.max(1, bulkCount));
-    const newVehiclesList: Vehicle[] = [];
-    const existingSerials = new Set(vehicles.map((v) => v.serialNumber.toUpperCase()));
+    const start = parseInt(bulkStartNum as any, 10);
+    const count = parseInt(bulkCount as any, 10);
 
-    for (let i = 0; i < count; i++) {
-      const num = bulkStartNum + i;
-      const serial = `${bulkPrefix}${num.toString().padStart(3, '0')}`.toUpperCase();
-      if (!existingSerials.has(serial)) {
-        newVehiclesList.push({
-          id: `veh-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
-          serialNumber: serial,
-          typeId: bulkTypeId,
-          status: 'available',
-        });
-      }
-    }
-
-    if (newVehiclesList.length === 0) {
-      alert('All generated serial numbers already exist in the inventory.');
+    if (isNaN(start) || isNaN(count) || count < 1 || count > 100) {
+      alert('Please enter a valid start number and a count between 1 and 100.');
       return;
     }
 
-    onUpdateVehicles([...vehicles, ...newVehiclesList]);
+    const existingSerials = new Set(vehicles.map((v) => v.serialNumber.toUpperCase()));
+    const newVehiclesList: Vehicle[] = [];
+    let duplicatesSkipped = 0;
+
+    for (let i = 0; i < count; i++) {
+      const numStr = (start + i).toString().padStart(3, '0');
+      const genSerial = `${bulkPrefix.trim().toUpperCase()}${numStr}`;
+
+      if (existingSerials.has(genSerial)) {
+        duplicatesSkipped++;
+        continue;
+      }
+
+      newVehiclesList.push({
+        id: `veh-bulk-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 5)}`,
+        serialNumber: genSerial,
+        typeId: bulkTypeId,
+        status: 'available',
+        notes: `Bulk generated batch on ${new Date().toLocaleDateString()}`,
+        totalRentalsCount: 0,
+      });
+      existingSerials.add(genSerial);
+    }
+
+    if (newVehiclesList.length === 0) {
+      alert('All generated serial numbers already exist in your fleet!');
+      return;
+    }
+
+    onUpdateVehicles([...newVehiclesList, ...vehicles]);
     setIsBulkMode(false);
     alert(`Successfully generated ${newVehiclesList.length} serial numbers!`);
   };
 
   const handleDeleteVehicle = (id: string) => {
+    if (!isAdmin) {
+      alert('Permission Denied: Only an administrator can delete vehicles from inventory.');
+      return;
+    }
     const veh = vehicles.find((v) => v.id === id);
     if (veh?.status === 'rented') {
       alert('Cannot delete an actively rented vehicle. Please stop the rental timer first.');
@@ -283,15 +313,29 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setTimeout(() => setSaveSuccessMsg(null), 3000);
   };
 
-  const filteredVehicles = vehicles.filter((v) => {
-    const q = inventorySearch.toLowerCase();
-    const typeObj = vehicleTypes.find((t) => t.id === v.typeId);
-    return (
-      v.serialNumber.toLowerCase().includes(q) ||
-      (v.modelName && v.modelName.toLowerCase().includes(q)) ||
-      (typeObj && typeObj.name.toLowerCase().includes(q))
-    );
-  });
+  // Vehicle inventory filtered and sorted A-Z by Category then Serial Number
+  const filteredVehicles = vehicles
+    .filter((v) => {
+      const q = inventorySearch.toLowerCase();
+      const typeObj = vehicleTypes.find((t) => t.id === v.typeId);
+      return (
+        v.serialNumber.toLowerCase().includes(q) ||
+        (v.modelName && v.modelName.toLowerCase().includes(q)) ||
+        (typeObj && typeObj.name.toLowerCase().includes(q))
+      );
+    })
+    .sort((a, b) => {
+      const aType = vehicleTypes.find((t) => t.id === a.typeId)?.name || '';
+      const bType = vehicleTypes.find((t) => t.id === b.typeId)?.name || '';
+      const typeComp = aType.localeCompare(bType, undefined, { sensitivity: 'base' });
+      if (typeComp !== 0) return typeComp;
+      return a.serialNumber.localeCompare(b.serialNumber, undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+  // Vehicle types sorted A-Z by name
+  const sortedVehicleTypes = [...vehicleTypes].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  );
 
   return (
     <div className="space-y-6">
@@ -512,17 +556,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
           {/* Types List Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {vehicleTypes.map((typeObj) => {
+            {sortedVehicleTypes.map((typeObj) => {
               const countOfVehicles = vehicles.filter((v) => v.typeId === typeObj.id).length;
               return (
                 <div
                   key={typeObj.id}
                   className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${t.cardSubtleBg}`}
                 >
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center shrink-0 shadow-sm">
-                        <VehicleIcon type={typeObj.icon} className="w-6 h-6" />
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-md shrink-0"
+                        style={{ background: 'linear-gradient(135deg,#10b981,#059669)' }}
+                      >
+                        <VehicleIcon type={typeObj.icon} className="w-5 h-5" />
                       </div>
                       <div>
                         <h3 className={`font-bold text-sm sm:text-base ${t.textHeading}`}>{typeObj.name}</h3>
@@ -539,14 +586,25 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteType(typeObj.id)}
-                        className="p-2 rounded-lg text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition cursor-pointer"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {isAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteType(typeObj.id)}
+                          className="p-2 rounded-lg text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition cursor-pointer"
+                          title="Delete Category (Admin Only)"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => alert('Permission Denied: Only an administrator can delete vehicle categories.')}
+                          className="p-2 rounded-lg text-slate-500 opacity-40 border border-slate-500/20 cursor-not-allowed"
+                          title="Admin Only: Only administrators can delete categories"
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -830,14 +888,25 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                           >
                             <Wrench className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteVehicle(v.id)}
-                            className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition cursor-pointer"
-                            title="Delete Vehicle"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {isAdmin ? (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteVehicle(v.id)}
+                              className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition cursor-pointer"
+                              title="Delete Vehicle (Admin Only)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => alert('Permission Denied: Only an administrator can delete vehicles from inventory.')}
+                              className="p-1.5 rounded-lg text-slate-500 opacity-40 border border-slate-500/20 cursor-not-allowed"
+                              title="Admin Only: Only administrators can delete vehicles"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
