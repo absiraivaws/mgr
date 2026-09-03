@@ -35,13 +35,23 @@ CREATE TABLE IF NOT EXISTS customers (
   id TEXT PRIMARY KEY,
   nic_passport TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
+  full_name TEXT,
   phone TEXT,
+  whatsapp_number TEXT,
+  address TEXT,
+  dob TEXT,
   notes TEXT,
   total_rentals_count INT DEFAULT 1,
   last_rental_date BIGINT,
   created_at BIGINT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure newly added columns exist if table was already created earlier
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS whatsapp_number TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS dob TEXT;
 
 -- 4. RENTALS (ACTIVE & COMPLETED) TABLE
 CREATE TABLE IF NOT EXISTS rentals (
@@ -102,11 +112,13 @@ CREATE TABLE IF NOT EXISTS income_expenses (
   type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
   amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
   category TEXT DEFAULT 'Other',
+  who TEXT DEFAULT 'Mark',                  -- Person responsible: Mark, Jenis, Beni
   cashier_name TEXT DEFAULT '',
   created_at BIGINT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE income_expenses ADD COLUMN IF NOT EXISTS who TEXT DEFAULT 'Mark';
 ALTER TABLE income_expenses ENABLE ROW LEVEL SECURITY;
 
 -- 7. USER ACCOUNTS TABLE

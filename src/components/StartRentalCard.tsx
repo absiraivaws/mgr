@@ -25,6 +25,7 @@ interface StartRentalCardProps {
   vehicleTypes: VehicleType[];
   vehicles: Vehicle[];
   customers?: Customer[];
+  activeRentals?: RentalRecord[];
   completedRentals?: RentalRecord[];
   settings: AppSettings;
   themeMode?: ThemeMode;
@@ -45,13 +46,15 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   vehicleTypes,
   vehicles,
   customers = [],
+  activeRentals = [],
   completedRentals = [],
   settings,
   themeMode = 'dark',
   accent = 'emerald',
   onStartRental,
 }) => {
-  const [selectedTypeId, setSelectedTypeId] = useState<string>(vehicleTypes[0]?.id || '');
+  // Always start with Category and Serial Number blank
+  const [selectedTypeId, setSelectedTypeId] = useState<string>('');
   const [selectedSerial, setSelectedSerial] = useState<string>('');
   const [customerName, setCustomerName] = useState<string>('');
   const [customerPhone, setCustomerPhone] = useState<string>('');
@@ -88,30 +91,24 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     return [...vehicleTypes].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   }, [vehicleTypes]);
 
-  // Available vehicles for selected type sorted A-Z by Serial Number
+  // Set of actively rented vehicle serial numbers
+  const activeRentedSerials = useMemo(() => {
+    return new Set((activeRentals || []).map((r) => r.vehicleSerialNumber.toUpperCase()));
+  }, [activeRentals]);
+
+  // Available vehicles for selected type:
+  // Strictly filter status === 'available' AND strictly exclude any vehicle currently in active rentals fleet and maintenance
   const availableVehicles = useMemo(() => {
+    if (!selectedTypeId) return [];
     return vehicles
-      .filter((v) => v.typeId === selectedTypeId && v.status === 'available')
+      .filter(
+        (v) =>
+          v.typeId === selectedTypeId &&
+          v.status === 'available' &&
+          !activeRentedSerials.has(v.serialNumber.toUpperCase())
+      )
       .sort((a, b) => a.serialNumber.localeCompare(b.serialNumber, undefined, { numeric: true, sensitivity: 'base' }));
-  }, [vehicles, selectedTypeId]);
-
-  // Update selected type if list changes
-  useEffect(() => {
-    if (!selectedTypeId && sortedVehicleTypes.length > 0) {
-      setSelectedTypeId(sortedVehicleTypes[0].id);
-    }
-  }, [sortedVehicleTypes, selectedTypeId]);
-
-  // Auto-select first available serial when type changes
-  useEffect(() => {
-    if (!customSerialMode) {
-      if (availableVehicles.length > 0) {
-        setSelectedSerial(availableVehicles[0].serialNumber);
-      } else {
-        setSelectedSerial('');
-      }
-    }
-  }, [selectedTypeId, vehicles, customSerialMode]);
+  }, [vehicles, selectedTypeId, activeRentedSerials]);
 
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -140,8 +137,8 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     const foundExact = findCustomerByNic(uppercaseVal, customers);
     if (foundExact) {
       setMatchedCustomer(foundExact);
-      setCustomerName(foundExact.name || '');
-      setCustomerPhone(foundExact.phone || '');
+      setCustomerName(foundExact.fullName || foundExact.name || '');
+      setCustomerPhone(foundExact.phone || foundExact.whatsappNumber || '');
       if (foundExact.notes) setCustomerNotes(foundExact.notes);
       setShowSuggestions(false);
       return;
@@ -157,8 +154,8 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   // Select a customer from suggestions or quick lookup
   const handleSelectCustomer = (customer: Customer) => {
     setCustomerNicPassport(customer.nicPassport);
-    setCustomerName(customer.name);
-    setCustomerPhone(customer.phone || '');
+    setCustomerName(customer.fullName || customer.name || '');
+    setCustomerPhone(customer.phone || customer.whatsappNumber || '');
     if (customer.notes) setCustomerNotes(customer.notes);
     setMatchedCustomer(customer);
     setShowSuggestions(false);
@@ -174,7 +171,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     setShowSuggestions(false);
   };
 
-  const selectedType = vehicleTypes.find((t) => t.id === selectedTypeId) || vehicleTypes[0];
+  const selectedType = vehicleTypes.find((t) => t.id === selectedTypeId);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -183,7 +180,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     const cleanSerial = selectedSerial.trim().toUpperCase();
 
     if (!selectedTypeId) {
-      setErrorMsg('Please select a vehicle type.');
+      setErrorMsg('Please select a vehicle category from the dropdown.');
       return;
     }
 
@@ -193,6 +190,12 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     }
 
     // Check if vehicle is already rented
+    const isCurrentlyRented = activeRentedSerials.has(cleanSerial);
+    if (isCurrentlyRented) {
+      setErrorMsg(`Vehicle serial "${cleanSerial}" is currently active in rental fleet!`);
+      return;
+    }
+
     const existingVehicle = vehicles.find(
       (v) => v.serialNumber.toUpperCase() === cleanSerial
     );
@@ -221,7 +224,10 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
       depositAmount: depositAmount ? parseFloat(depositAmount) : undefined,
     });
 
-    // Reset customer fields
+    // Reset vehicle selection and customer fields back to blank
+    setSelectedTypeId('');
+    setSelectedSerial('');
+    setCustomSerialMode(false);
     setCustomerName('');
     setCustomerPhone('');
     setCustomerNicPassport('');
@@ -299,12 +305,21 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
             <select
               id="select-vehicle-type"
               value={selectedTypeId}
-              onChange={(e) => setSelectedTypeId(e.target.value)}
+              onChange={(e) => {
+                setSelectedTypeId(e.target.value);
+                setSelectedSerial('');
+              }}
               className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-semibold transition appearance-none cursor-pointer pr-10 shadow-xs ${t.dropdownInput}`}
             >
+              <option value="" className="bg-slate-900 text-slate-400">
+                -- Select Vehicle Category --
+              </option>
               {sortedVehicleTypes.map((type) => {
                 const availCount = vehicles.filter(
-                  (v) => v.typeId === type.id && v.status === 'available'
+                  (v) =>
+                    v.typeId === type.id &&
+                    v.status === 'available' &&
+                    !activeRentedSerials.has(v.serialNumber.toUpperCase())
                 ).length;
                 return (
                   <option key={type.id} value={type.id} className="bg-slate-900 text-white">
@@ -375,6 +390,9 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
                     onChange={(e) => setSelectedSerial(e.target.value)}
                     className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-mono font-bold transition appearance-none cursor-pointer pr-10 shadow-xs ${t.dropdownInput}`}
                   >
+                    <option value="" className="bg-slate-900 text-slate-400">
+                      -- Select Vehicle Serial Number --
+                    </option>
                     {availableVehicles.map((v) => (
                       <option key={v.id} value={v.serialNumber} className="bg-slate-900 text-white">
                         {v.serialNumber} {v.modelName ? `— ${v.modelName}` : ''}
@@ -389,15 +407,21 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
                 <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Info className="w-4 h-4 shrink-0" />
-                    <span>No {selectedType?.name} is currently available in inventory.</span>
+                    <span>
+                      {selectedTypeId
+                        ? `No ${selectedType?.name || 'vehicle'} is currently available (checked against active fleet).`
+                        : 'Please select a Vehicle Category first.'}
+                    </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setCustomSerialMode(true)}
-                    className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 rounded-lg text-[11px] font-bold transition self-start sm:self-auto cursor-pointer"
-                  >
-                    Enter Custom Serial
-                  </button>
+                  {selectedTypeId && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomSerialMode(true)}
+                      className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 rounded-lg text-[11px] font-bold transition self-start sm:self-auto cursor-pointer"
+                    >
+                      Enter Custom Serial
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -500,30 +524,60 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
 
             {/* Matched Customer Notification Banner */}
             {matchedCustomer && (
-              <div className={`mt-2 p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs bg-emerald-500/10 border-emerald-500/30 text-emerald-500`}>
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 shrink-0" />
-                  <div>
-                    <div className="font-bold flex items-center gap-1.5">
-                      <span>{matchedCustomer.name}</span>
-                      {matchedCustomer.totalRentalsCount && (
-                        <span className="text-[10px] font-normal bg-emerald-500/20 px-1.5 py-0.2 rounded">
-                          {matchedCustomer.totalRentalsCount} past rentals
-                        </span>
-                      )}
+              <div className={`mt-2 p-3 rounded-xl border space-y-2 text-xs bg-emerald-500/10 border-emerald-500/30 text-emerald-400`}>
+                <div className="flex items-center justify-between gap-2 border-b border-emerald-500/20 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 shrink-0 text-emerald-400" />
+                    <div>
+                      <div className="font-bold flex items-center gap-1.5 text-sm text-white">
+                        <span>{matchedCustomer.fullName || matchedCustomer.name}</span>
+                        {matchedCustomer.totalRentalsCount !== undefined && (
+                          <span className="text-[10px] font-normal bg-emerald-500/20 px-2 py-0.5 rounded text-emerald-300">
+                            {matchedCustomer.totalRentalsCount} past rentals
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-emerald-300/80 font-mono">
+                        NIC: {matchedCustomer.nicPassport}
+                      </span>
                     </div>
-                    <span className="text-[11px]">
-                      Customer data auto-filled from database.
-                    </span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={handleClearCustomer}
+                    className="px-2.5 py-1 bg-slate-800 text-slate-200 hover:bg-slate-700 rounded-lg text-[10px] font-bold shrink-0 cursor-pointer transition border border-slate-700"
+                  >
+                    Clear
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleClearCustomer}
-                  className="px-2 py-1 bg-slate-800 text-slate-200 hover:bg-slate-700 rounded text-[10px] font-medium shrink-0 cursor-pointer"
-                >
-                  Clear
-                </button>
+
+                {/* Additional Customer Attributes */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-slate-300 pt-1">
+                  {matchedCustomer.phone && (
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Mobile:</span>
+                      <span className="font-mono font-medium">{matchedCustomer.phone}</span>
+                    </div>
+                  )}
+                  {matchedCustomer.whatsappNumber && (
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">WhatsApp:</span>
+                      <span className="font-mono font-medium">{matchedCustomer.whatsappNumber}</span>
+                    </div>
+                  )}
+                  {matchedCustomer.dob && (
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">DOB:</span>
+                      <span className="font-mono font-medium">{matchedCustomer.dob}</span>
+                    </div>
+                  )}
+                  {matchedCustomer.address && (
+                    <div className="sm:col-span-3">
+                      <span className="text-slate-400 block text-[10px]">Address:</span>
+                      <span className="font-medium">{matchedCustomer.address}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

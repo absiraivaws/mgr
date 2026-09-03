@@ -73,8 +73,12 @@ export async function fetchSupabaseData(): Promise<{
         id: row.id,
         nicPassport: row.nic_passport,
         name: row.name,
-        phone: row.phone,
-        notes: row.notes,
+        fullName: row.full_name || row.name,
+        phone: row.phone || '',
+        whatsappNumber: row.whatsapp_number || row.phone || '',
+        address: row.address || '',
+        dob: row.dob || '',
+        notes: row.notes || '',
         totalRentalsCount: row.total_rentals_count || 1,
         lastRentalDate: row.last_rental_date ? Number(row.last_rental_date) : undefined,
         createdAt: row.created_at ? Number(row.created_at) : undefined,
@@ -244,8 +248,12 @@ export async function syncCustomerToSupabase(customer: Customer) {
   try {
     const payload = {
       nic_passport: customer.nicPassport,
-      name: customer.name,
+      name: customer.name || customer.fullName || 'Customer',
+      full_name: customer.fullName || customer.name || 'Customer',
       phone: customer.phone || '',
+      whatsapp_number: customer.whatsappNumber || customer.phone || '',
+      address: customer.address || '',
+      dob: customer.dob || '',
       notes: customer.notes || null,
       total_rentals_count: customer.totalRentalsCount || 1,
       last_rental_date: customer.lastRentalDate || null,
@@ -260,6 +268,24 @@ export async function syncCustomerToSupabase(customer: Customer) {
     }
   } catch (err) {
     console.error('Failed to sync customer to Supabase:', err);
+  }
+}
+
+/**
+ * Delete a customer from Supabase
+ */
+export async function deleteCustomerFromSupabase(customerId: string, nicPassport?: string) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    if (nicPassport) {
+      await supabase.from('customers').delete().eq('nic_passport', nicPassport);
+    } else {
+      await supabase.from('customers').delete().eq('id', customerId);
+    }
+  } catch (err) {
+    console.error('Failed to delete customer from Supabase:', err);
   }
 }
 
@@ -568,8 +594,12 @@ export async function pushAllLocalDataToSupabase(params: {
         const payload = {
           id: existingId || c.id,
           nic_passport: c.nicPassport,
-          name: c.name,
+          name: c.name || c.fullName || 'Customer',
+          full_name: c.fullName || c.name || 'Customer',
           phone: c.phone || '',
+          whatsapp_number: c.whatsappNumber || c.phone || '',
+          address: c.address || '',
+          dob: c.dob || '',
           notes: c.notes || null,
           total_rentals_count: c.totalRentalsCount || 1,
           last_rental_date: c.lastRentalDate || null,
@@ -702,6 +732,7 @@ export async function fetchIncomeEntries(): Promise<import('../types').IncomeEnt
       type: row.type as 'income' | 'expense',
       amount: Number(row.amount),
       category: row.category || 'Other',
+      who: row.who || 'Mark',
       createdAt: row.created_at ? Number(row.created_at) : Date.now(),
       cashierName: row.cashier_name || '',
     }));
@@ -726,6 +757,7 @@ export async function syncIncomeEntryToSupabase(entry: import('../types').Income
       type: entry.type,
       amount: entry.amount,
       category: entry.category || 'Other',
+      who: entry.who || 'Mark',
       created_at: entry.createdAt,
       cashier_name: entry.cashierName || '',
     };

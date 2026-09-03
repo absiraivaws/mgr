@@ -22,14 +22,17 @@ import {
   Menu,
   Sparkles,
   ChevronUp,
+  Users,
 } from 'lucide-react';
 import { AppSettings, RentalRecord, Vehicle } from '../types';
 import { DEFAULT_USER, UserAccount, getUserPermissions } from '../utils/auth';
 import { ACCENT_COLORS, AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 
+export type NavTabType = 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers';
+
 interface NavbarProps {
-  activeTab: 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard';
-  setActiveTab: (tab: 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard') => void;
+  activeTab: NavTabType;
+  setActiveTab: (tab: NavTabType) => void;
   activeRentals: RentalRecord[];
   allVehicles: Vehicle[];
   todayCompletedRentals: RentalRecord[];
@@ -139,6 +142,14 @@ export const Navbar: React.FC<NavbarProps> = ({
       show: userPerms.accessRentals || isAdmin,
       badge: activeRentals.length > 0 ? activeRentals.length : null,
       activeClass: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
+    },
+    {
+      id: 'customers' as const,
+      label: 'Customers',
+      icon: <Users className="w-4 h-4 shrink-0" />,
+      show: userPerms.accessCustomers ?? (userPerms.accessRentals || isAdmin),
+      badge: null as number | null,
+      activeClass: 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40',
     },
     {
       id: 'history' as const,

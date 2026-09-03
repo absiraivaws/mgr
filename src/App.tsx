@@ -47,7 +47,7 @@ import {
   INITIAL_VEHICLE_TYPES 
 } from './data/initialData';
 import { AppSettings, Customer, IncomeEntry, RentalRecord, Vehicle, VehicleType } from './types';
-import { Navbar } from './components/Navbar';
+import { Navbar, NavTabType } from './components/Navbar';
 import { StartRentalCard } from './components/StartRentalCard';
 import { ActiveRentalsList } from './components/ActiveRentalsList';
 import { StopRentalModal } from './components/StopRentalModal';
@@ -56,12 +56,14 @@ import { RentalHistoryPanel } from './components/RentalHistoryPanel';
 import { UserRolesManager } from './components/UserRolesManager';
 import { DashboardStats } from './components/DashboardStats';
 import { IncomeExpensesPanel } from './components/IncomeExpensesPanel';
+import { CustomerManagementPanel } from './components/CustomerManagementPanel';
 import { AuthModal } from './components/AuthModal';
 import { LoginPage } from './components/LoginPage';
 import { 
   fetchSupabaseData, 
   subscribeToSupabaseRealtime,
   syncCustomerToSupabase, 
+  deleteCustomerFromSupabase,
   syncRentalToSupabase, 
   syncVehicleToSupabase,
   syncVehicleTypeToSupabase,
@@ -97,8 +99,8 @@ import {
 } from './utils/auth';
 
 export default function App() {
-  // Navigation tabs: 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard'
-  const [activeTab, setActiveTab] = useState<'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard'>('rentals');
+  // Navigation tabs: 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers'
+  const [activeTab, setActiveTab] = useState<NavTabType>('rentals');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Income & Expenses entries
@@ -242,6 +244,7 @@ export default function App() {
         fetchIncomeEntries(),
       ]);
       if (cloudData) {
+        // Only overwrite local data if cloud data exists AND has content
         if (cloudData.vehicleTypes && cloudData.vehicleTypes.length > 0) setVehicleTypes(cloudData.vehicleTypes);
         if (cloudData.vehicles && cloudData.vehicles.length > 0) setVehicles(cloudData.vehicles);
         if (cloudData.customers && cloudData.customers.length > 0) setCustomers(cloudData.customers);
@@ -261,6 +264,10 @@ export default function App() {
         } else {
           syncAllRolesToSupabase(getStoredRoles());
         }
+      }
+      // If cloud data is empty/missing, keep local initial data as fallback
+      else {
+        console.log('No cloud data found, keeping local data as fallback');
       }
       if (cloudIncome && cloudIncome.length > 0) {
         setIncomeEntries(cloudIncome);
@@ -412,13 +419,20 @@ export default function App() {
       syncRentalToSupabase(newRental);
       if (vehicleObj) syncVehicleToSupabase(vehicleObj);
       if (params.customerNicPassport || params.customerName) {
+        const cleanNic = (params.customerNicPassport || '').trim().toUpperCase();
+        const matched = customers.find(c => c.nicPassport.trim().toUpperCase() === cleanNic);
         syncCustomerToSupabase({
-          id: `cust-${Date.now()}`,
-          nicPassport: (params.customerNicPassport || '').trim().toUpperCase(),
-          name: params.customerName || 'Customer',
-          phone: params.customerPhone,
-          notes: params.customerNotes,
+          id: matched?.id || `cust-${Date.now()}`,
+          nicPassport: cleanNic,
+          name: params.customerName || matched?.name || 'Customer',
+          fullName: params.customerName || matched?.fullName || matched?.name || 'Customer',
+          phone: params.customerPhone || matched?.phone || '',
+          whatsappNumber: matched?.whatsappNumber || params.customerPhone || '',
+          address: matched?.address || '',
+          dob: matched?.dob || '',
+          notes: params.customerNotes || matched?.notes || '',
           lastRentalDate: Date.now(),
+          totalRentalsCount: (matched?.totalRentalsCount || 0) + 1,
         });
       }
     }
@@ -441,7 +455,28 @@ export default function App() {
       )
     );
 
-    // 4. Live sync to Supabase
+    // 4. Automatically add rental revenue to Income & Expenses Ledger
+    if (completedRecord.totalAmount && completedRecord.totalAmount > 0) {
+      const rentalIncomeEntry: IncomeEntry = {
+        id: `inc-rent-${completedRecord.id}`,
+        date: new Date(completedRecord.completedAt || Date.now()).toISOString().slice(0, 10),
+        description: `Rental #${completedRecord.rentalNumber} — ${completedRecord.vehicleTypeName} (${completedRecord.vehicleSerialNumber})`,
+        type: 'income',
+        amount: completedRecord.totalAmount,
+        category: 'Rental Revenue',
+        who: 'Mark',
+        createdAt: Date.now(),
+        cashierName: completedRecord.cashierName || currentUser?.name || settings.cashierName || 'Cashier',
+      };
+
+      setIncomeEntries((prev) => [rentalIncomeEntry, ...prev]);
+
+      if (isSupabaseConfigured()) {
+        syncIncomeEntryToSupabase(rentalIncomeEntry);
+      }
+    }
+
+    // 5. Live sync to Supabase
     if (isSupabaseConfigured()) {
       syncRentalToSupabase(completedRecord);
       const matchedVeh = vehicles.find((v) => v.serialNumber.toUpperCase() === completedRecord.vehicleSerialNumber.toUpperCase());
@@ -450,8 +485,30 @@ export default function App() {
       }
     }
 
-    // 5. Close modal
+    // 6. Close modal
     setSettlingRental(null);
+  };
+
+  // Handlers for Customer Management
+  const handleAddCustomer = (newCustomer: Customer) => {
+    setCustomers((prev) => [newCustomer, ...prev]);
+    if (isSupabaseConfigured()) {
+      syncCustomerToSupabase(newCustomer);
+    }
+  };
+
+  const handleUpdateCustomer = (updatedCustomer: Customer) => {
+    setCustomers((prev) => prev.map((c) => (c.id === updatedCustomer.id ? updatedCustomer : c)));
+    if (isSupabaseConfigured()) {
+      syncCustomerToSupabase(updatedCustomer);
+    }
+  };
+
+  const handleDeleteCustomer = (customerId: string) => {
+    setCustomers((prev) => prev.filter((c) => c.id !== customerId));
+    if (isSupabaseConfigured()) {
+      deleteCustomerFromSupabase(customerId);
+    }
   };
 
   // Handler: Delete Completed Rental (Admin user only)
@@ -553,6 +610,7 @@ export default function App() {
                 vehicleTypes={vehicleTypes}
                 vehicles={vehicles}
                 customers={customers}
+                activeRentals={activeRentals}
                 completedRentals={completedRentals}
                 settings={settings}
                 themeMode={themeMode}
@@ -569,7 +627,22 @@ export default function App() {
             </div>
           )}
 
-          {/* Tab 2: History & Daily Settlement */}
+          {/* Tab 2: Customers Management */}
+          {activeTab === 'customers' && (
+            <CustomerManagementPanel
+              customers={customers}
+              completedRentals={completedRentals}
+              settings={settings}
+              currentUser={activeUser}
+              themeMode={themeMode}
+              accent={accent}
+              onAddCustomer={handleAddCustomer}
+              onUpdateCustomer={handleUpdateCustomer}
+              onDeleteCustomer={handleDeleteCustomer}
+            />
+          )}
+
+          {/* Tab 3: History & Daily Settlement */}
           {activeTab === 'history' && (
             <RentalHistoryPanel
               completedRentals={completedRentals}
@@ -581,7 +654,7 @@ export default function App() {
             />
           )}
 
-          {/* Tab 3: Users & Role Management */}
+          {/* Tab 4: Users & Role Management */}
           {activeTab === 'users' && (
             <UserRolesManager
               currentUser={activeUser}
@@ -598,7 +671,7 @@ export default function App() {
             />
           )}
 
-          {/* Tab 4: Settings & Rates Management */}
+          {/* Tab 5: Settings & Rates Management */}
           {activeTab === 'settings' && (
             <SettingsPanel
               vehicleTypes={vehicleTypes}
@@ -619,7 +692,7 @@ export default function App() {
             />
           )}
 
-          {/* Tab 5: Income & Expenses */}
+          {/* Tab 6: Income & Expenses */}
           {activeTab === 'income' && (
             <IncomeExpensesPanel
               entries={incomeEntries}
@@ -642,7 +715,7 @@ export default function App() {
             />
           )}
 
-          {/* Tab 6: Dashboard */}
+          {/* Tab 7: Dashboard */}
           {activeTab === 'dashboard' && (
             <DashboardStats
               activeRentals={activeRentals}

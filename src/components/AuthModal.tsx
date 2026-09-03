@@ -51,15 +51,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [activeView, setActiveView] = useState<'login' | 'forgot'>('login');
   
   // Login form state - username / email & password
-  const [loginEmail, setLoginEmail] = useState(currentUser?.email || DEFAULT_USER.email);
+  const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   // Forgot password form state
-  const [forgotEmail, setForgotEmail] = useState(currentUser?.email || DEFAULT_USER.email);
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmNewPassword, setConfirmNewPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
 
   // Feedback messages
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -96,35 +93,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  // Handle Forgot Password Reset
+  // Handle Forgot Password - Send reset email
   const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearMessages();
 
     if (!forgotEmail.trim() || !forgotEmail.includes('@')) {
-      setErrorMessage('Please enter a valid registered username / email.');
-      return;
-    }
-    if (newPassword.length < 6) {
-      setErrorMessage('New password must be at least 6 characters long.');
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      setErrorMessage('New passwords do not match.');
+      setErrorMessage('Please enter a valid registered email address.');
       return;
     }
 
-    const res = await resetUserPassword(forgotEmail, newPassword);
+    const res = await resetUserPassword(forgotEmail);
     if (res.success) {
-      setSuccessMessage('Password reset successfully! You can now log in with your updated password.');
-      setLoginEmail(forgotEmail);
-      setLoginPassword('');
+      setSuccessMessage('Password reset link sent to your email. Please check your inbox and follow the link to reset your password.');
       setTimeout(() => {
         setActiveView('login');
         setSuccessMessage(null);
-      }, 1200);
+      }, 2000);
     } else {
-      setErrorMessage(res.error || 'Password reset failed.');
+      setErrorMessage(res.error || 'Failed to send reset email. Please try again.');
     }
   };
 
@@ -284,58 +271,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </form>
         )}
 
-        {/* 2. FORGOT PASSWORD SCREEN */}
+        {/* 2. FORGOT PASSWORD SCREEN - Send reset email */}
         {activeView === 'forgot' && (
-          <form onSubmit={handleForgotSubmit} className="space-y-3.5">
+          <form onSubmit={handleForgotSubmit} className="space-y-4">
             <p className={`text-xs ${t.textMuted}`}>
-              Enter your registered username / email and choose a new password.
+              Enter your registered email address. We&apos;ll send you a link to reset your password.
             </p>
 
             <div>
               <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
-                Username / Registered Email
+                Registered Email
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                   <Mail className="w-4 h-4" />
                 </div>
                 <input
-                  type="text"
+                  type="email"
                   required
-                  placeholder="absiraiva@gmail.com"
+                  placeholder="your@email.com"
                   value={forgotEmail}
                   onChange={(e) => setForgotEmail(e.target.value)}
                   className={`w-full pl-9 pr-3 py-2 text-sm rounded-xl font-medium ${t.textInput}`}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
-                  New Password
-                </label>
-                <input
-                  type={showNewPassword ? 'text' : 'password'}
-                  required
-                  placeholder="Min 6 characters"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className={`w-full px-3 py-2 text-sm rounded-xl font-medium ${t.textInput}`}
-                />
-              </div>
-
-              <div>
-                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
-                  Confirm Password
-                </label>
-                <input
-                  type={showNewPassword ? 'text' : 'password'}
-                  required
-                  placeholder="Repeat new password"
-                  value={confirmNewPassword}
-                  onChange={(e) => setConfirmNewPassword(e.target.value)}
-                  className={`w-full px-3 py-2 text-sm rounded-xl font-medium ${t.textInput}`}
+                  autoFocus
                 />
               </div>
             </div>
@@ -354,7 +312,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn} cursor-pointer`}
               >
                 <Key className="w-3.5 h-3.5" />
-                <span>Reset Password</span>
+                <span>Send Reset Link</span>
               </button>
             </div>
           </form>

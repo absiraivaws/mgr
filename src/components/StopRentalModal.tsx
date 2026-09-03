@@ -66,11 +66,29 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
     setAmountReceivedInput(res.totalAmount.toString());
   }, [rental, stopTimestamp]);
 
-  const totalDue = breakdown.totalAmount;
-  const amountReceived = parseFloat(amountReceivedInput) || 0;
+  const rentalAmount = breakdown.totalAmount;
   const damageAmount = parseFloat(damageAmountInput) || 0;
   const discountAmount = parseFloat(discountInput) || 0;
-  const changeDue = Math.max(0, amountReceived - totalDue + discountAmount - damageAmount);
+  const finalTotalAmount = Math.max(0, rentalAmount + damageAmount - discountAmount);
+  const amountReceived = parseFloat(amountReceivedInput) || 0;
+  const changeDue = Math.max(0, amountReceived - finalTotalAmount);
+
+  // Auto-update amountReceivedInput when damage/discount changes if user hasn't typed custom cash
+  const handleDamageChange = (val: string) => {
+    setDamageAmountInput(val);
+    const dmg = parseFloat(val) || 0;
+    const disc = parseFloat(discountInput) || 0;
+    const newTot = Math.max(0, rentalAmount + dmg - disc);
+    setAmountReceivedInput(newTot.toString());
+  };
+
+  const handleDiscountChange = (val: string) => {
+    setDiscountInput(val);
+    const disc = parseFloat(val) || 0;
+    const dmg = parseFloat(damageAmountInput) || 0;
+    const newTot = Math.max(0, rentalAmount + dmg - disc);
+    setAmountReceivedInput(newTot.toString());
+  };
 
   const handleComplete = () => {
     if (settings.soundEnabled) {
@@ -92,7 +110,7 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
       endTime: stopTimestamp,
       status: 'completed',
       breakdown: breakdown,
-      totalAmount: totalDue,
+      totalAmount: finalTotalAmount,
       paymentMethod: paymentMethod,
       amountReceived: amountReceived,
       changeAmount: changeDue,
@@ -187,84 +205,66 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
             </div>
           </div>
 
-          {/* Itemized Price Breakdown */}
-          <div className={`p-4 rounded-xl border space-y-2 text-xs ${t.cardSubtleBg}`}>
-            <div className={`font-semibold uppercase tracking-wider text-[11px] mb-2 ${t.textMuted}`}>
-              Rate Calculation Breakdown
-            </div>
-
-            {/* First 60 min */}
-            <div className="flex justify-between items-center">
-              <span className={t.textMuted}>
-                First 60 Mins Base Charge:
-              </span>
-              <span className={`font-mono font-semibold ${t.textMain}`}>
-                {formatCurrency(breakdown.firstHourAmount, settings.currencySymbol, settings.currencyPosition)}
+          {/* Settle & Return Specified Settlement Format Box */}
+          <div className={`p-4 rounded-xl border space-y-3 ${t.cardSubtleBg} border-emerald-500/30`}>
+            <div className={`font-bold uppercase tracking-wider text-[11px] pb-2 border-b ${t.divider} flex items-center justify-between`}>
+              <span className={t.textHeading}>Settlement Calculation</span>
+              <span className="text-[10px] text-emerald-500 font-mono">
+                {breakdown.durationFormatted}
               </span>
             </div>
 
-            {/* Continuing 30 mins */}
-            {breakdown.every30MinCount > 0 && (
-              <div className="flex justify-between items-center">
-                <span className={t.textMuted}>
-                  Additional {breakdown.every30MinCount} × 30-min block(s) @ {formatCurrency(breakdown.every30MinRate, settings.currencySymbol, settings.currencyPosition)}:
-                </span>
-                <span className="font-mono font-semibold text-teal-500">
-                  +{formatCurrency(breakdown.every30MinAmount, settings.currencySymbol, settings.currencyPosition)}
-                </span>
-              </div>
-            )}
-
-            {/* Total Grand Bill */}
-            <div className={`border-t ${t.divider} pt-2.5 flex justify-between items-center text-sm sm:text-base font-black`}>
-              <span className={t.textHeading}>TOTAL AMOUNT DUE:</span>
-              <span className="font-mono text-emerald-500 text-lg sm:text-xl">
-                {formatCurrency(totalDue, settings.currencySymbol, settings.currencyPosition)}
+            {/* 1. Rental amount */}
+            <div className="flex justify-between items-center text-xs">
+              <span className={`font-semibold ${t.textHeading}`}>Rental amount:</span>
+              <span className={`font-mono font-bold text-sm ${t.textMain}`}>
+                {formatCurrency(rentalAmount, settings.currencySymbol, settings.currencyPosition)}
               </span>
             </div>
-          </div>
 
-          {/* Damages, Discount & Total Payment */}
-          <div className={`p-4 rounded-xl border space-y-2 text-xs ${t.cardSubtleBg}`}>
-            <div className={`font-semibold uppercase tracking-wider text-[11px] mb-2 ${t.textMuted}`}>
-              Payment Adjustments
-            </div>
-            
-            {/* Damage Amount */}
-            <div className="flex items-center justify-between">
-              <span className={t.textMuted}>Damage Amount:</span>
-              <div>
+            {/* 2. + Damage */}
+            <div className="flex justify-between items-center text-xs gap-3">
+              <label className="font-semibold text-amber-500 flex items-center gap-1">
+                <span>+ Damage:</span>
+              </label>
+              <div className="w-36">
                 <input
+                  id="input-damage-amount"
                   type="number"
                   step="0.01"
                   min="0"
+                  placeholder="0.00"
                   value={damageAmountInput}
-                  onChange={(e) => setDamageAmountInput(e.target.value)}
-                  className={`w-full rounded-xl px-3 py-2 text-xs font-mono font-bold ${t.textInput}`}
+                  onChange={(e) => handleDamageChange(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-right text-amber-500 ${t.textInput}`}
                 />
               </div>
             </div>
 
-            {/* Discount Amount */}
-            <div className="flex items-center justify-between">
-              <span className={t.textMuted}>Discount:</span>
-              <div>
+            {/* 3. - Discount */}
+            <div className="flex justify-between items-center text-xs gap-3">
+              <label className="font-semibold text-teal-400 flex items-center gap-1">
+                <span>- Discount:</span>
+              </label>
+              <div className="w-36">
                 <input
+                  id="input-discount-amount"
                   type="number"
                   step="0.01"
                   min="0"
+                  placeholder="0.00"
                   value={discountInput}
-                  onChange={(e) => setDiscountInput(e.target.value)}
-                  className={`w-full rounded-xl px-3 py-2 text-xs font-mono font-bold ${t.textInput}`}
+                  onChange={(e) => handleDiscountChange(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-right text-teal-400 ${t.textInput}`}
                 />
               </div>
             </div>
 
-            {/* Final Total Calculation */}
-            <div className={`border-t ${t.divider} pt-2.5 flex justify-between items-center text-sm sm:text-base font-black text-emerald-600`}>
-              <span>Final Total:</span>
-              <span>
-                {formatCurrency(totalDue - discountAmount + damageAmount, settings.currencySymbol, settings.currencyPosition)}
+            {/* 4. Total Amount */}
+            <div className={`border-t ${t.divider} pt-3 flex justify-between items-center text-base sm:text-lg font-black`}>
+              <span className={t.textHeading}>Total Amount:</span>
+              <span className="font-mono text-emerald-500 text-xl sm:text-2xl font-black">
+                {formatCurrency(finalTotalAmount, settings.currencySymbol, settings.currencyPosition)}
               </span>
             </div>
           </div>

@@ -41,6 +41,12 @@ const CATEGORIES = [
   'Other',
 ];
 
+const WHO_OPTIONS = [
+  'Mark',
+  'Jenis',
+  'Beni',
+];
+
 export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
   entries,
   settings,
@@ -62,13 +68,53 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
   const [type, setType] = useState<'income' | 'expense'>('income');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('Other');
+  const [who, setWho] = useState('Mark');
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
-  // Filter state
+  // Filter and Search State
+  const [searchTerm, setSearchTerm] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // Sorting State
+  type SortField = 'date' | 'description' | 'category' | 'who' | 'type' | 'amount';
+  const [sortField, setSortField] = useState<SortField>('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const handleSort = (field: SortField, explicitDir?: 'asc' | 'desc') => {
+    if (explicitDir) {
+      setSortField(field);
+      setSortDir(explicitDir);
+    } else if (sortField === field) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  };
+
+  const getTodayISO = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const handleSetToday = () => {
+    const today = getTodayISO();
+    setFromDate(today);
+    setToDate(today);
+  };
+
+  const handleClearDates = () => {
+    setFromDate('');
+    setToDate('');
+  };
 
   // Computed totals
   const totalIncome = useMemo(
@@ -81,10 +127,76 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
   );
   const netProfit = totalIncome - totalExpenses;
 
+  // Filtered & Sorted Entries
   const filteredEntries = useMemo(() => {
-    if (filterType === 'all') return entries;
-    return entries.filter((e) => e.type === filterType);
-  }, [entries, filterType]);
+    let list = entries.filter((entry) => {
+      // 1. Type Filter
+      if (filterType !== 'all' && entry.type !== filterType) return false;
+
+      // 2. Date Range Filter
+      if (fromDate && entry.date < fromDate) return false;
+      if (toDate && entry.date > toDate) return false;
+
+      // 3. Global Search Filter
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        const matches =
+          (entry.date || '').toLowerCase().includes(q) ||
+          (entry.description || '').toLowerCase().includes(q) ||
+          (entry.category || '').toLowerCase().includes(q) ||
+          (entry.who || '').toLowerCase().includes(q) ||
+          (entry.cashierName || '').toLowerCase().includes(q) ||
+          (entry.type || '').toLowerCase().includes(q) ||
+          entry.amount.toString().includes(q);
+        if (!matches) return false;
+      }
+
+      return true;
+    });
+
+    list.sort((a, b) => {
+      let aVal: string | number = '';
+      let bVal: string | number = '';
+
+      switch (sortField) {
+        case 'date':
+          aVal = a.date || '';
+          bVal = b.date || '';
+          break;
+        case 'description':
+          aVal = (a.description || '').toLowerCase();
+          bVal = (b.description || '').toLowerCase();
+          break;
+        case 'category':
+          aVal = (a.category || '').toLowerCase();
+          bVal = (b.category || '').toLowerCase();
+          break;
+        case 'who':
+          aVal = (a.who || '').toLowerCase();
+          bVal = (b.who || '').toLowerCase();
+          break;
+        case 'type':
+          aVal = a.type;
+          bVal = b.type;
+          break;
+        case 'amount':
+          aVal = a.amount;
+          bVal = b.amount;
+          break;
+      }
+
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        const comp = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' });
+        return sortDir === 'asc' ? comp : -comp;
+      } else {
+        if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      }
+    });
+
+    return list;
+  }, [entries, filterType, fromDate, toDate, searchTerm, sortField, sortDir]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,6 +223,7 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
       type,
       amount: parsedAmount,
       category,
+      who,
       createdAt: Date.now(),
       cashierName: currentUser?.name || settings.cashierName || 'Cashier',
     };
@@ -121,6 +234,7 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
     setDescription('');
     setAmount('');
     setCategory('Other');
+    setWho('Mark');
     setDate(new Date().toISOString().slice(0, 10));
     setFormError(null);
     setFormSuccess(true);
@@ -315,6 +429,24 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
               </select>
             </div>
 
+            {/* Who */}
+            <div>
+              <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${t.textHeading}`}>
+                <Tag className="inline w-3.5 h-3.5 mr-1" />
+                Who
+              </label>
+              <select
+                id="select-income-who"
+                value={who}
+                onChange={(e) => setWho(e.target.value)}
+                className={`w-full rounded-xl px-3 py-2.5 text-xs font-medium appearance-none ${t.dropdownInput}`}
+              >
+                {WHO_OPTIONS.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </div>
+
             {/* Submit */}
             <button
               id="btn-save-income-entry"
@@ -328,59 +460,332 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
         )}
       </div>
 
-      {/* Entries Table */}
-      <div className={`${t.cardBg} rounded-2xl border shadow-xl overflow-hidden`}>
-        <div className={`flex items-center justify-between px-5 py-4 border-b ${t.divider}`}>
-          <div className="flex items-center gap-3">
-            <Sparkles className="w-5 h-5 text-violet-500" />
-            <div>
-              <h3 className={`text-sm font-bold ${t.textHeading}`}>Transaction History</h3>
-              <p className={`text-xs ${t.textMuted}`}>{entries.length} entries total</p>
+      {/* Entries Table & Filter Controls */}
+      <div className={`${t.cardBg} rounded-2xl border shadow-xl overflow-hidden space-y-4`}>
+        
+        {/* Table Header & Controls Bar */}
+        <div className={`p-5 border-b ${t.divider} space-y-4`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-5 h-5 text-violet-500" />
+              <div>
+                <h3 className={`text-sm font-bold ${t.textHeading}`}>Transaction History & Ledger</h3>
+                <p className={`text-xs ${t.textMuted}`}>{filteredEntries.length} entries shown ({entries.length} total)</p>
+              </div>
+            </div>
+
+            {/* Type selector pills */}
+            <div className="flex items-center gap-1.5">
+              {(['all', 'income', 'expense'] as const).map((ft) => (
+                <button
+                  key={ft}
+                  id={`btn-filter-${ft}`}
+                  type="button"
+                  onClick={() => setFilterType(ft)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition cursor-pointer ${
+                    filterType === ft
+                      ? ft === 'income'
+                        ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/40 font-bold'
+                        : ft === 'expense'
+                        ? 'bg-rose-500/20 text-rose-500 border border-rose-500/40 font-bold'
+                        : `${t.badge} font-bold`
+                      : `${t.textMuted} hover:bg-slate-500/10`
+                  }`}
+                >
+                  {ft === 'all' ? 'All Transactions' : ft === 'income' ? 'Income Only' : 'Expenses Only'}
+                </button>
+              ))}
             </div>
           </div>
-          {/* Filter buttons */}
-          <div className="flex items-center gap-1.5">
-            {(['all', 'income', 'expense'] as const).map((ft) => (
+
+          {/* Date Range & Global Search Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
+            {/* From Date */}
+            <div className="sm:col-span-3">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-emerald-500 mb-1">
+                From Date
+              </label>
+              <div className="relative">
+                <input
+                  id="input-income-from-date"
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2 text-xs font-mono font-medium ${t.textInput}`}
+                />
+              </div>
+            </div>
+
+            {/* To Date */}
+            <div className="sm:col-span-3">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-teal-400 mb-1">
+                To Date
+              </label>
+              <div className="relative">
+                <input
+                  id="input-income-to-date"
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2 text-xs font-mono font-medium ${t.textInput}`}
+                />
+              </div>
+            </div>
+
+            {/* Date Quick Actions */}
+            <div className="sm:col-span-2 flex items-end gap-1.5">
               <button
-                key={ft}
-                id={`btn-filter-${ft}`}
                 type="button"
-                onClick={() => setFilterType(ft)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition cursor-pointer ${
-                  filterType === ft
-                    ? ft === 'income'
-                      ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/40'
-                      : ft === 'expense'
-                      ? 'bg-rose-500/20 text-rose-500 border border-rose-500/40'
-                      : `${t.badge}`
-                    : `${t.textMuted} hover:bg-slate-500/10`
-                }`}
+                onClick={handleSetToday}
+                className={`flex-1 py-2 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 border transition cursor-pointer ${t.inactiveTab}`}
+                title="Filter Today"
               >
-                {ft === 'all' ? 'All' : ft}
+                <Calendar className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Today</span>
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={handleClearDates}
+                className={`flex-1 py-2 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 border transition cursor-pointer ${t.inactiveTab}`}
+                title="Show All Dates"
+              >
+                <X className="w-3.5 h-3.5 text-slate-400" />
+                <span>Clear</span>
+              </button>
+            </div>
+
+            {/* Global Search Bar */}
+            <div className="sm:col-span-4">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-cyan-500 mb-1">
+                Global Search
+              </label>
+              <div className="relative">
+                <input
+                  id="input-income-search"
+                  type="text"
+                  placeholder="Search description, who, category, amount..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className={`w-full rounded-xl pl-8 pr-8 py-2 text-xs font-medium ${t.searchInput}`}
+                />
+                <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-cyan-500">
+                  <Filter className="w-3.5 h-3.5" />
+                </div>
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-cyan-500 hover:text-cyan-400 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
         {filteredEntries.length === 0 ? (
-          <div className={`text-center py-12 px-4`}>
+          <div className="text-center py-12 px-4">
             <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 bg-slate-500/10 ${t.textMuted}`}>
               <DollarSign className="w-6 h-6" />
             </div>
-            <h4 className={`text-sm font-semibold mb-1 ${t.textHeading}`}>No Entries Yet</h4>
-            <p className={`text-xs ${t.textMuted}`}>Click "Add Entry" above to record your first income or expense.</p>
+            <h4 className={`text-sm font-semibold mb-1 ${t.textHeading}`}>No Entries Found</h4>
+            <p className={`text-xs ${t.textMuted}`}>
+              {searchTerm || fromDate || toDate
+                ? 'No transactions matched your search or date filter.'
+                : 'Click "Add Entry" above to record your first income or expense.'}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className={`border-b ${t.divider} ${t.cardSubtleBg}`}>
-                  <th className={`px-4 py-3 text-left font-bold uppercase tracking-wider ${t.textMuted}`}>Date</th>
-                  <th className={`px-4 py-3 text-left font-bold uppercase tracking-wider ${t.textMuted}`}>Description</th>
-                  <th className={`px-4 py-3 text-left font-bold uppercase tracking-wider ${t.textMuted}`}>Category</th>
-                  <th className={`px-4 py-3 text-center font-bold uppercase tracking-wider ${t.textMuted}`}>Type</th>
-                  <th className={`px-4 py-3 text-right font-bold uppercase tracking-wider ${t.textMuted}`}>Amount</th>
-                  <th className={`px-4 py-3 text-center font-bold uppercase tracking-wider ${t.textMuted}`}>Action</th>
+                  {/* Date Column */}
+                  <th className="px-4 py-3 text-left font-bold uppercase tracking-wider select-none">
+                    <div className="flex items-center justify-between gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('date')}
+                        className={`font-bold text-xs cursor-pointer hover:underline ${sortField === 'date' ? `${t.textHeading} font-black` : t.textMuted}`}
+                      >
+                        Date
+                      </button>
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleSort('date', 'asc')}
+                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'date' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          A-Z
+                        </button>
+                        <div className="w-[1px] h-3 bg-slate-500/30" />
+                        <button
+                          type="button"
+                          onClick={() => handleSort('date', 'desc')}
+                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'date' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          Z-A
+                        </button>
+                      </div>
+                    </div>
+                  </th>
+
+                  {/* Description Column */}
+                  <th className="px-4 py-3 text-left font-bold uppercase tracking-wider select-none">
+                    <div className="flex items-center justify-between gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('description')}
+                        className={`font-bold text-xs cursor-pointer hover:underline ${sortField === 'description' ? `${t.textHeading} font-black` : t.textMuted}`}
+                      >
+                        Description
+                      </button>
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleSort('description', 'asc')}
+                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'description' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          A-Z
+                        </button>
+                        <div className="w-[1px] h-3 bg-slate-500/30" />
+                        <button
+                          type="button"
+                          onClick={() => handleSort('description', 'desc')}
+                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'description' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          Z-A
+                        </button>
+                      </div>
+                    </div>
+                  </th>
+
+                  {/* Category Column */}
+                  <th className="px-4 py-3 text-left font-bold uppercase tracking-wider select-none">
+                    <div className="flex items-center justify-between gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('category')}
+                        className={`font-bold text-xs cursor-pointer hover:underline ${sortField === 'category' ? `${t.textHeading} font-black` : t.textMuted}`}
+                      >
+                        Category
+                      </button>
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleSort('category', 'asc')}
+                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'category' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          A-Z
+                        </button>
+                        <div className="w-[1px] h-3 bg-slate-500/30" />
+                        <button
+                          type="button"
+                          onClick={() => handleSort('category', 'desc')}
+                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'category' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          Z-A
+                        </button>
+                      </div>
+                    </div>
+                  </th>
+
+                  {/* Who Column */}
+                  <th className="px-4 py-3 text-left font-bold uppercase tracking-wider select-none">
+                    <div className="flex items-center justify-between gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('who')}
+                        className={`font-bold text-xs cursor-pointer hover:underline ${sortField === 'who' ? `${t.textHeading} font-black` : t.textMuted}`}
+                      >
+                        Who
+                      </button>
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleSort('who', 'asc')}
+                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'who' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          A-Z
+                        </button>
+                        <div className="w-[1px] h-3 bg-slate-500/30" />
+                        <button
+                          type="button"
+                          onClick={() => handleSort('who', 'desc')}
+                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'who' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          Z-A
+                        </button>
+                      </div>
+                    </div>
+                  </th>
+
+                  {/* Type Column */}
+                  <th className="px-4 py-3 text-center font-bold uppercase tracking-wider select-none">
+                    <div className="flex items-center justify-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('type')}
+                        className={`font-bold text-xs cursor-pointer hover:underline ${sortField === 'type' ? `${t.textHeading} font-black` : t.textMuted}`}
+                      >
+                        Type
+                      </button>
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleSort('type', 'asc')}
+                          className={`px-1 py-0.5 transition cursor-pointer ${sortField === 'type' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          A-Z
+                        </button>
+                        <div className="w-[1px] h-3 bg-slate-500/30" />
+                        <button
+                          type="button"
+                          onClick={() => handleSort('type', 'desc')}
+                          className={`px-1 py-0.5 transition cursor-pointer ${sortField === 'type' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          Z-A
+                        </button>
+                      </div>
+                    </div>
+                  </th>
+
+                  {/* Amount Column */}
+                  <th className="px-4 py-3 text-right font-bold uppercase tracking-wider select-none">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('amount')}
+                        className={`font-bold text-xs cursor-pointer hover:underline ${sortField === 'amount' ? `${t.textHeading} font-black` : t.textMuted}`}
+                      >
+                        Amount
+                      </button>
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleSort('amount', 'asc')}
+                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'amount' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          A-Z
+                        </button>
+                        <div className="w-[1px] h-3 bg-slate-500/30" />
+                        <button
+                          type="button"
+                          onClick={() => handleSort('amount', 'desc')}
+                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'amount' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          Z-A
+                        </button>
+                      </div>
+                    </div>
+                  </th>
+
+                  {/* Action Column */}
+                  <th className={`px-4 py-3 text-center font-bold uppercase tracking-wider ${t.textMuted}`}>
+                    Action
+                  </th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${t.divider}`}>
@@ -406,6 +811,13 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
                     <td className={`px-4 py-3 ${t.textMuted} whitespace-nowrap`}>
                       <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${t.cardSubtleBg}`}>
                         {entry.category || 'Other'}
+                      </span>
+                    </td>
+
+                    {/* Who */}
+                    <td className={`px-4 py-3 ${t.textMuted} whitespace-nowrap`}>
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-500/10 text-slate-600 border border-slate-500/20`}>
+                        {entry.who || '—'}
                       </span>
                     </td>
 

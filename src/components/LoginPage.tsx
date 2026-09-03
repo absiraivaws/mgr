@@ -48,15 +48,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [view, setView] = useState<'login' | 'forgot'>('login');
 
   // Form State - Username / Email & Password
-  const [email, setEmail] = useState('absiraiva@gmail.com');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
   // Forgot Password State
-  const [forgotEmail, setForgotEmail] = useState('absiraiva@gmail.com');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmNewPassword, setConfirmNewPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
 
   // Messages
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -94,32 +91,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     e.preventDefault();
     clearMessages();
 
-    if (!forgotEmail.trim()) {
-      setErrorMessage('Please enter your registered username / email address.');
+    if (!forgotEmail.trim() || !forgotEmail.includes('@')) {
+      setErrorMessage('Please enter a valid registered email address.');
       return;
     }
 
-    if (newPassword.length < 6) {
-      setErrorMessage('Password must be at least 6 characters.');
-      return;
-    }
-
-    if (newPassword !== confirmNewPassword) {
-      setErrorMessage('Passwords do not match.');
-      return;
-    }
-
-    const res = await resetUserPassword(forgotEmail, newPassword);
+    const res = await resetUserPassword(forgotEmail);
     if (res.success) {
-      setSuccessMessage('Password reset successfully. You can now log in.');
-      setEmail(forgotEmail);
-      setPassword('');
+      setSuccessMessage('Password reset link sent to your email. Please check your inbox and follow the link to reset your password.');
       setTimeout(() => {
         setView('login');
         setSuccessMessage(null);
-      }, 1200);
+      }, 2000);
     } else {
-      setErrorMessage(res.error || 'Could not reset password.');
+      setErrorMessage(res.error || 'Failed to send reset email. Please try again.');
     }
   };
 
@@ -287,54 +272,29 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </form>
         )}
 
-        {/* 2. FORGOT PASSWORD VIEW */}
+        {/* 2. FORGOT PASSWORD VIEW - Send reset email */}
         {view === 'forgot' && (
           <form onSubmit={handleForgotSubmit} className="space-y-4">
             <p className={`text-xs ${t.textMuted}`}>
-              Enter your registered username or email to reset your password.
+              Enter your registered email address. We&apos;ll send you a link to reset your password.
             </p>
 
             <div>
               <label className={`block text-xs font-semibold mb-1.5 ${t.textHeading}`}>
-                Registered Username / Email
+                Registered Email
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                   <Mail className="w-4 h-4" />
                 </div>
                 <input
-                  type="text"
+                  type="email"
                   required
-                  placeholder="absiraiva@gmail.com"
+                  placeholder="your@email.com"
                   value={forgotEmail}
                   onChange={(e) => setForgotEmail(e.target.value)}
                   className={`w-full pl-10 pr-3.5 py-2.5 text-sm rounded-xl font-medium ${t.textInput}`}
                   autoFocus
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>New Password</label>
-                <input
-                  type={showNewPassword ? 'text' : 'password'}
-                  required
-                  placeholder="Min 6 chars"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className={`w-full px-3 py-2 text-sm rounded-xl font-medium ${t.textInput}`}
-                />
-              </div>
-              <div>
-                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>Confirm</label>
-                <input
-                  type={showNewPassword ? 'text' : 'password'}
-                  required
-                  placeholder="Repeat"
-                  value={confirmNewPassword}
-                  onChange={(e) => setConfirmNewPassword(e.target.value)}
-                  className={`w-full px-3 py-2 text-sm rounded-xl font-medium ${t.textInput}`}
                 />
               </div>
             </div>
@@ -350,15 +310,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </button>
               <button
                 type="submit"
-                className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn} cursor-pointer`}
+                className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg transition cursor-pointer ${t.primaryBtn}`}
               >
-                <Key className="w-3.5 h-3.5" />
-                <span>Reset Password</span>
+                <Key className="w-4 h-4" />
+                <span>Send Reset Link</span>
               </button>
             </div>
           </form>
         )}
-
       </div>
     </div>
   );

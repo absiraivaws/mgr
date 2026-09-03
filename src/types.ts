@@ -89,7 +89,11 @@ export interface Customer {
   id: string;
   nicPassport: string;
   name: string;
-  phone?: string;
+  fullName?: string;
+  address?: string;
+  dob?: string;               // Date of Birth e.g. "1995-05-14"
+  whatsappNumber?: string;
+  phone?: string;             // Mobile Number
   notes?: string;
   createdAt?: number;
   lastRentalDate?: number;
@@ -105,6 +109,8 @@ export interface IncomeEntry {
   category?: string;
   createdAt: number;      // epoch ms
   cashierName?: string;
+  who?: string;           // Person responsible: Mark, Jenis, Beni, etc.
 }
+
 
 

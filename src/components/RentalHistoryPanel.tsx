@@ -317,7 +317,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
           >
             <span>{label}</span>
           </button>
-          {/* Explicit A-Z and Z-A options on the heading */}
+          {/* Explicit A-Z and Z-A symbols on the heading */}
           <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
             <button
               type="button"
@@ -325,15 +325,14 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                 e.stopPropagation();
                 handleSort(colKey, 'asc');
               }}
-              title={`Sort ${label} A-Z (Ascending)`}
+              title={`Sort ${label} A-Z`}
               className={`px-1.5 py-0.5 transition cursor-pointer flex items-center gap-0.5 ${
                 isActive && sortDir === 'asc'
-                  ? 'bg-emerald-500 text-white font-black shadow-sm'
+                  ? 'bg-emerald-500 text-white font-black shadow-xs'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-500/20'
               }`}
             >
               <span>A-Z</span>
-              {isActive && sortDir === 'asc' && <ArrowUp className="w-2.5 h-2.5" />}
             </button>
             <div className="w-[1px] h-3 bg-slate-500/30" />
             <button
@@ -342,15 +341,14 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                 e.stopPropagation();
                 handleSort(colKey, 'desc');
               }}
-              title={`Sort ${label} Z-A (Descending)`}
+              title={`Sort ${label} Z-A`}
               className={`px-1.5 py-0.5 transition cursor-pointer flex items-center gap-0.5 ${
                 isActive && sortDir === 'desc'
-                  ? 'bg-emerald-500 text-white font-black shadow-sm'
+                  ? 'bg-emerald-500 text-white font-black shadow-xs'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-500/20'
               }`}
             >
               <span>Z-A</span>
-              {isActive && sortDir === 'desc' && <ArrowDown className="w-2.5 h-2.5" />}
             </button>
           </div>
         </div>
@@ -610,102 +608,6 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
           </div>
         </div>
 
-        {/* Quick Sorting Pills Bar */}
-        <div className={`flex items-center gap-1.5 flex-wrap p-2 rounded-xl border ${t.cardSubtleBg} ${t.divider} text-xs`}>
-          <span className={`text-[10px] font-bold uppercase tracking-wider ${t.textMuted} mr-1`}>
-            Quick Order:
-          </span>
-          <button
-            type="button"
-            onClick={() => handleSort('vehicleTypeName', 'asc')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-              sortKey === 'vehicleTypeName' && sortDir === 'asc'
-                ? 'bg-emerald-500 text-white shadow-sm font-bold'
-                : `${t.inactiveTab}`
-            }`}
-          >
-            <span>Category & Serial (A-Z)</span>
-            {sortKey === 'vehicleTypeName' && sortDir === 'asc' && <span className="text-[10px]">✓</span>}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSort('vehicleTypeName', 'desc')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-              sortKey === 'vehicleTypeName' && sortDir === 'desc'
-                ? 'bg-emerald-500 text-white shadow-sm font-bold'
-                : `${t.inactiveTab}`
-            }`}
-          >
-            <span>Category (Z-A)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSort('vehicleSerialNumber', 'asc')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-              sortKey === 'vehicleSerialNumber' && sortDir === 'asc'
-                ? 'bg-emerald-500 text-white shadow-sm font-bold'
-                : `${t.inactiveTab}`
-            }`}
-          >
-            <span>Serial No. (A-Z)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSort('vehicleSerialNumber', 'desc')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-              sortKey === 'vehicleSerialNumber' && sortDir === 'desc'
-                ? 'bg-emerald-500 text-white shadow-sm font-bold'
-                : `${t.inactiveTab}`
-            }`}
-          >
-            <span>Serial No. (Z-A)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSort('rentalNumber', 'asc')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-              sortKey === 'rentalNumber' && sortDir === 'asc'
-                ? 'bg-emerald-500 text-white shadow-sm font-bold'
-                : `${t.inactiveTab}`
-            }`}
-          >
-            <span>Receipt # (A-Z)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSort('customerName', 'asc')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-              sortKey === 'customerName' && sortDir === 'asc'
-                ? 'bg-emerald-500 text-white shadow-sm font-bold'
-                : `${t.inactiveTab}`
-            }`}
-          >
-            <span>Customer (A-Z)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSort('startTime', 'desc')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-              sortKey === 'startTime' && sortDir === 'desc'
-                ? 'bg-emerald-500 text-white shadow-sm font-bold'
-                : `${t.inactiveTab}`
-            }`}
-          >
-            <span>Newest First</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSort('totalAmount', 'desc')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-              sortKey === 'totalAmount' && sortDir === 'desc'
-                ? 'bg-emerald-500 text-white shadow-sm font-bold'
-                : `${t.inactiveTab}`
-            }`}
-          >
-            <span>Highest Amount</span>
-          </button>
-        </div>
-
         {filteredRentals.length === 0 ? (
           <div className={`text-center py-12 text-xs border border-dashed rounded-xl ${t.cardSubtleBg} ${t.textMuted} ${t.divider}`}>
             {completedRentals.length === 0
@@ -725,7 +627,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                     <SortTh label="Start Time"   colKey="startTime" />
                     <SortTh label="Return Time"  colKey="endTime" />
                     <SortTh label="Duration"     colKey="breakdown.totalMinutes" />
-                    <SortTh label="Paid Amount"  colKey="totalAmount" />
+                    <SortTh label="Total Amount"  colKey="totalAmount" />
                     <SortTh label="Payment"      colKey="paymentMethod" />
                     <th className="px-3.5 py-3 text-right">Actions</th>
                   </tr>
@@ -1030,28 +932,37 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                 </div>
               </div>
 
-              <div className="border-t border-dashed border-slate-300 pt-2 space-y-1 text-[11px] text-slate-800">
-                <div className="flex justify-between">
-                  <span>1st 60 Min Base:</span>
-                  <span>{formatCurrency(selectedRentalForReceipt.breakdown?.firstHourAmount || 0, settings.currencySymbol, settings.currencyPosition)}</span>
+              <div className="border-t border-dashed border-slate-300 pt-2 space-y-1.5 text-[11px] text-slate-800">
+                {/* Rental Amount (base calc) */}
+                <div className="flex justify-between font-medium">
+                  <span>Rental Amount:</span>
+                  <span>{formatCurrency(selectedRentalForReceipt.breakdown?.totalAmount ?? (selectedRentalForReceipt.totalAmount + (selectedRentalForReceipt.discountAmount || 0) - (selectedRentalForReceipt.damageAmount || 0)), settings.currencySymbol, settings.currencyPosition)}</span>
                 </div>
-                {((selectedRentalForReceipt.breakdown?.every30MinAmount ?? selectedRentalForReceipt.breakdown?.next30MinAmount) || 0) > 0 && (
-                  <div className="flex justify-between">
-                    <span>
-                      Every +30m ({selectedRentalForReceipt.breakdown?.every30MinCount || Math.ceil(((selectedRentalForReceipt.breakdown?.totalMinutes || 60) - 60) / 30)} × 30m):
-                    </span>
-                    <span>
-                      +{formatCurrency((selectedRentalForReceipt.breakdown?.every30MinAmount ?? selectedRentalForReceipt.breakdown?.next30MinAmount) || 0, settings.currencySymbol, settings.currencyPosition)}
-                    </span>
+
+                {/* + Damage if applicable */}
+                {(selectedRentalForReceipt.damageAmount || 0) > 0 && (
+                  <div className="flex justify-between text-amber-700 font-semibold">
+                    <span>+ Damage:</span>
+                    <span>+{formatCurrency(selectedRentalForReceipt.damageAmount || 0, settings.currencySymbol, settings.currencyPosition)}</span>
                   </div>
                 )}
-                <div className="border-t border-slate-900 pt-2 flex justify-between font-black text-sm text-slate-900">
-                  <span>TOTAL PAID:</span>
+
+                {/* - Discount if applicable */}
+                {(selectedRentalForReceipt.discountAmount || 0) > 0 && (
+                  <div className="flex justify-between text-emerald-700 font-semibold">
+                    <span>- Discount:</span>
+                    <span>-{formatCurrency(selectedRentalForReceipt.discountAmount || 0, settings.currencySymbol, settings.currencyPosition)}</span>
+                  </div>
+                )}
+
+                {/* Total Amount */}
+                <div className="border-t-2 border-slate-900 pt-2 flex justify-between font-black text-sm text-slate-900">
+                  <span>TOTAL AMOUNT:</span>
                   <span>{formatCurrency(selectedRentalForReceipt.totalAmount, settings.currencySymbol, settings.currencyPosition)}</span>
                 </div>
                 <div className="flex justify-between text-[10px] text-slate-600 pt-1">
                   <span>Payment Method:</span>
-                  <span className="uppercase">{selectedRentalForReceipt.paymentMethod || 'CASH'}</span>
+                  <span className="uppercase font-bold">{selectedRentalForReceipt.paymentMethod || 'CASH'}</span>
                 </div>
               </div>
 
@@ -1125,8 +1036,8 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                 <span className={t.textMain}>{formatDateTime(rentalToDelete.startTime)}</span>
               </div>
               <div className="flex justify-between pt-1 border-t border-slate-500/20">
-                <span className="font-bold text-emerald-500">Paid Amount:</span>
-                <span className="font-bold text-emerald-500">
+                <span className="font-bold text-emerald-500">Total Amount:</span>
+                <span className="font-bold text-emerald-500 font-mono">
                   {formatCurrency(rentalToDelete.totalAmount, settings.currencySymbol, settings.currencyPosition)}
                 </span>
               </div>

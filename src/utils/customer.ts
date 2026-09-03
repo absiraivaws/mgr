@@ -15,7 +15,7 @@ export function findCustomerByNic(
 }
 
 /**
- * Autocomplete search for customers across NIC, Name, and Phone
+ * Autocomplete search for customers across NIC, Name, FullName, Phone, WhatsApp, Address, and DOB
  */
 export function searchCustomers(
   query: string,
@@ -24,10 +24,14 @@ export function searchCustomers(
   if (!query || !query.trim()) return [];
   const q = query.trim().toUpperCase();
   return customers.filter((c) => {
-    const nicMatch = c.nicPassport.toUpperCase().includes(q);
-    const nameMatch = c.name.toUpperCase().includes(q);
-    const phoneMatch = c.phone ? c.phone.toUpperCase().includes(q) : false;
-    return nicMatch || nameMatch || phoneMatch;
+    const nicMatch = (c.nicPassport || '').toUpperCase().includes(q);
+    const nameMatch = (c.name || '').toUpperCase().includes(q);
+    const fullNameMatch = (c.fullName || '').toUpperCase().includes(q);
+    const phoneMatch = (c.phone || '').toUpperCase().includes(q);
+    const waMatch = (c.whatsappNumber || '').toUpperCase().includes(q);
+    const addrMatch = (c.address || '').toUpperCase().includes(q);
+    const dobMatch = (c.dob || '').toUpperCase().includes(q);
+    return nicMatch || nameMatch || fullNameMatch || phoneMatch || waMatch || addrMatch || dobMatch;
   });
 }
 
@@ -57,7 +61,11 @@ export function consolidateCustomers(
           id: `cust-hist-${r.id}`,
           nicPassport: nic,
           name: r.customerName || 'Guest Customer',
+          fullName: r.customerName || 'Guest Customer',
           phone: r.customerPhone || '',
+          whatsappNumber: r.customerPhone || '',
+          address: '',
+          dob: '',
           notes: r.customerNotes || '',
           createdAt: r.startTime,
           lastRentalDate: r.startTime,
@@ -66,7 +74,11 @@ export function consolidateCustomers(
       } else {
         existing.totalRentalsCount = (existing.totalRentalsCount || 1) + 1;
         if (!existing.phone && r.customerPhone) existing.phone = r.customerPhone;
-        if (!existing.name && r.customerName) existing.name = r.customerName;
+        if (!existing.whatsappNumber && r.customerPhone) existing.whatsappNumber = r.customerPhone;
+        if (!existing.name && r.customerName) {
+          existing.name = r.customerName;
+          existing.fullName = r.customerName;
+        }
       }
     }
   });

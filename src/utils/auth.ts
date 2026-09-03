@@ -25,6 +25,7 @@ export interface RolePermissionSet {
   accessDashboard?: boolean; // "Dashboard"
   accessRentals: boolean;    // "Rental Desk"
   accessHistory: boolean;    // "History"
+  accessCustomers?: boolean; // "Customers"
   accessUsers: boolean;      // "Users & Role"
   accessSettings: boolean;   // "Rates & Inventory"
   accessIncome?: boolean;    // "Income & Expenses"
@@ -67,13 +68,14 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
   {
     id: 'admin',
     name: 'Administrator',
-    description: 'Full unrestricted access across all primary tabs, pricing rates, and user administration.',
+    description: 'Full unrestricted access across all primary tabs, pricing rates, customer records, and user administration.',
     color: 'emerald',
     isSystem: true,
     permissions: {
       accessDashboard: true,
       accessRentals: true,
       accessHistory: true,
+      accessCustomers: true,
       accessUsers: true,
       accessSettings: true,
       accessIncome: true,
@@ -89,13 +91,14 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
   {
     id: 'manager',
     name: 'Store Manager',
-    description: 'Manages fleet vehicle inventory, rates, views historical settlement reports, and executes daily cash audits.',
+    description: 'Manages fleet vehicle inventory, rates, customers, views historical settlement reports, and executes daily cash audits.',
     color: 'blue',
     isSystem: true,
     permissions: {
       accessDashboard: true,
       accessRentals: true,
       accessHistory: true,
+      accessCustomers: true,
       accessUsers: false,
       accessSettings: true,
       accessIncome: true,
@@ -111,13 +114,14 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
   {
     id: 'cashier',
     name: 'Cashier POS',
-    description: 'Operates the live rental counter, starts rental timers, checks in returned vehicles, and issues receipts.',
+    description: 'Operates the live rental counter, registers customers, starts rental timers, checks in returned vehicles, and issues receipts.',
     color: 'purple',
     isSystem: true,
     permissions: {
       accessDashboard: false,
       accessRentals: true,
       accessHistory: true,
+      accessCustomers: true,
       accessUsers: false,
       accessSettings: false,
       accessIncome: false,
@@ -157,6 +161,7 @@ export function getStoredRoles(): RoleDefinition[] {
           accessDashboard: role.permissions?.accessDashboard ?? (defaultMatch?.permissions?.accessDashboard ?? true),
           accessRentals: role.permissions?.accessRentals ?? (defaultMatch ? defaultMatch.permissions.accessRentals : true),
           accessHistory: role.permissions?.accessHistory ?? (defaultMatch ? defaultMatch.permissions.accessHistory : true),
+          accessCustomers: role.permissions?.accessCustomers ?? (defaultMatch?.permissions?.accessCustomers ?? true),
           accessUsers: role.permissions?.accessUsers ?? (defaultMatch ? defaultMatch.permissions.accessUsers : false),
           accessSettings: role.permissions?.accessSettings ?? (defaultMatch ? defaultMatch.permissions.accessSettings : false),
           accessIncome: role.permissions?.accessIncome ?? (defaultMatch?.permissions?.accessIncome ?? false),
@@ -205,6 +210,7 @@ export function updateRolePermissions(
     updatedPerms.accessDashboard = true;
     updatedPerms.accessRentals = true;
     updatedPerms.accessHistory = true;
+    updatedPerms.accessCustomers = true;
     updatedPerms.accessUsers = true;
     updatedPerms.accessSettings = true;
     updatedPerms.accessIncome = true;
@@ -227,6 +233,7 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
       accessDashboard: true,
       accessRentals: true,
       accessHistory: false,
+      accessCustomers: true,
       accessUsers: false,
       accessSettings: false,
       accessIncome: false,
@@ -245,6 +252,7 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
       accessDashboard: true,
       accessRentals: true,
       accessHistory: true,
+      accessCustomers: true,
       accessUsers: true,
       accessSettings: true,
       accessIncome: true,
@@ -269,6 +277,7 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
     accessDashboard: true,
     accessRentals: true,
     accessHistory: true,
+    accessCustomers: true,
     accessUsers: false,
     accessSettings: false,
     accessIncome: false,
@@ -309,6 +318,7 @@ export function createCustomRole(params: {
       accessDashboard: params.permissions?.accessDashboard ?? true,
       accessRentals: params.permissions?.accessRentals ?? true,
       accessHistory: params.permissions?.accessHistory ?? true,
+      accessCustomers: params.permissions?.accessCustomers ?? true,
       accessUsers: params.permissions?.accessUsers ?? false,
       accessSettings: params.permissions?.accessSettings ?? false,
       accessIncome: params.permissions?.accessIncome ?? false,
@@ -590,27 +600,45 @@ export async function registerNewUser(params: {
   return { success: true, user: newUser };
 }
 
-export async function resetUserPassword(email: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
-  // Try Supabase Auth first if configured - send reset link
+export async function resetUserPassword(email: string, newPassword?: string): Promise<{ success: boolean; error?: string }> {
   const supaAuth = getSupabaseAuth();
   if (supaAuth) {
     try {
-      await supaAuth.auth.resetPasswordForEmail(email);
-      // Supabase sends reset link to user's email
-      // For immediate password update, we fall back to localStorage
-      console.log('Supabase reset password link sent to', email);
+      if (newPassword) {
+        // If newPassword is provided, update the password directly (for admin or after email link)
+        const { data, error } = await supaAuth.auth.updateUser({
+          password: newPassword,
+        });
+        if (error) {
+          return { success: false, error: error.message };
+        }
+        return { success: true };
+      } else {
+        // Send password reset email via Supabase
+        const { error } = await supaAuth.auth.resetPasswordForEmail(email, {
+          redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+        });
+        if (error) {
+          return { success: false, error: error.message };
+        }
+        return { success: true };
+      }
     } catch (e) {
-      // Supabase Auth not available or error, fall through to localStorage
+      return { success: false, error: 'Failed to send password reset email. Please try again.' };
     }
   }
 
-  // Fallback to localStorage-based password reset
+  // Supabase not configured - fallback to localStorage (only for local development)
   const users = getStoredUsers();
   const normalizedEmail = (email || '').trim().toLowerCase();
   const idx = users.findIndex((u) => u && u.email && u.email.toLowerCase() === normalizedEmail);
 
   if (idx === -1) {
     return { success: false, error: 'No user account registered with this email address.' };
+  }
+
+  if (!newPassword || newPassword.length < 6) {
+    return { success: false, error: 'New password must be at least 6 characters.' };
   }
 
   users[idx] = {
