@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Play, 
   Tag, 
@@ -15,7 +15,7 @@ import {
   Info,
   ChevronDown
 } from 'lucide-react';
-import { AppSettings, Customer, Vehicle, VehicleType } from '../types';
+import { AppSettings, Customer, RentalRecord, Vehicle, VehicleType } from '../types';
 import { VehicleIcon } from './VehicleIcon';
 import { formatCurrency, playSoundEffect } from '../utils/pricing';
 import { findCustomerByNic, searchCustomers } from '../utils/customer';
@@ -25,6 +25,7 @@ interface StartRentalCardProps {
   vehicleTypes: VehicleType[];
   vehicles: Vehicle[];
   customers?: Customer[];
+  completedRentals?: RentalRecord[];
   settings: AppSettings;
   themeMode?: ThemeMode;
   accent?: AccentColor;
@@ -44,6 +45,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   vehicleTypes,
   vehicles,
   customers = [],
+  completedRentals = [],
   settings,
   themeMode = 'dark',
   accent = 'emerald',
@@ -66,6 +68,20 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
   const t = getThemeClasses(themeMode, accent);
+
+  // Calculate today completed rentals count and amount
+  const todayCompleted = useMemo(() => {
+    const now = new Date();
+    const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    return (completedRentals || []).filter((r) => {
+      const d = new Date(r.completedAt || r.endTime || r.startTime);
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return iso === todayISO;
+    });
+  }, [completedRentals]);
+
+  const todayCompletedCount = todayCompleted.length;
+  const todayCompletedAmount = todayCompleted.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
 
   // Update selected type if list changes
   useEffect(() => {
@@ -213,18 +229,33 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     <div className={`${t.cardBg} rounded-2xl p-4 sm:p-6 border shadow-xl transition-all`}>
       
       {/* Header */}
-      <div className={`flex items-center justify-between pb-3 sm:pb-4 border-b ${t.divider} mb-4 sm:mb-5`}>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 text-white flex items-center justify-center shrink-0 shadow-md">
-            <Play className="w-5 h-5 fill-white" />
+      <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 sm:pb-4 border-b ${t.divider} mb-4 sm:mb-5`}>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 text-white flex items-center justify-center shrink-0 shadow-md">
+              <Play className="w-5 h-5 fill-white" />
+            </div>
+            <div>
+              <h2 className={`text-base sm:text-lg font-bold tracking-tight leading-snug ${t.textHeading}`}>
+                Start New Rental
+              </h2>
+              <p className={`text-xs ${t.textMuted}`}>
+                Select vehicle, enter customer details & start
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className={`text-base sm:text-lg font-bold tracking-tight leading-snug ${t.textHeading}`}>
-              Start New Rental
-            </h2>
-            <p className={`text-xs ${t.textMuted}`}>
-              Select vehicle, enter customer details & start
-            </p>
+
+          {/* Today Completed Count & Amount in first row next to Start New Rental */}
+          <div className={`flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl border text-xs ${t.cardSubtleBg}`}>
+            <span className={`text-[11px] font-semibold ${t.textMuted}`}>Today Completed:</span>
+            <span className="font-mono font-bold text-emerald-500 text-sm">
+              {todayCompletedCount} {todayCompletedCount === 1 ? 'Trip' : 'Trips'}
+            </span>
+            <span className={`h-4 w-px border-r ${t.divider}`} />
+            <span className={`text-[11px] font-semibold ${t.textMuted}`}>Today Revenue:</span>
+            <span className="font-mono font-bold text-emerald-500 text-sm">
+              {formatCurrency(todayCompletedAmount, settings.currencySymbol, settings.currencyPosition)}
+            </span>
           </div>
         </div>
 

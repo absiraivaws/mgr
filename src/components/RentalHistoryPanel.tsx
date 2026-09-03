@@ -41,17 +41,12 @@ interface RentalHistoryPanelProps {
   accent?: AccentColor;
 }
 
-type DateFilterMode = 'today' | 'all' | 'custom';
-
 export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   completedRentals,
   settings,
   themeMode = 'dark',
   accent = 'emerald',
 }) => {
-  // Date filter mode radio selection: 'today' | 'all' | 'custom'
-  const [dateFilterMode, setDateFilterMode] = useState<DateFilterMode>('today');
-  
   // Get today's ISO date string (YYYY-MM-DD)
   const getTodayISO = () => {
     const d = new Date();
@@ -61,8 +56,9 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
     return `${year}-${month}-${day}`;
   };
 
-  const [fromDate, setFromDate] = useState<string>(getTodayISO());
-  const [toDate, setToDate] = useState<string>(getTodayISO());
+  // Start with empty dates by default to display all history details from Supabase
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterPayment, setFilterPayment] = useState<string>('all');
@@ -70,17 +66,15 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
 
   const t = getThemeClasses(themeMode, accent);
 
-  // Handle Radio Button changes
-  const handleRadioModeChange = (mode: DateFilterMode) => {
-    setDateFilterMode(mode);
-    if (mode === 'today') {
-      const today = getTodayISO();
-      setFromDate(today);
-      setToDate(today);
-    } else if (mode === 'all') {
-      setFromDate('');
-      setToDate('');
-    }
+  const handleSetToday = () => {
+    const today = getTodayISO();
+    setFromDate(today);
+    setToDate(today);
+  };
+
+  const handleClearDates = () => {
+    setFromDate('');
+    setToDate('');
   };
 
   // Filter logic
@@ -89,19 +83,12 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
       const rentalDate = new Date(rental.endTime || rental.startTime);
       const rentalDateISO = `${rentalDate.getFullYear()}-${String(rentalDate.getMonth() + 1).padStart(2, '0')}-${String(rentalDate.getDate()).padStart(2, '0')}`;
 
-      // 1. Date Filter
-      if (dateFilterMode === 'today') {
-        const todayISO = getTodayISO();
-        if (rentalDateISO !== todayISO) {
-          return false;
-        }
-      } else if (dateFilterMode === 'custom') {
-        if (fromDate && rentalDateISO < fromDate) {
-          return false;
-        }
-        if (toDate && rentalDateISO > toDate) {
-          return false;
-        }
+      // 1. Calendar Date Range Filter
+      if (fromDate && rentalDateISO < fromDate) {
+        return false;
+      }
+      if (toDate && rentalDateISO > toDate) {
+        return false;
       }
 
       // 2. Search Term Filter
@@ -131,15 +118,21 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
 
       return true;
     });
-  }, [completedRentals, dateFilterMode, fromDate, toDate, searchTerm, filterType, filterPayment]);
+  }, [completedRentals, fromDate, toDate, searchTerm, filterType, filterPayment]);
 
-  // Aggregated Total Values (Always dynamically calculated & displayed)
+  // Aggregated Total Values for Filtered View
   const filteredTotalValue = filteredRentals.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
   const filteredTotalMinutes = filteredRentals.reduce((sum, r) => sum + (r.breakdown?.totalMinutes || 0), 0);
   const filteredCashValue = filteredRentals.filter(r => (r.paymentMethod || 'cash') === 'cash').reduce((sum, r) => sum + (r.totalAmount || 0), 0);
   const filteredDigitalValue = filteredTotalValue - filteredCashValue;
 
+  // All-Time Overall History Details
   const totalAllTimeValue = completedRentals.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+  const totalAllTimeMinutes = completedRentals.reduce((sum, r) => sum + (r.breakdown?.totalMinutes || 0), 0);
+  const totalAllTimeCash = completedRentals.filter(r => (r.paymentMethod || 'cash') === 'cash').reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+  const totalAllTimeDigital = totalAllTimeValue - totalAllTimeCash;
+  const avgTripValue = completedRentals.length > 0 ? (totalAllTimeValue / completedRentals.length) : 0;
+  const isDateFiltered = Boolean(fromDate || toDate);
 
   const exportToCSV = () => {
     if (filteredRentals.length === 0) {
@@ -184,7 +177,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    const dateLabel = dateFilterMode === 'today' ? 'Today' : dateFilterMode === 'custom' ? `${fromDate}_to_${toDate}` : 'All_Time';
+    const dateLabel = fromDate && toDate ? `${fromDate}_to_${toDate}` : fromDate ? `From_${fromDate}` : toDate ? `UpTo_${toDate}` : 'All_Time';
     link.setAttribute('download', `Rental_History_Report_${dateLabel}.csv`);
     document.body.appendChild(link);
     link.click();
@@ -194,7 +187,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   return (
     <div className="space-y-5 sm:space-y-6">
       
-      {/* 1. ALWAYS DISPLAY TOTAL VALUE KPI BANNER */}
+      {/* 1. ALWAYS DISPLAY ALL TOTAL HISTORY DETAILS IN THE FIRST ROW */}
       <div className={`p-4 sm:p-5 rounded-2xl border shadow-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent ${t.cardBg} ${t.divider}`}>
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           
@@ -203,27 +196,33 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-500">
-                {dateFilterMode === 'today' 
-                  ? "Today's Total Value Collected" 
-                  : dateFilterMode === 'custom' 
+                {isDateFiltered 
                   ? `Filtered Period Revenue (${fromDate || 'Start'} to ${toDate || 'Present'})` 
-                  : 'All-Time Total Revenue Collected'}
+                  : 'Total Rental History Revenue (All-Time)'}
               </span>
             </div>
             
-            <div className="flex items-baseline gap-3">
+            <div className="flex items-baseline gap-3 flex-wrap">
               <span className="font-mono text-2xl sm:text-4xl font-black text-emerald-500 tracking-tight">
-                {formatCurrency(filteredTotalValue, settings.currencySymbol, settings.currencyPosition)}
+                {formatCurrency(isDateFiltered ? filteredTotalValue : totalAllTimeValue, settings.currencySymbol, settings.currencyPosition)}
               </span>
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${t.badge}`}>
-                {filteredRentals.length} {filteredRentals.length === 1 ? 'Trip' : 'Trips'} Settled
+                {isDateFiltered ? `${filteredRentals.length} of ${completedRentals.length} Trips` : `${completedRentals.length} Trips Settled`}
               </span>
+              {isDateFiltered && (
+                <span className={`text-xs font-mono font-medium ${t.textMuted}`}>
+                  (All-Time Total: {formatCurrency(totalAllTimeValue, settings.currencySymbol, settings.currencyPosition)})
+                </span>
+              )}
             </div>
             
             <p className={`text-xs ${t.textMuted}`}>
-              Cash: <strong className={t.textMain}>{formatCurrency(filteredCashValue, settings.currencySymbol, settings.currencyPosition)}</strong>
-              {filteredDigitalValue > 0 && (
-                <> • Card/Digital: <strong className={t.textMain}>{formatCurrency(filteredDigitalValue, settings.currencySymbol, settings.currencyPosition)}</strong></>
+              All-Time Cash: <strong className={t.textMain}>{formatCurrency(totalAllTimeCash, settings.currencySymbol, settings.currencyPosition)}</strong>
+              {totalAllTimeDigital > 0 && (
+                <> • Card/Digital: <strong className={t.textMain}>{formatCurrency(totalAllTimeDigital, settings.currencySymbol, settings.currencyPosition)}</strong></>
+              )}
+              {completedRentals.length > 0 && (
+                <> • Avg: <strong className={t.textMain}>{formatCurrency(avgTripValue, settings.currencySymbol, settings.currencyPosition)}/trip</strong></>
               )}
             </p>
           </div>
@@ -231,22 +230,22 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
           {/* Quick Metrics Breakdown */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 shrink-0">
             <div className={`p-3 rounded-xl border ${t.cardSubtleBg}`}>
-              <span className={`text-[10px] uppercase font-bold block ${t.textMuted}`}>Filtered Trips</span>
+              <span className={`text-[10px] uppercase font-bold block ${t.textMuted}`}>Total All Trips</span>
               <span className={`font-mono text-lg font-black block mt-0.5 ${t.textHeading}`}>
-                {filteredRentals.length}
+                {completedRentals.length}
               </span>
             </div>
 
             <div className={`p-3 rounded-xl border ${t.cardSubtleBg}`}>
-              <span className={`text-[10px] uppercase font-bold block ${t.textMuted}`}>Fleet Ride Time</span>
+              <span className={`text-[10px] uppercase font-bold block ${t.textMuted}`}>Total Ride Time</span>
               <span className="font-mono text-lg font-black block mt-0.5 text-blue-500">
-                {Math.floor(filteredTotalMinutes / 60)}h {filteredTotalMinutes % 60}m
+                {Math.floor(totalAllTimeMinutes / 60)}h {totalAllTimeMinutes % 60}m
               </span>
             </div>
 
             <div className={`p-3 rounded-xl border ${t.cardSubtleBg} col-span-2 sm:col-span-1`}>
-              <span className={`text-[10px] uppercase font-bold block ${t.textMuted}`}>All-Time Total</span>
-              <span className={`font-mono text-lg font-black block mt-0.5 ${t.textMuted}`}>
+              <span className={`text-[10px] uppercase font-bold block ${t.textMuted}`}>All-Time Revenue</span>
+              <span className={`font-mono text-lg font-black block mt-0.5 text-emerald-500`}>
                 {formatCurrency(totalAllTimeValue, settings.currencySymbol, settings.currencyPosition)}
               </span>
             </div>
@@ -254,7 +253,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
         </div>
       </div>
 
-      {/* 2. DATE FILTER CONTROL BAR WITH RADIO BUTTONS & DATE PICKERS */}
+      {/* 2. DATE FILTER CONTROL BAR WITHOUT RADIO BUTTONS (USER SELECTS VIA CALENDAR) */}
       <div className={`${t.cardBg} rounded-2xl p-4 sm:p-5 border shadow-xl space-y-4`}>
         
         <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b ${t.divider}`}>
@@ -263,6 +262,11 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
             <h3 className={`font-bold text-sm ${t.textHeading}`}>
               Daily & Historical Date Range Filters
             </h3>
+            {isDateFiltered && (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                Filtered: {fromDate || 'Start'} → {toDate || 'Present'}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -276,60 +280,6 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               <span>Export CSV</span>
             </button>
           </div>
-        </div>
-
-        {/* Radio Buttons for Mode Selection */}
-        <div className="flex flex-wrap items-center gap-3 sm:gap-6 pt-1">
-          <label className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition cursor-pointer ${
-            dateFilterMode === 'today' 
-              ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 font-bold' 
-              : `${t.cardSubtleBg} ${t.divider} ${t.textMuted}`
-          }`}>
-            <input
-              type="radio"
-              id="radio-filter-today"
-              name="dateFilterMode"
-              value="today"
-              checked={dateFilterMode === 'today'}
-              onChange={() => handleRadioModeChange('today')}
-              className="w-4 h-4 accent-emerald-500 cursor-pointer"
-            />
-            <span className="text-xs">🔘 Today's Value ({getTodayISO()})</span>
-          </label>
-
-          <label className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition cursor-pointer ${
-            dateFilterMode === 'all' 
-              ? 'bg-blue-500/10 border-blue-500/40 text-blue-400 font-bold' 
-              : `${t.cardSubtleBg} ${t.divider} ${t.textMuted}`
-          }`}>
-            <input
-              type="radio"
-              id="radio-filter-all"
-              name="dateFilterMode"
-              value="all"
-              checked={dateFilterMode === 'all'}
-              onChange={() => handleRadioModeChange('all')}
-              className="w-4 h-4 accent-blue-500 cursor-pointer"
-            />
-            <span className="text-xs">🔘 All-Time History</span>
-          </label>
-
-          <label className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition cursor-pointer ${
-            dateFilterMode === 'custom' 
-              ? 'bg-purple-500/10 border-purple-500/40 text-purple-400 font-bold' 
-              : `${t.cardSubtleBg} ${t.divider} ${t.textMuted}`
-          }`}>
-            <input
-              type="radio"
-              id="radio-filter-custom"
-              name="dateFilterMode"
-              value="custom"
-              checked={dateFilterMode === 'custom'}
-              onChange={() => handleRadioModeChange('custom')}
-              className="w-4 h-4 accent-purple-500 cursor-pointer"
-            />
-            <span className="text-xs">🔘 Custom From & To Date Range</span>
-          </label>
         </div>
 
         {/* From & To Date Pickers with Visible Calendar Icons */}
@@ -350,10 +300,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                 id="input-filter-from-date"
                 type="date"
                 value={fromDate}
-                onChange={(e) => {
-                  setFromDate(e.target.value);
-                  setDateFilterMode('custom');
-                }}
+                onChange={(e) => setFromDate(e.target.value)}
                 className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs font-mono font-medium ${t.textInput} cursor-pointer`}
                 onClick={(e) => {
                   try {
@@ -380,10 +327,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                 id="input-filter-to-date"
                 type="date"
                 value={toDate}
-                onChange={(e) => {
-                  setToDate(e.target.value);
-                  setDateFilterMode('custom');
-                }}
+                onChange={(e) => setToDate(e.target.value)}
                 className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs font-mono font-medium ${t.textInput} cursor-pointer`}
                 onClick={(e) => {
                   try {
@@ -411,15 +355,25 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
             </select>
           </div>
 
-          {/* Quick Reset Filter */}
-          <div className="flex items-end">
+          {/* Quick Filter Actions */}
+          <div className="flex items-end gap-2">
             <button
               type="button"
-              onClick={() => handleRadioModeChange('today')}
-              className={`w-full py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition cursor-pointer ${t.inactiveTab}`}
+              onClick={handleSetToday}
+              className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 border transition cursor-pointer ${t.inactiveTab}`}
+              title="Filter by Today's Date"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset to Today</span>
+              <Clock className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Today</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleClearDates}
+              className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 border transition cursor-pointer ${t.inactiveTab}`}
+              title="Show All Dates"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-blue-400" />
+              <span>Show All</span>
             </button>
           </div>
         </div>
@@ -463,12 +417,15 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
 
       {/* 3. SETTLED RENTALS HISTORY TABLE */}
       <div className={`${t.cardBg} rounded-2xl p-4 sm:p-6 border shadow-xl space-y-4`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Receipt className="w-5 h-5 text-emerald-500" />
             <h2 className={`text-base sm:text-lg font-bold tracking-tight ${t.textHeading}`}>
               Settled Rental Receipts & Detailed Log
             </h2>
+            <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${t.badge}`}>
+              {filteredRentals.length} {filteredRentals.length === 1 ? 'Record' : 'Records'}
+            </span>
           </div>
           <span className={`text-xs font-mono font-bold text-emerald-500`}>
             Total: {formatCurrency(filteredTotalValue, settings.currencySymbol, settings.currencyPosition)}

@@ -1,5 +1,6 @@
 import { getSupabase } from './supabase';
 import { AppSettings, Customer, RentalRecord, Vehicle, VehicleType } from '../types';
+import { RoleDefinition, UserAccount } from '../utils/auth';
 
 /**
  * Fetch all initial data from Supabase if connected
@@ -11,18 +12,26 @@ export async function fetchSupabaseData(): Promise<{
   activeRentals?: RentalRecord[];
   completedRentals?: RentalRecord[];
   settings?: AppSettings;
+  userAccounts?: UserAccount[];
+  roles?: RoleDefinition[];
 } | null> {
   const supabase = getSupabase();
   if (!supabase) return null;
 
   try {
-    const [typesRes, vehiclesRes, customersRes, rentalsRes, settingsRes] = await Promise.all([
+    const [typesRes, vehiclesRes, customersRes, rentalsRes, settingsRes, usersRes, rolesRes] = await Promise.all([
       supabase.from('vehicle_types').select('*'),
       supabase.from('vehicles').select('*'),
       supabase.from('customers').select('*'),
-      supabase.from('rentals').select('*'),
+      supabase.from('rentals').select('*').order('start_time', { ascending: false }),
       supabase.from('app_settings').select('*').limit(1),
+      supabase.from('user_accounts').select('*'),
+      supabase.from('user_roles').select('*'),
     ]);
+
+    if (rentalsRes.error) {
+      console.error('Error fetching rentals from Supabase:', rentalsRes.error);
+    }
 
     const result: {
       vehicleTypes?: VehicleType[];
@@ -31,6 +40,8 @@ export async function fetchSupabaseData(): Promise<{
       activeRentals?: RentalRecord[];
       completedRentals?: RentalRecord[];
       settings?: AppSettings;
+      userAccounts?: UserAccount[];
+      roles?: RoleDefinition[];
     } = {};
 
     if (typesRes.data && typesRes.data.length > 0) {
@@ -70,7 +81,7 @@ export async function fetchSupabaseData(): Promise<{
       }));
     }
 
-    if (rentalsRes.data && rentalsRes.data.length > 0) {
+    if (rentalsRes.data) {
       const active: RentalRecord[] = [];
       const completed: RentalRecord[] = [];
 
@@ -108,6 +119,10 @@ export async function fetchSupabaseData(): Promise<{
         }
       });
 
+      // Sort completed rentals newest first
+      completed.sort((a, b) => (b.completedAt || b.endTime || b.startTime) - (a.completedAt || a.endTime || a.startTime));
+      active.sort((a, b) => b.startTime - a.startTime);
+
       result.activeRentals = active;
       result.completedRentals = completed;
     }
@@ -125,6 +140,29 @@ export async function fetchSupabaseData(): Promise<{
         soundEnabled: row.sound_enabled ?? true,
         rentalNumberPrefix: row.rental_number_prefix || 'REN',
       };
+    }
+
+    if (usersRes.data && usersRes.data.length > 0) {
+      result.userAccounts = usersRes.data.map((row) => ({
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        phone: row.phone || undefined,
+        role: row.role,
+        password: row.password_hash || '123456',
+        createdAt: row.created_at ? Number(row.created_at) : Date.now(),
+      }));
+    }
+
+    if (rolesRes.data && rolesRes.data.length > 0) {
+      result.roles = rolesRes.data.map((row) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description || '',
+        color: row.color || 'teal',
+        isSystem: row.is_system ?? false,
+        permissions: row.permissions,
+      }));
     }
 
     return result;
@@ -254,6 +292,182 @@ export async function syncVehicleTypeToSupabase(type: VehicleType) {
     }, { onConflict: 'id' });
   } catch (err) {
     console.error('Failed to sync vehicle type to Supabase:', err);
+  }
+}
+
+/**
+ * Delete vehicle type from Supabase
+ */
+export async function deleteVehicleTypeFromSupabase(id: string) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    await supabase.from('vehicle_types').delete().eq('id', id);
+  } catch (err) {
+    console.error('Failed to delete vehicle type from Supabase:', err);
+  }
+}
+
+/**
+ * Delete a vehicle from Supabase
+ */
+export async function deleteVehicleFromSupabase(id: string) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    await supabase.from('vehicles').delete().eq('id', id);
+  } catch (err) {
+    console.error('Failed to delete vehicle from Supabase:', err);
+  }
+}
+
+/**
+ * Sync App Settings (Business name, phone, address, receipt, currency) to Supabase
+ */
+export async function syncSettingsToSupabase(settings: AppSettings) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    const payload = {
+      id: 'global_config',
+      business_name: settings.businessName || '',
+      business_phone: settings.businessPhone || '',
+      business_address: settings.businessAddress || '',
+      receipt_footer: settings.receiptFooter || '',
+      currency_symbol: settings.currencySymbol || 'LKR',
+      currency_position: settings.currencyPosition || 'prefix',
+      cashier_name: settings.cashierName || '',
+      sound_enabled: settings.soundEnabled ?? true,
+      rental_number_prefix: settings.rentalNumberPrefix || 'CYC',
+    };
+
+    const { error } = await supabase.from('app_settings').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.error('Failed to upsert app_settings to Supabase:', error);
+    }
+  } catch (err) {
+    console.error('Failed to sync app settings to Supabase:', err);
+  }
+}
+
+/**
+ * Sync a user account to Supabase
+ */
+export async function syncUserAccountToSupabase(user: UserAccount) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    await supabase.from('user_accounts').upsert({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone || null,
+      role: user.role,
+      password_hash: user.password || null,
+      created_at: user.createdAt || Date.now(),
+    }, { onConflict: 'id' });
+  } catch (err) {
+    console.error('Failed to sync user to Supabase:', err);
+  }
+}
+
+/**
+ * Batch sync all users to Supabase
+ */
+export async function syncAllUsersToSupabase(users: UserAccount[]) {
+  const supabase = getSupabase();
+  if (!supabase || users.length === 0) return;
+
+  try {
+    const payload = users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      phone: u.phone || null,
+      role: u.role,
+      password_hash: u.password || null,
+      created_at: u.createdAt || Date.now(),
+    }));
+
+    await supabase.from('user_accounts').upsert(payload, { onConflict: 'id' });
+  } catch (err) {
+    console.error('Failed to batch sync users to Supabase:', err);
+  }
+}
+
+/**
+ * Delete a user account from Supabase
+ */
+export async function deleteUserAccountFromSupabase(userId: string) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    await supabase.from('user_accounts').delete().eq('id', userId);
+  } catch (err) {
+    console.error('Failed to delete user from Supabase:', err);
+  }
+}
+
+/**
+ * Sync role definition to Supabase
+ */
+export async function syncRoleToSupabase(role: RoleDefinition) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    await supabase.from('user_roles').upsert({
+      id: role.id,
+      name: role.name,
+      description: role.description || '',
+      color: role.color || 'teal',
+      is_system: role.isSystem ?? false,
+      permissions: role.permissions,
+    }, { onConflict: 'id' });
+  } catch (err) {
+    console.error('Failed to sync role to Supabase:', err);
+  }
+}
+
+/**
+ * Batch sync all roles to Supabase
+ */
+export async function syncAllRolesToSupabase(roles: RoleDefinition[]) {
+  const supabase = getSupabase();
+  if (!supabase || roles.length === 0) return;
+
+  try {
+    const payload = roles.map((r) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description || '',
+      color: r.color || 'teal',
+      is_system: r.isSystem ?? false,
+      permissions: r.permissions,
+    }));
+
+    await supabase.from('user_roles').upsert(payload, { onConflict: 'id' });
+  } catch (err) {
+    console.error('Failed to batch sync roles to Supabase:', err);
+  }
+}
+
+/**
+ * Delete custom role from Supabase
+ */
+export async function deleteRoleFromSupabase(roleId: string) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    await supabase.from('user_roles').delete().eq('id', roleId);
+  } catch (err) {
+    console.error('Failed to delete role from Supabase:', err);
   }
 }
 
@@ -448,3 +662,72 @@ export function subscribeToSupabaseRealtime(onDataChanged: () => void) {
   };
 }
 
+/**
+ * Fetch all income/expense entries from Supabase
+ */
+export async function fetchIncomeEntries(): Promise<import('../types').IncomeEntry[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('income_expenses')
+      .select('*')
+      .order('date', { ascending: false });
+
+    if (error || !data) return null;
+
+    return data.map((row) => ({
+      id: row.id,
+      date: row.date,
+      description: row.description,
+      type: row.type as 'income' | 'expense',
+      amount: Number(row.amount),
+      category: row.category || 'Other',
+      createdAt: row.created_at ? Number(row.created_at) : Date.now(),
+      cashierName: row.cashier_name || '',
+    }));
+  } catch (err) {
+    console.warn('Failed to fetch income entries:', err);
+    return null;
+  }
+}
+
+/**
+ * Upsert a single income/expense entry to Supabase
+ */
+export async function syncIncomeEntryToSupabase(entry: import('../types').IncomeEntry) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    const payload = {
+      id: entry.id,
+      date: entry.date,
+      description: entry.description,
+      type: entry.type,
+      amount: entry.amount,
+      category: entry.category || 'Other',
+      created_at: entry.createdAt,
+      cashier_name: entry.cashierName || '',
+    };
+
+    await supabase.from('income_expenses').upsert(payload, { onConflict: 'id' });
+  } catch (err) {
+    console.error('Failed to sync income entry to Supabase:', err);
+  }
+}
+
+/**
+ * Delete an income/expense entry from Supabase
+ */
+export async function deleteIncomeEntryFromSupabase(id: string) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    await supabase.from('income_expenses').delete().eq('id', id);
+  } catch (err) {
+    console.error('Failed to delete income entry from Supabase:', err);
+  }
+}

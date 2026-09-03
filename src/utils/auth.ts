@@ -22,10 +22,12 @@ export type UserRole = string;
 
 export interface RolePermissionSet {
   // Main Tab Access (Ticked active by Admin)
-  accessRentals: boolean;   // "Rental Desk"
-  accessHistory: boolean;   // "Daily History"
-  accessUsers: boolean;     // "User & Role"
-  accessSettings: boolean;  // "Rate & Inventory"
+  accessDashboard?: boolean; // "Dashboard"
+  accessRentals: boolean;    // "Rental Desk"
+  accessHistory: boolean;    // "History"
+  accessUsers: boolean;      // "Users & Role"
+  accessSettings: boolean;   // "Rates & Inventory"
+  accessIncome?: boolean;    // "Income & Expenses"
 
   // Functional operational privileges
   canRent: boolean;
@@ -69,10 +71,12 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
     color: 'emerald',
     isSystem: true,
     permissions: {
+      accessDashboard: true,
       accessRentals: true,
       accessHistory: true,
       accessUsers: true,
       accessSettings: true,
+      accessIncome: true,
       canRent: true,
       canSettle: true,
       canExportReports: true,
@@ -89,10 +93,12 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
     color: 'blue',
     isSystem: true,
     permissions: {
+      accessDashboard: true,
       accessRentals: true,
       accessHistory: true,
       accessUsers: false,
       accessSettings: true,
+      accessIncome: true,
       canRent: true,
       canSettle: true,
       canExportReports: true,
@@ -109,10 +115,12 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
     color: 'purple',
     isSystem: true,
     permissions: {
+      accessDashboard: false,
       accessRentals: true,
       accessHistory: true,
       accessUsers: false,
       accessSettings: false,
+      accessIncome: false,
       canRent: true,
       canSettle: true,
       canExportReports: false,
@@ -146,10 +154,12 @@ export function getStoredRoles(): RoleDefinition[] {
       return {
         ...role,
         permissions: {
+          accessDashboard: role.permissions?.accessDashboard ?? (defaultMatch?.permissions?.accessDashboard ?? true),
           accessRentals: role.permissions?.accessRentals ?? (defaultMatch ? defaultMatch.permissions.accessRentals : true),
           accessHistory: role.permissions?.accessHistory ?? (defaultMatch ? defaultMatch.permissions.accessHistory : true),
           accessUsers: role.permissions?.accessUsers ?? (defaultMatch ? defaultMatch.permissions.accessUsers : false),
           accessSettings: role.permissions?.accessSettings ?? (defaultMatch ? defaultMatch.permissions.accessSettings : false),
+          accessIncome: role.permissions?.accessIncome ?? (defaultMatch?.permissions?.accessIncome ?? false),
           canRent: role.permissions?.canRent ?? true,
           canSettle: role.permissions?.canSettle ?? true,
           canExportReports: role.permissions?.canExportReports ?? false,
@@ -192,8 +202,12 @@ export function updateRolePermissions(
   };
 
   if (roleId === 'admin') {
+    updatedPerms.accessDashboard = true;
+    updatedPerms.accessRentals = true;
+    updatedPerms.accessHistory = true;
     updatedPerms.accessUsers = true;
     updatedPerms.accessSettings = true;
+    updatedPerms.accessIncome = true;
     updatedPerms.canManageUsers = true;
     updatedPerms.canManageRoles = true;
   }
@@ -210,10 +224,12 @@ export function updateRolePermissions(
 export function getUserPermissions(user: UserAccount | null | undefined): RolePermissionSet {
   if (!user) {
     return {
+      accessDashboard: true,
       accessRentals: true,
       accessHistory: false,
       accessUsers: false,
       accessSettings: false,
+      accessIncome: false,
       canRent: true,
       canSettle: false,
       canExportReports: false,
@@ -226,10 +242,12 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
 
   if (user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || user.role === 'admin') {
     return {
+      accessDashboard: true,
       accessRentals: true,
       accessHistory: true,
       accessUsers: true,
       accessSettings: true,
+      accessIncome: true,
       canRent: true,
       canSettle: true,
       canExportReports: true,
@@ -248,10 +266,12 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
 
   // Default fallback for any unspecified role
   return {
+    accessDashboard: true,
     accessRentals: true,
     accessHistory: true,
     accessUsers: false,
     accessSettings: false,
+    accessIncome: false,
     canRent: true,
     canSettle: true,
     canExportReports: false,
@@ -286,10 +306,12 @@ export function createCustomRole(params: {
     color: params.color || 'teal',
     isSystem: false,
     permissions: {
+      accessDashboard: params.permissions?.accessDashboard ?? true,
       accessRentals: params.permissions?.accessRentals ?? true,
       accessHistory: params.permissions?.accessHistory ?? true,
       accessUsers: params.permissions?.accessUsers ?? false,
       accessSettings: params.permissions?.accessSettings ?? false,
+      accessIncome: params.permissions?.accessIncome ?? false,
       canRent: params.permissions?.canRent ?? true,
       canSettle: params.permissions?.canSettle ?? true,
       canExportReports: params.permissions?.canExportReports ?? false,

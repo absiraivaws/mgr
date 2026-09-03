@@ -95,3 +95,15 @@ export interface Customer {
   totalRentalsCount?: number;
 }
 
+export interface IncomeEntry {
+  id: string;
+  date: string;           // ISO date string e.g. "2026-09-03"
+  description: string;
+  type: 'income' | 'expense';
+  amount: number;
+  category?: string;
+  createdAt: number;      // epoch ms
+  cashierName?: string;
+}
+
+

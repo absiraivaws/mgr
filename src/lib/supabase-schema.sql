@@ -94,6 +94,48 @@ ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rentals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 
+-- 6. INCOME & EXPENSES TABLE
+CREATE TABLE IF NOT EXISTS income_expenses (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,                       -- ISO date e.g. '2026-09-03'
+  description TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
+  amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  category TEXT DEFAULT 'Other',
+  cashier_name TEXT DEFAULT '',
+  created_at BIGINT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE income_expenses ENABLE ROW LEVEL SECURITY;
+
+-- 7. USER ACCOUNTS TABLE
+CREATE TABLE IF NOT EXISTS user_accounts (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  phone TEXT,
+  role TEXT NOT NULL DEFAULT 'staff',
+  password_hash TEXT,
+  created_at BIGINT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. USER ROLES & PERMISSIONS TABLE
+CREATE TABLE IF NOT EXISTS user_roles (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  color TEXT DEFAULT 'teal',
+  is_system BOOLEAN DEFAULT FALSE,
+  permissions JSONB NOT NULL,
+  created_at BIGINT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE user_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
+
 -- Allow anon & authenticated users to perform operations on tables
 DO $$
 BEGIN
@@ -121,10 +163,26 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'app_settings' AND policyname = 'Allow all app_settings') THEN
     CREATE POLICY "Allow all app_settings" ON app_settings FOR ALL USING (true) WITH CHECK (true);
   END IF;
+
+  -- Income & Expenses policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'income_expenses' AND policyname = 'Allow all income_expenses') THEN
+    CREATE POLICY "Allow all income_expenses" ON income_expenses FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+
+  -- User Accounts policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_accounts' AND policyname = 'Allow all user_accounts') THEN
+    CREATE POLICY "Allow all user_accounts" ON user_accounts FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+
+  -- User Roles policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_roles' AND policyname = 'Allow all user_roles') THEN
+    CREATE POLICY "Allow all user_roles" ON user_roles FOR ALL USING (true) WITH CHECK (true);
+  END IF;
 END $$;
 
--- Enable Realtime for live cross-device sync
-BEGIN;
-  DROP PUBLICATION IF EXISTS supabase_realtime;
-  CREATE PUBLICATION supabase_realtime FOR TABLE vehicle_types, vehicles, customers, rentals, app_settings;
-COMMIT;
+-- Enable Realtime for all tables (run once in Supabase SQL editor)
+-- ALTER PUBLICATION supabase_realtime ADD TABLE rentals;
+-- ALTER PUBLICATION supabase_realtime ADD TABLE vehicles;
+-- ALTER PUBLICATION supabase_realtime ADD TABLE income_expenses;
+-- ALTER PUBLICATION supabase_realtime ADD TABLE app_settings;
+

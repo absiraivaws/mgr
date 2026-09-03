@@ -5,13 +5,48 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
+  Bike, 
+  Settings as SettingsIcon, 
+  History, 
+  PlayCircle, 
+  User, 
+  Clock, 
+  Calendar,
+  DollarSign, 
+  Layers,
+  Sun,
+  Moon,
+  Palette,
+  ChevronDown,
+  ShieldCheck,
+  LogOut,
+  UserCheck,
+  LogIn,
+  Menu,
+  Sparkles,
+  TrendingUp,
+  BarChart3,
+  Activity,
+  Zap,
+  MessageCircle,
+  Settings as Settings2,
+  Folder,
+  FolderOpen,
+  Image,
+  Shield,
+  Microscope,
+  BarChart,
+  Clipboard,
+  CalendarDays,
+} from 'lucide-react';
+import { 
   INITIAL_CUSTOMERS,
   INITIAL_COMPLETED_RENTALS,
   INITIAL_SETTINGS, 
-  INITIAL_VEHICLES, 
+  INITIAL_VEHICLES,
   INITIAL_VEHICLE_TYPES 
 } from './data/initialData';
-import { AppSettings, Customer, RentalRecord, Vehicle, VehicleType } from './types';
+import { AppSettings, Customer, IncomeEntry, RentalRecord, Vehicle, VehicleType } from './types';
 import { Navbar } from './components/Navbar';
 import { StartRentalCard } from './components/StartRentalCard';
 import { ActiveRentalsList } from './components/ActiveRentalsList';
@@ -19,6 +54,8 @@ import { StopRentalModal } from './components/StopRentalModal';
 import { SettingsPanel } from './components/SettingsPanel';
 import { RentalHistoryPanel } from './components/RentalHistoryPanel';
 import { UserRolesManager } from './components/UserRolesManager';
+import { DashboardStats } from './components/DashboardStats';
+import { IncomeExpensesPanel } from './components/IncomeExpensesPanel';
 import { AuthModal } from './components/AuthModal';
 import { LoginPage } from './components/LoginPage';
 import { 
@@ -26,7 +63,16 @@ import {
   subscribeToSupabaseRealtime,
   syncCustomerToSupabase, 
   syncRentalToSupabase, 
-  syncVehicleToSupabase 
+  syncVehicleToSupabase,
+  syncVehicleTypeToSupabase,
+  deleteVehicleTypeFromSupabase,
+  deleteVehicleFromSupabase,
+  syncIncomeEntryToSupabase,
+  syncSettingsToSupabase,
+  syncAllUsersToSupabase,
+  syncAllRolesToSupabase,
+  fetchIncomeEntries,
+  deleteIncomeEntryFromSupabase
 } from './lib/supabaseSync';
 import { isSupabaseConfigured } from './lib/supabase';
 import { 
@@ -38,11 +84,31 @@ import {
   saveAccent, 
   saveTheme 
 } from './utils/theme';
-import { DEFAULT_USER, UserAccount, getCurrentUser, setCurrentUserSession } from './utils/auth';
+import { 
+  DEFAULT_USER, 
+  UserAccount, 
+  getCurrentUser, 
+  setCurrentUserSession,
+  getStoredUsers,
+  getStoredRoles,
+  saveStoredUsers,
+  saveStoredRoles
+} from './utils/auth';
 
 export default function App() {
-  // Navigation tabs: 'rentals' | 'history' | 'users' | 'settings'
-  const [activeTab, setActiveTab] = useState<'rentals' | 'history' | 'users' | 'settings'>('rentals');
+  // Navigation tabs: 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard'
+  const [activeTab, setActiveTab] = useState<'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard'>('rentals');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Income & Expenses entries
+  const [incomeEntries, setIncomeEntries] = useState<IncomeEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('v_rental_income');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Theme & Accent State
   const [themeMode, setThemeMode] = useState<ThemeMode>(getSavedTheme);
@@ -161,20 +227,43 @@ export default function App() {
     localStorage.setItem('v_rental_customers', JSON.stringify(customers));
   }, [customers]);
 
+  useEffect(() => {
+    localStorage.setItem('v_rental_income', JSON.stringify(incomeEntries));
+  }, [incomeEntries]);
+
   // Load from Supabase on startup and subscribe to realtime changes
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
 
-    const loadData = () => {
-      fetchSupabaseData().then((cloudData) => {
-        if (!cloudData) return;
+    const loadData = async () => {
+      const [cloudData, cloudIncome] = await Promise.all([
+        fetchSupabaseData(),
+        fetchIncomeEntries(),
+      ]);
+      if (cloudData) {
         if (cloudData.vehicleTypes && cloudData.vehicleTypes.length > 0) setVehicleTypes(cloudData.vehicleTypes);
         if (cloudData.vehicles && cloudData.vehicles.length > 0) setVehicles(cloudData.vehicles);
         if (cloudData.customers && cloudData.customers.length > 0) setCustomers(cloudData.customers);
-        if (cloudData.activeRentals) setActiveRentals(cloudData.activeRentals);
-        if (cloudData.completedRentals) setCompletedRentals(cloudData.completedRentals);
+        // Always load rentals from Supabase to ensure history is up to date
+        if (cloudData.activeRentals !== undefined) setActiveRentals(cloudData.activeRentals);
+        if (cloudData.completedRentals !== undefined) setCompletedRentals(cloudData.completedRentals);
         if (cloudData.settings) setSettings(cloudData.settings);
-      });
+
+        if (cloudData.userAccounts && cloudData.userAccounts.length > 0) {
+          saveStoredUsers(cloudData.userAccounts);
+        } else {
+          syncAllUsersToSupabase(getStoredUsers());
+        }
+
+        if (cloudData.roles && cloudData.roles.length > 0) {
+          saveStoredRoles(cloudData.roles);
+        } else {
+          syncAllRolesToSupabase(getStoredRoles());
+        }
+      }
+      if (cloudIncome && cloudIncome.length > 0) {
+        setIncomeEntries(cloudIncome);
+      }
     };
 
     loadData();
@@ -188,6 +277,41 @@ export default function App() {
       unsubscribe();
     };
   }, []);
+
+  // Handlers for Settings, Vehicles, and Types with real-time Supabase sync
+  const handleUpdateSettings = (newSettings: AppSettings) => {
+    setSettings(newSettings);
+    localStorage.setItem('v_rental_settings', JSON.stringify(newSettings));
+    if (isSupabaseConfigured()) {
+      syncSettingsToSupabase(newSettings);
+    }
+  };
+
+  const handleUpdateVehicleTypes = (newTypes: VehicleType[]) => {
+    const oldIds = new Set(newTypes.map(t => t.id));
+    const deleted = vehicleTypes.filter(t => !oldIds.has(t.id));
+
+    setVehicleTypes(newTypes);
+    localStorage.setItem('v_rental_types', JSON.stringify(newTypes));
+
+    if (isSupabaseConfigured()) {
+      newTypes.forEach(t => syncVehicleTypeToSupabase(t));
+      deleted.forEach(t => deleteVehicleTypeFromSupabase(t.id));
+    }
+  };
+
+  const handleUpdateVehicles = (newVehicles: Vehicle[]) => {
+    const newIds = new Set(newVehicles.map(v => v.id));
+    const deleted = vehicles.filter(v => !newIds.has(v.id));
+
+    setVehicles(newVehicles);
+    localStorage.setItem('v_rental_vehicles', JSON.stringify(newVehicles));
+
+    if (isSupabaseConfigured()) {
+      newVehicles.forEach(v => syncVehicleToSupabase(v));
+      deleted.forEach(v => deleteVehicleFromSupabase(v.id));
+    }
+  };
 
   // Handler: Start New Rental
   const handleStartRental = (params: {
@@ -367,7 +491,7 @@ export default function App() {
   const activeUser = currentUser || DEFAULT_USER;
 
   return (
-    <div className={`min-h-screen ${t.appBg} flex flex-col font-sans transition-colors duration-300`}>
+    <div className={`flex flex-col min-h-screen ${t.appBg} w-full overflow-auto font-sans transition-colors duration-300`}>
       {/* Top Navigation Bar with Theme Toggles, Palette Picker, Inactive Bordered Tabs & User Login */}
       <Navbar
         activeTab={activeTab}
@@ -386,81 +510,129 @@ export default function App() {
         accent={accent}
         onToggleTheme={handleToggleTheme}
         onChangeAccent={handleChangeAccent}
+        sidebarCollapsed={sidebarCollapsed}
+        setSidebarCollapsed={setSidebarCollapsed}
       />
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-6">
-        
-        {/* Tab 1: Rental Counter Desk */}
-        {activeTab === 'rentals' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6 items-start">
-              {/* Left Column: Start Rental Form */}
-              <div className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-24">
-                <StartRentalCard
-                  vehicleTypes={vehicleTypes}
-                  vehicles={vehicles}
-                  customers={customers}
-                  settings={settings}
-                  themeMode={themeMode}
-                  accent={accent}
-                  onStartRental={handleStartRental}
-                />
-              </div>
+      <main
+        className="flex-1 w-full overflow-auto pb-8"
+        style={{
+          paddingTop: '4rem',
+          paddingLeft: sidebarCollapsed ? '4rem' : '15rem',
+          transition: 'padding-left 0.3s ease-in-out',
+        }}
+      >
+        <div className="px-4 sm:px-6 lg:px-8 pt-6">
 
-              {/* Right Column: Live Active Rentals Tracker */}
-              <div className="lg:col-span-7 xl:col-span-8">
-                <ActiveRentalsList
-                  activeRentals={activeRentals}
-                  settings={settings}
-                  themeMode={themeMode}
-                  accent={accent}
-                  onStopRental={(rental) => setSettlingRental(rental)}
-                />
-              </div>
+          {/* Tab 1: Rental Counter Desk */}
+          {activeTab === 'rentals' && (
+            <div className="space-y-6">
+              <StartRentalCard
+                vehicleTypes={vehicleTypes}
+                vehicles={vehicles}
+                customers={customers}
+                completedRentals={completedRentals}
+                settings={settings}
+                themeMode={themeMode}
+                accent={accent}
+                onStartRental={handleStartRental}
+              />
+              <ActiveRentalsList
+                activeRentals={activeRentals}
+                settings={settings}
+                themeMode={themeMode}
+                accent={accent}
+                onStopRental={(rental) => setSettlingRental(rental)}
+              />
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Tab 2: History & Daily Settlement */}
-        {activeTab === 'history' && (
-          <RentalHistoryPanel
-            completedRentals={completedRentals}
-            settings={settings}
-            themeMode={themeMode}
-            accent={accent}
-          />
-        )}
+          {/* Tab 2: History & Daily Settlement */}
+          {activeTab === 'history' && (
+            <RentalHistoryPanel
+              completedRentals={completedRentals}
+              settings={settings}
+              themeMode={themeMode}
+              accent={accent}
+            />
+          )}
 
-        {/* Tab 3: Users & Role Management */}
-        {activeTab === 'users' && (
-          <UserRolesManager
-            currentUser={activeUser}
-            themeMode={themeMode}
-            accent={accent}
-          />
-        )}
+          {/* Tab 3: Users & Role Management */}
+          {activeTab === 'users' && (
+            <UserRolesManager
+              currentUser={activeUser}
+              themeMode={themeMode}
+              accent={accent}
+              onUserListChange={() => {
+                const refreshed = getCurrentUser();
+                if (refreshed) setCurrentUser(refreshed);
+              }}
+              onRolePermissionsChange={() => {
+                const refreshed = getCurrentUser();
+                if (refreshed) setCurrentUser(refreshed);
+              }}
+            />
+          )}
 
-        {/* Tab 4: Settings & Rates Management */}
-        {activeTab === 'settings' && (
-          <SettingsPanel
-            vehicleTypes={vehicleTypes}
-            vehicles={vehicles}
-            customers={customers}
-            activeRentals={activeRentals}
-            completedRentals={completedRentals}
-            settings={settings}
-            currentUser={activeUser}
-            themeMode={themeMode}
-            accent={accent}
-            onUpdateVehicleTypes={setVehicleTypes}
-            onUpdateVehicles={setVehicles}
-            onUpdateSettings={setSettings}
-            onResetSampleData={handleResetSampleData}
-            onToggleTheme={handleToggleTheme}
-            onChangeAccent={handleChangeAccent}
-          />
-        )}
+          {/* Tab 4: Settings & Rates Management */}
+          {activeTab === 'settings' && (
+            <SettingsPanel
+              vehicleTypes={vehicleTypes}
+              vehicles={vehicles}
+              customers={customers}
+              activeRentals={activeRentals}
+              completedRentals={completedRentals}
+              settings={settings}
+              currentUser={activeUser}
+              themeMode={themeMode}
+              accent={accent}
+              onUpdateVehicleTypes={handleUpdateVehicleTypes}
+              onUpdateVehicles={handleUpdateVehicles}
+              onUpdateSettings={handleUpdateSettings}
+              onResetSampleData={handleResetSampleData}
+              onToggleTheme={handleToggleTheme}
+              onChangeAccent={handleChangeAccent}
+            />
+          )}
+
+          {/* Tab 5: Income & Expenses */}
+          {activeTab === 'income' && (
+            <IncomeExpensesPanel
+              entries={incomeEntries}
+              settings={settings}
+              themeMode={themeMode}
+              accent={accent}
+              currentUser={activeUser}
+              onAddEntry={(entry) => {
+                setIncomeEntries((prev) => [entry, ...prev]);
+                if (isSupabaseConfigured()) {
+                  syncIncomeEntryToSupabase(entry);
+                }
+              }}
+              onDeleteEntry={(id) => {
+                setIncomeEntries((prev) => prev.filter((e) => e.id !== id));
+                if (isSupabaseConfigured()) {
+                  deleteIncomeEntryFromSupabase(id);
+                }
+              }}
+            />
+          )}
+
+          {/* Tab 6: Dashboard */}
+          {activeTab === 'dashboard' && (
+            <DashboardStats
+              activeRentals={activeRentals}
+              allVehicles={vehicles}
+              todayCompletedRentals={completedRentals}
+              settings={settings}
+              currentUser={activeUser}
+              themeMode={themeMode}
+              accent={accent}
+            />
+          )}
+
+        </div>{/* end inner px wrapper */}
       </main>
 
       {/* User Authentication & Account Management Modal */}

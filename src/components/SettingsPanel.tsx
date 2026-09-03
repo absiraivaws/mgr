@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Plus, 
   Trash2, 
@@ -37,7 +37,6 @@ import { formatCurrency } from '../utils/pricing';
 import { SupabaseSettingsTab } from './SupabaseSettingsTab';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
-import { UserRolesManager } from './UserRolesManager';
 import { DEFAULT_USER, UserAccount } from '../utils/auth';
 
 interface SettingsPanelProps {
@@ -77,7 +76,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChangeAccent,
   onUserListChange,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'types' | 'inventory' | 'users' | 'store' | 'supabase'>('types');
+  const [activeSubTab, setActiveSubTab] = useState<'types' | 'inventory' | 'store' | 'supabase'>('types');
   const t = getThemeClasses(themeMode, accent);
 
   // Form State for Adding / Editing Vehicle Type
@@ -109,6 +108,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   // Store Settings state
   const [storeForm, setStoreForm] = useState<AppSettings>({ ...settings });
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+
+  // Keep storeForm in sync whenever settings change
+  useEffect(() => {
+    setStoreForm({ ...settings });
+  }, [settings]);
 
   // Handlers for Vehicle Types
   const handleStartAddType = () => {
@@ -324,17 +328,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </span>
           </button>
 
-          {/* User Roles & Permissions Sub-tab */}
-          <button
-            id="subtab-users"
-            onClick={() => setActiveSubTab('users')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
-              activeSubTab === 'users' ? t.activeTab : t.inactiveTab
-            }`}
-          >
-            <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            <span>User Roles & Permissions</span>
-          </button>
 
           <button
             id="subtab-store"
@@ -856,15 +849,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         </div>
       )}
 
-      {/* 3. USER ROLES & PERMISSIONS TAB */}
-      {activeSubTab === 'users' && (
-        <UserRolesManager
-          currentUser={currentUser}
-          themeMode={themeMode}
-          accent={accent}
-          onUserListChange={onUserListChange}
-        />
-      )}
 
       {/* 4. STORE & APPEARANCE TAB */}
       {activeSubTab === 'store' && (
@@ -962,6 +946,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>Business Name</label>
                 <input
                   type="text"
+                  required
+                  placeholder="e.g. Cycly Rent, ABC Rentals"
                   value={storeForm.businessName}
                   onChange={(e) => setStoreForm({ ...storeForm, businessName: e.target.value })}
                   className={`w-full rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-semibold ${t.textInput}`}
@@ -972,16 +958,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>Contact Phone</label>
                 <input
                   type="text"
+                  placeholder="e.g. +94 77 123 4567"
                   value={storeForm.businessPhone || ''}
                   onChange={(e) => setStoreForm({ ...storeForm, businessPhone: e.target.value })}
                   className={`w-full rounded-xl px-3.5 py-2.5 text-xs sm:text-sm ${t.textInput}`}
                 />
               </div>
 
-              <div>
+              <div className="sm:col-span-2">
                 <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>Store Address</label>
                 <input
                   type="text"
+                  placeholder="Street, City, Postal Code"
                   value={storeForm.businessAddress || ''}
                   onChange={(e) => setStoreForm({ ...storeForm, businessAddress: e.target.value })}
                   className={`w-full rounded-xl px-3.5 py-2.5 text-xs sm:text-sm ${t.textInput}`}
@@ -992,9 +980,55 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>Currency Symbol</label>
                 <input
                   type="text"
+                  placeholder="e.g. LKR, $, €"
                   value={storeForm.currencySymbol}
                   onChange={(e) => setStoreForm({ ...storeForm, currencySymbol: e.target.value })}
                   className={`w-full rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono font-bold ${t.textInput}`}
+                />
+              </div>
+
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>Currency Position</label>
+                <select
+                  value={storeForm.currencyPosition || 'prefix'}
+                  onChange={(e) => setStoreForm({ ...storeForm, currencyPosition: e.target.value as 'prefix' | 'suffix' })}
+                  className={`w-full rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-semibold cursor-pointer ${t.dropdownInput}`}
+                >
+                  <option value="prefix">Prefix (e.g. LKR 2,500)</option>
+                  <option value="suffix">Suffix (e.g. 2,500 LKR)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>Rental Receipt Prefix</label>
+                <input
+                  type="text"
+                  placeholder="e.g. CYC"
+                  value={storeForm.rentalNumberPrefix || 'CYC'}
+                  onChange={(e) => setStoreForm({ ...storeForm, rentalNumberPrefix: e.target.value.toUpperCase() })}
+                  className={`w-full rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono font-bold ${t.textInput}`}
+                />
+              </div>
+
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>Default Cashier Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Counter Cashier"
+                  value={storeForm.cashierName || ''}
+                  onChange={(e) => setStoreForm({ ...storeForm, cashierName: e.target.value })}
+                  className={`w-full rounded-xl px-3.5 py-2.5 text-xs sm:text-sm ${t.textInput}`}
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>Receipt Footer Message</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Thank you for riding with us! Drive safely."
+                  value={storeForm.receiptFooter || ''}
+                  onChange={(e) => setStoreForm({ ...storeForm, receiptFooter: e.target.value })}
+                  className={`w-full rounded-xl px-3.5 py-2.5 text-xs sm:text-sm ${t.textInput}`}
                 />
               </div>
             </div>

@@ -27,7 +27,8 @@ import {
   History,
   Settings as SettingsIcon,
   Sliders,
-  Users
+  Users,
+  DollarSign
 } from 'lucide-react';
 import { 
   DEFAULT_USER, 
@@ -42,8 +43,20 @@ import {
   getStoredUsers, 
   registerNewUser, 
   updateRolePermissions,
-  updateUserRoleAndDetails 
+  updateUserRoleAndDetails,
+  saveStoredUsers,
+  getCurrentUser,
+  setCurrentUserSession
 } from '../utils/auth';
+import { isSupabaseConfigured } from '../lib/supabase';
+import {
+  syncUserAccountToSupabase,
+  syncAllUsersToSupabase,
+  deleteUserAccountFromSupabase,
+  syncRoleToSupabase,
+  syncAllRolesToSupabase,
+  deleteRoleFromSupabase
+} from '../lib/supabaseSync';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 
 interface UserRolesManagerProps {
@@ -102,14 +115,68 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   const [roleDesc, setRoleDesc] = useState('');
   const [roleColor, setRoleColor] = useState<RoleDefinition['color']>('teal');
   const [roleTabAccess, setRoleTabAccess] = useState({
+    accessDashboard: true,
     accessRentals: true,
     accessHistory: true,
     accessUsers: false,
     accessSettings: false,
+    accessIncome: false,
   });
 
   const t = getThemeClasses(themeMode, accent);
   const isAdmin = currentUser?.role === 'admin' || currentUser?.email?.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+
+  // Definition of all Side Menu Tabs as rows in the matrix
+  const SIDE_MENU_TABS: {
+    key: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome'>;
+    label: string;
+    icon: React.ReactNode;
+    badgeColor: string;
+    description: string;
+  }[] = [
+    {
+      key: 'accessDashboard',
+      label: 'Dashboard',
+      icon: <Sparkles className="w-4 h-4 text-violet-400" />,
+      badgeColor: 'text-violet-400 bg-violet-500/10 border-violet-500/30',
+      description: 'Fleet metrics, live counters, and daily revenue stats',
+    },
+    {
+      key: 'accessRentals',
+      label: 'Rental Desk',
+      icon: <PlayCircle className="w-4 h-4 text-emerald-400" />,
+      badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+      description: 'Start live rentals, view active fleet timers, and stop & settle',
+    },
+    {
+      key: 'accessHistory',
+      label: 'History',
+      icon: <History className="w-4 h-4 text-teal-400" />,
+      badgeColor: 'text-teal-400 bg-teal-500/10 border-teal-500/30',
+      description: 'Historical trip logs, printable receipts, and CSV export',
+    },
+    {
+      key: 'accessUsers',
+      label: 'Users & Role',
+      icon: <ShieldCheck className="w-4 h-4 text-purple-400" />,
+      badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/30',
+      description: 'Manage staff accounts, assign roles, and configure permissions',
+    },
+    {
+      key: 'accessSettings',
+      label: 'Rates & Inventory',
+      icon: <SettingsIcon className="w-4 h-4 text-blue-400" />,
+      badgeColor: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+      description: 'Hourly rate plans, fleet inventory management, and shop settings',
+    },
+    {
+      key: 'accessIncome',
+      label: 'Income & Expenses',
+      icon: <DollarSign className="w-4 h-4 text-amber-400" />,
+      badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+      description: 'Log and track operating expenses, income receipts, and net profit',
+    },
+  ];
 
   const refreshState = () => {
     const freshUsers = getStoredUsers();
@@ -136,7 +203,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   // Toggle Tab Access for a Role Level (Tick box)
   const handleToggleTabPermission = (
     roleId: string, 
-    tabKey: keyof Pick<RolePermissionSet, 'accessRentals' | 'accessHistory' | 'accessUsers' | 'accessSettings'>
+    tabKey: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome'>
   ) => {
     if (!isAdmin) return;
     if (roleId === 'admin') {
@@ -146,10 +213,12 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
 
     setRolePermsState((prev) => {
       const current = prev[roleId] || {
+        accessDashboard: true,
         accessRentals: true,
         accessHistory: true,
         accessUsers: false,
         accessSettings: false,
+        accessIncome: false,
         canRent: true,
         canSettle: true,
         canExportReports: false,
@@ -183,6 +252,9 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     if (res.success) {
       setSavedRoleIds((prev) => ({ ...prev, [roleId]: true }));
       const roleObj = roles.find((r) => r.id === roleId);
+      if (roleObj && isSupabaseConfigured()) {
+        syncRoleToSupabase({ ...roleObj, permissions: targetPerms });
+      }
       setSuccessMessage(`Access permissions for user level "${roleObj?.name || roleId}" saved successfully.`);
       refreshState();
       setTimeout(() => {
@@ -198,12 +270,20 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   const handleSaveAllRolePermissions = () => {
     setErrorMessage(null);
     let count = 0;
+    const updatedRolesList: RoleDefinition[] = [];
     roles.forEach((r) => {
       if (r.id !== 'admin' && rolePermsState[r.id]) {
         updateRolePermissions(r.id, rolePermsState[r.id]);
+        updatedRolesList.push({ ...r, permissions: rolePermsState[r.id] });
         count++;
+      } else {
+        updatedRolesList.push(r);
       }
     });
+
+    if (isSupabaseConfigured()) {
+      syncAllRolesToSupabase(updatedRolesList);
+    }
 
     refreshState();
     setSuccessMessage(`Updated tab access permissions for all ${count} user levels.`);
@@ -229,6 +309,9 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
 
     const res = updateUserRoleAndDetails(userId, targetRole);
     if (res.success) {
+      if (res.user && isSupabaseConfigured()) {
+        syncUserAccountToSupabase(res.user);
+      }
       setSavedUserIds((prev) => ({ ...prev, [userId]: true }));
       const roleObj = roles.find((r) => r.id === targetRole);
       setSuccessMessage(`User "${res.user?.name}" assigned to level "${roleObj?.name || targetRole}".`);
@@ -244,18 +327,54 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
 
   const handleSaveAllUserRoles = () => {
     setErrorMessage(null);
-    let successCount = 0;
-    users.forEach((u) => {
+    const allUsers = getStoredUsers();
+    let updatedCount = 0;
+    const newSavedMap: Record<string, boolean> = {};
+
+    const updatedUsers = allUsers.map((u) => {
       const targetRole = selectedRoles[u.id];
-      if (targetRole && targetRole !== u.role) {
-        const res = updateUserRoleAndDetails(u.id, targetRole);
-        if (res.success) successCount++;
+      newSavedMap[u.id] = true;
+
+      // Primary default admin cannot be demoted
+      if (u.email.toLowerCase() === DEFAULT_USER.email.toLowerCase()) {
+        return { ...u, role: 'admin' as const };
       }
+
+      if (targetRole) {
+        if (targetRole !== u.role) {
+          updatedCount++;
+        }
+        return { ...u, role: targetRole };
+      }
+      return u;
     });
 
+    saveStoredUsers(updatedUsers);
+
+    // Update active session if logged in user's role changed
+    const current = getCurrentUser();
+    if (current) {
+      const found = updatedUsers.find((u) => u.id === current.id);
+      if (found) setCurrentUserSession(found);
+    }
+
+    if (isSupabaseConfigured()) {
+      syncAllUsersToSupabase(updatedUsers);
+    }
+
+    setSavedUserIds(newSavedMap);
     refreshState();
-    setSuccessMessage(`Successfully updated roles for ${successCount} user(s).`);
-    setTimeout(() => setSuccessMessage(null), 3000);
+
+    setSuccessMessage(
+      updatedCount > 0
+        ? `Successfully saved all user roles! (${updatedCount} role assignments updated)`
+        : 'All user roles are already saved and up to date.'
+    );
+
+    setTimeout(() => {
+      setSavedUserIds({});
+      setSuccessMessage(null);
+    }, 2500);
   };
 
   const handleDeleteUser = (user: UserAccount) => {
@@ -266,6 +385,9 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     if (confirm(`Are you sure you want to delete user "${user.name}" (${user.email})?`)) {
       const res = deleteUserAccount(user.id);
       if (res.success) {
+        if (isSupabaseConfigured()) {
+          deleteUserAccountFromSupabase(user.id);
+        }
         setSuccessMessage(`User ${user.name} removed from system.`);
         refreshState();
         setTimeout(() => setSuccessMessage(null), 2500);
@@ -301,6 +423,9 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     });
 
     if (res.success && res.user) {
+      if (isSupabaseConfigured()) {
+        syncUserAccountToSupabase(res.user);
+      }
       setSuccessMessage(`Staff member "${res.user.name}" registered with role "${roles.find(r => r.id === newRole)?.name || newRole}".`);
       setNewName('');
       setNewEmail('');
@@ -328,10 +453,12 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       description: roleDesc,
       color: roleColor,
       permissions: {
+        accessDashboard: roleTabAccess.accessDashboard,
         accessRentals: roleTabAccess.accessRentals,
         accessHistory: roleTabAccess.accessHistory,
         accessUsers: roleTabAccess.accessUsers,
         accessSettings: roleTabAccess.accessSettings,
+        accessIncome: roleTabAccess.accessIncome,
         canRent: roleTabAccess.accessRentals,
         canSettle: roleTabAccess.accessRentals,
         canExportReports: roleTabAccess.accessHistory,
@@ -343,15 +470,20 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     });
 
     if (res.success && res.role) {
+      if (isSupabaseConfigured()) {
+        syncRoleToSupabase(res.role);
+      }
       setSuccessMessage(`New custom user level "${res.role.name}" created with configured active tab tick boxes!`);
       setRoleName('');
       setRoleDesc('');
       setRoleColor('teal');
       setRoleTabAccess({
+        accessDashboard: true,
         accessRentals: true,
         accessHistory: true,
         accessUsers: false,
         accessSettings: false,
+        accessIncome: false,
       });
       setIsAddingRole(false);
       refreshState();
@@ -370,6 +502,9 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     if (confirm(`Delete user level "${role.name}"? Any users assigned to this role will default back to "Cashier POS".`)) {
       const res = deleteCustomRole(role.id);
       if (res.success) {
+        if (isSupabaseConfigured()) {
+          deleteRoleFromSupabase(role.id);
+        }
         setSuccessMessage(`Role "${role.name}" deleted.`);
         refreshState();
         setTimeout(() => setSuccessMessage(null), 2500);
@@ -545,60 +680,23 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
             {/* Initial Tab Access Tick Boxes */}
             <div>
               <label className={`block text-xs font-bold mb-2 uppercase tracking-wider ${t.textMuted}`}>
-                Active Main Tabs Access (Tick Boxes)
+                Active Side Menu Tabs Access (Tick Boxes)
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <label className="flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer border-slate-700 bg-slate-900/40">
-                  <input
-                    type="checkbox"
-                    checked={roleTabAccess.accessRentals}
-                    onChange={(e) => setRoleTabAccess(prev => ({ ...prev, accessRentals: e.target.checked }))}
-                    className="w-4 h-4 accent-emerald-500 cursor-pointer"
-                  />
-                  <div className="flex items-center gap-1.5">
-                    <PlayCircle className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Rental Desk</span>
-                  </div>
-                </label>
-
-                <label className="flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer border-slate-700 bg-slate-900/40">
-                  <input
-                    type="checkbox"
-                    checked={roleTabAccess.accessHistory}
-                    onChange={(e) => setRoleTabAccess(prev => ({ ...prev, accessHistory: e.target.checked }))}
-                    className="w-4 h-4 accent-teal-500 cursor-pointer"
-                  />
-                  <div className="flex items-center gap-1.5">
-                    <History className="w-3.5 h-3.5 text-teal-400" />
-                    <span>Daily History</span>
-                  </div>
-                </label>
-
-                <label className="flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer border-slate-700 bg-slate-900/40">
-                  <input
-                    type="checkbox"
-                    checked={roleTabAccess.accessUsers}
-                    onChange={(e) => setRoleTabAccess(prev => ({ ...prev, accessUsers: e.target.checked }))}
-                    className="w-4 h-4 accent-purple-500 cursor-pointer"
-                  />
-                  <div className="flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
-                    <span>User & Role</span>
-                  </div>
-                </label>
-
-                <label className="flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer border-slate-700 bg-slate-900/40">
-                  <input
-                    type="checkbox"
-                    checked={roleTabAccess.accessSettings}
-                    onChange={(e) => setRoleTabAccess(prev => ({ ...prev, accessSettings: e.target.checked }))}
-                    className="w-4 h-4 accent-blue-500 cursor-pointer"
-                  />
-                  <div className="flex items-center gap-1.5">
-                    <SettingsIcon className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Rate & Inventory</span>
-                  </div>
-                </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {SIDE_MENU_TABS.map((tab) => (
+                  <label key={`new-${tab.key}`} className="flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer border-slate-700 bg-slate-900/40">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(roleTabAccess[tab.key])}
+                      onChange={(e) => setRoleTabAccess(prev => ({ ...prev, [tab.key]: e.target.checked }))}
+                      className="w-4 h-4 accent-emerald-500 cursor-pointer"
+                    />
+                    <div className="flex items-center gap-1.5">
+                      {tab.icon}
+                      <span>{tab.label}</span>
+                    </div>
+                  </label>
+                ))}
               </div>
             </div>
 
@@ -622,180 +720,122 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
           </form>
         )}
 
-        {/* ROLE ACCESS TICK BOX MATRIX TABLE */}
+        {/* ROLE ACCESS TICK BOX MATRIX TABLE (Columns: User Level / Role | Rows: Side Menu Tabs) */}
         <div className={`overflow-x-auto rounded-2xl border ${t.divider}`}>
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className={`${t.cardSubtleBg} uppercase font-semibold border-b ${t.divider} ${t.textMuted}`}>
               <tr>
-                <th className="px-4 py-3.5">User Level / Role</th>
-                <th className="px-3.5 py-3.5 text-center">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <PlayCircle className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Rental Desk</span>
+                {/* Column 1: Row header title */}
+                <th className="px-4 py-3.5 min-w-[200px]">
+                  <div className="flex items-center gap-1.5">
+                    <Sliders className="w-4 h-4 text-emerald-500" />
+                    <span>User Role (Side Menu)</span>
                   </div>
                 </th>
-                <th className="px-3.5 py-3.5 text-center">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <History className="w-3.5 h-3.5 text-teal-400" />
-                    <span>Daily History</span>
-                  </div>
-                </th>
-                <th className="px-3.5 py-3.5 text-center">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
-                    <span>User & Role</span>
-                  </div>
-                </th>
-                <th className="px-3.5 py-3.5 text-center">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <SettingsIcon className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Rate & Inventory</span>
-                  </div>
-                </th>
-                <th className="px-4 py-3.5 text-right">Active Status</th>
+
+                {/* Subsequent Columns: Each User Level / Role */}
+                {roles.map((role) => {
+                  const badgeClasses = getRoleBadgeClasses(role.color);
+                  const assignedUsersCount = users.filter(u => u.role === role.id).length;
+                  const isRootAdmin = role.id === 'admin';
+                  const isSaved = savedRoleIds[role.id];
+
+                  return (
+                    <th key={role.id} className="px-4 py-3.5 text-center min-w-[170px]">
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`px-2.5 py-1 rounded-xl border text-xs font-bold ${badgeClasses}`}>
+                            {role.name}
+                          </span>
+                          {!role.isSystem && isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteRole(role)}
+                              className="p-1 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded transition cursor-pointer"
+                              title={`Delete ${role.name}`}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                        <span className={`text-[10px] font-normal normal-case ${t.textMuted} truncate max-w-[150px]`}>
+                          {role.description}
+                        </span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className={`text-[10px] font-mono normal-case ${t.textMuted}`}>
+                            {assignedUsersCount} active {assignedUsersCount === 1 ? 'user' : 'users'}
+                          </span>
+                          {!isRootAdmin && isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => handleSaveRolePermissions(role.id)}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold border transition cursor-pointer ${
+                                isSaved
+                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                                  : `${t.cardSubtleBg} text-emerald-400 hover:border-emerald-500/40`
+                              }`}
+                              title={`Save permissions for ${role.name}`}
+                            >
+                              {isSaved ? '✓ Saved' : 'Save'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody className={`divide-y ${t.divider}`}>
-              {roles.map((role) => {
-                const perms = rolePermsState[role.id] || role.permissions;
-                const isRootAdmin = role.id === 'admin';
-                const isSaved = savedRoleIds[role.id];
-                const badgeClasses = getRoleBadgeClasses(role.color);
-                const assignedUsersCount = users.filter(u => u.role === role.id).length;
-
-                return (
-                  <tr key={role.id} className="hover:bg-slate-500/5 transition">
-                    {/* Role Level Name & Badge */}
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2.5">
-                        <div className={`px-2.5 py-1 rounded-xl border text-xs font-bold ${badgeClasses}`}>
-                          {role.name}
-                        </div>
-                        <div className="flex flex-col">
-                          <span className={`text-[11px] ${t.textMuted}`}>{role.description}</span>
-                          <span className={`text-[10px] font-mono ${t.textMuted}`}>
-                            {assignedUsersCount} active {assignedUsersCount === 1 ? 'user' : 'users'}
-                          </span>
-                        </div>
+              {SIDE_MENU_TABS.map((tab) => (
+                <tr key={tab.key} className="hover:bg-slate-500/5 transition">
+                  {/* Row title: Side Menu item */}
+                  <td className="px-4 py-3.5">
+                    <div className="flex items-start gap-2.5">
+                      <div className={`p-2 rounded-xl border shrink-0 ${tab.badgeColor}`}>
+                        {tab.icon}
                       </div>
-                    </td>
-
-                    {/* Tick Box: Rental Desk */}
-                    <td className="px-3.5 py-3.5 text-center">
-                      <label className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl border transition cursor-pointer ${
-                        perms.accessRentals
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 font-bold ring-1 ring-emerald-500/20'
-                          : `${t.cardSubtleBg} ${t.divider} ${t.textMuted} opacity-40`
-                      } ${!isAdmin || isRootAdmin ? 'cursor-not-allowed opacity-75' : ''}`}>
-                        <input
-                          id={`tick-${role.id}-rentals`}
-                          type="checkbox"
-                          disabled={!isAdmin || isRootAdmin}
-                          checked={perms.accessRentals}
-                          onChange={() => handleToggleTabPermission(role.id, 'accessRentals')}
-                          className="w-4 h-4 accent-emerald-500 rounded cursor-pointer disabled:cursor-not-allowed"
-                        />
-                        <span>Rental Desk</span>
-                      </label>
-                    </td>
-
-                    {/* Tick Box: Daily History */}
-                    <td className="px-3.5 py-3.5 text-center">
-                      <label className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl border transition cursor-pointer ${
-                        perms.accessHistory
-                          ? 'bg-teal-500/10 text-teal-400 border-teal-500/30 font-bold ring-1 ring-teal-500/20'
-                          : `${t.cardSubtleBg} ${t.divider} ${t.textMuted} opacity-40`
-                      } ${!isAdmin || isRootAdmin ? 'cursor-not-allowed opacity-75' : ''}`}>
-                        <input
-                          id={`tick-${role.id}-history`}
-                          type="checkbox"
-                          disabled={!isAdmin || isRootAdmin}
-                          checked={perms.accessHistory}
-                          onChange={() => handleToggleTabPermission(role.id, 'accessHistory')}
-                          className="w-4 h-4 accent-teal-500 rounded cursor-pointer disabled:cursor-not-allowed"
-                        />
-                        <span>Daily History</span>
-                      </label>
-                    </td>
-
-                    {/* Tick Box: User & Role */}
-                    <td className="px-3.5 py-3.5 text-center">
-                      <label className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl border transition cursor-pointer ${
-                        perms.accessUsers
-                          ? 'bg-purple-500/10 text-purple-400 border-purple-500/30 font-bold ring-1 ring-purple-500/20'
-                          : `${t.cardSubtleBg} ${t.divider} ${t.textMuted} opacity-40`
-                      } ${!isAdmin || isRootAdmin ? 'cursor-not-allowed opacity-75' : ''}`}>
-                        <input
-                          id={`tick-${role.id}-users`}
-                          type="checkbox"
-                          disabled={!isAdmin || isRootAdmin}
-                          checked={perms.accessUsers}
-                          onChange={() => handleToggleTabPermission(role.id, 'accessUsers')}
-                          className="w-4 h-4 accent-purple-500 rounded cursor-pointer disabled:cursor-not-allowed"
-                        />
-                        <span>User & Role</span>
-                      </label>
-                    </td>
-
-                    {/* Tick Box: Rate & Inventory */}
-                    <td className="px-3.5 py-3.5 text-center">
-                      <label className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl border transition cursor-pointer ${
-                        perms.accessSettings
-                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/30 font-bold ring-1 ring-blue-500/20'
-                          : `${t.cardSubtleBg} ${t.divider} ${t.textMuted} opacity-40`
-                      } ${!isAdmin || isRootAdmin ? 'cursor-not-allowed opacity-75' : ''}`}>
-                        <input
-                          id={`tick-${role.id}-settings`}
-                          type="checkbox"
-                          disabled={!isAdmin || isRootAdmin}
-                          checked={perms.accessSettings}
-                          onChange={() => handleToggleTabPermission(role.id, 'accessSettings')}
-                          className="w-4 h-4 accent-blue-500 rounded cursor-pointer disabled:cursor-not-allowed"
-                        />
-                        <span>Rate & Inventory</span>
-                      </label>
-                    </td>
-
-                    {/* Action: Save & Status */}
-                    <td className="px-4 py-3.5 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {isRootAdmin ? (
-                          <span className="text-[10px] uppercase font-bold text-emerald-400 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                            Full Root Access
-                          </span>
-                        ) : isSaved ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-400 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Saved</span>
-                          </span>
-                        ) : (
-                          <button
-                            id={`btn-save-role-access-${role.id}`}
-                            type="button"
-                            disabled={!isAdmin}
-                            onClick={() => handleSaveRolePermissions(role.id)}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${t.primaryBtn}`}
-                          >
-                            <Save className="w-3.5 h-3.5" />
-                            <span>Save Level Access</span>
-                          </button>
-                        )}
-
-                        {!role.isSystem && isAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteRole(role)}
-                            className="p-1.5 rounded-xl text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition cursor-pointer"
-                            title={`Delete custom role "${role.name}"`}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                      <div>
+                        <span className={`font-bold text-xs block ${t.textHeading}`}>
+                          {tab.label}
+                        </span>
+                        <span className={`text-[10px] ${t.textMuted}`}>
+                          {tab.description}
+                        </span>
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                    </div>
+                  </td>
+
+                  {/* Columns for each User Level */}
+                  {roles.map((role) => {
+                    const perms = rolePermsState[role.id] || role.permissions;
+                    const isRootAdmin = role.id === 'admin';
+                    const isAllowed = isRootAdmin ? true : Boolean(perms[tab.key]);
+
+                    return (
+                      <td key={`${role.id}-${tab.key}`} className="px-4 py-3.5 text-center">
+                        <label className={`inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border transition ${
+                          isAllowed
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 font-bold ring-1 ring-emerald-500/20'
+                            : `${t.cardSubtleBg} ${t.divider} ${t.textMuted} opacity-40`
+                        } ${!isAdmin || isRootAdmin ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+                          <input
+                            id={`tick-${role.id}-${tab.key}`}
+                            type="checkbox"
+                            disabled={!isAdmin || isRootAdmin}
+                            checked={isAllowed}
+                            onChange={() => handleToggleTabPermission(role.id, tab.key)}
+                            className="w-4 h-4 accent-emerald-500 rounded cursor-pointer disabled:cursor-not-allowed"
+                          />
+                          <span className="text-[11px] select-none">
+                            {isAllowed ? 'Allowed' : 'Disabled'}
+                          </span>
+                        </label>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
