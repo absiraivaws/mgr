@@ -478,6 +478,7 @@ export default function App() {
           setCurrentUser(user);
           setIsFullLoginPage(false);
           setSettings((prev) => ({ ...prev, cashierName: user.name }));
+          setActiveTab('rentals');
         }}
         settings={settings}
         themeMode={themeMode}

@@ -88,7 +88,16 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
   // Top rentals by revenue
   const topRentals = [...todayCompletedRentals]
     .sort((a, b) => (b.totalAmount || 0) - (a.totalAmount || 0))
-    .slice(0, 3);
+    .slice(0, 5);
+
+  // Elapsed time helper
+  const getElapsedTime = (startTime: number) => {
+    const elapsed = Math.floor((Date.now() - startTime) / 60000);
+    if (elapsed < 60) return `${elapsed} min`;
+    const h = Math.floor(elapsed / 60);
+    const m = elapsed % 60;
+    return `${h}h ${m}m`;
+  };
 
   return (
     <div className={`${t.cardBg} p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-xl`}>
@@ -206,15 +215,72 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
 
         </div>
 
+        {/* Pending Rentals Section */}
+        <div className={`p-4 rounded-xl ${t.cardSubtleBg} border ${t.divider} transition-colors mb-4`}>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className={`text-sm font-bold ${t.textHeading}`}>Pending Rentals</h3>
+              <p className={`text-xs ${t.textMuted}`}>Currently active / out on rent</p>
+            </div>
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+              totalActiveRentals > 0 ? 'bg-emerald-500/15 text-emerald-500' : `${t.cardSubtleBg} ${t.textMuted}`
+            }`}>
+              {totalActiveRentals} active
+            </span>
+          </div>
+
+          {totalActiveRentals > 0 ? (
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {activeRentals.map((rental, index) => (
+                <div
+                  key={rental.id}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${t.divider} ${themeMode === 'dark' ? 'bg-slate-800/60' : 'bg-white/80'}`}
+                >
+                  <span className="w-7 h-7 rounded-full bg-emerald-500/15 flex items-center justify-center text-xs font-bold text-emerald-500 shrink-0">
+                    {index + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className={`text-sm font-semibold truncate ${t.textHeading}`}>
+                        {rental.vehicleSerialNumber}
+                      </p>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${t.badge}`}>
+                        {rental.vehicleTypeName}
+                      </span>
+                    </div>
+                    <p className={`text-[11px] ${t.textMuted} truncate mt-0.5`}>
+                      {rental.customerName || 'Walk-in Customer'}
+                      {rental.cashierName ? ` · Cashier: ${rental.cashierName}` : ''}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs font-bold text-emerald-500 flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {getElapsedTime(rental.startTime)}
+                    </p>
+                    <p className={`text-[10px] ${t.textMuted}`}>
+                      #{rental.rentalNumber}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className={`text-sm ${t.textMuted} text-center py-6`}>
+              No active rentals at the moment
+            </p>
+          )}
+        </div>
+
         {/* Today's Completed Rentals Section */}
         <div className={`p-4 rounded-xl ${t.cardSubtleBg} border ${t.divider} transition-colors`}>
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className={`text-sm font-medium ${t.textHeading}`}>Today's Completed Rentals</h3>
-              <p className={`text-xs ${t.textMuted}`}>${todayDate}</p>
+              <p className={`text-xs ${t.textMuted}`}>{todayDate}</p>
             </div>
             <span className={`text-xs font-bold ${t.textMain}`}>
-              ${completedTodayCount} rentals
+              {completedTodayCount} rentals
             </span>
           </div>
 
@@ -227,10 +293,11 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-medium truncate ${t.textHeading}`}>
-                      {rental.vehicleType || 'Vehicle'}
+                      {rental.vehicleTypeName || rental.vehicleSerialNumber || 'Vehicle'}
                     </p>
                     <p className={`text-[10px] ${t.textMuted} truncate`}>
                       {rental.customerName || 'Customer'}
+                      {rental.cashierName ? ` · ${rental.cashierName}` : ''}
                     </p>
                   </div>
                   <span className={`text-sm font-bold text-emerald-600 ${t.textMain}`}>

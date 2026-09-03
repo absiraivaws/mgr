@@ -22,7 +22,12 @@ import {
   CreditCard,
   Banknote,
   RotateCcw,
-  Sparkles
+  Sparkles,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { AppSettings, RentalRecord } from '../types';
 import { VehicleIcon } from './VehicleIcon';
@@ -39,6 +44,36 @@ interface RentalHistoryPanelProps {
   settings: AppSettings;
   themeMode?: ThemeMode;
   accent?: AccentColor;
+}
+
+type SortKey =
+  | 'rentalNumber'
+  | 'vehicleTypeName'
+  | 'vehicleSerialNumber'
+  | 'customerName'
+  | 'startTime'
+  | 'endTime'
+  | 'breakdown.totalMinutes'
+  | 'totalAmount'
+  | 'paymentMethod';
+
+type SortDir = 'asc' | 'desc';
+
+const PAGE_SIZE = 20;
+
+function getSortValue(rental: RentalRecord, key: SortKey): string | number {
+  switch (key) {
+    case 'rentalNumber':      return rental.rentalNumber || '';
+    case 'vehicleTypeName':   return (rental.vehicleTypeName || '').toLowerCase();
+    case 'vehicleSerialNumber': return (rental.vehicleSerialNumber || '').toLowerCase();
+    case 'customerName':      return (rental.customerName || 'Walk-in').toLowerCase();
+    case 'startTime':         return rental.startTime || 0;
+    case 'endTime':           return rental.endTime || 0;
+    case 'breakdown.totalMinutes': return rental.breakdown?.totalMinutes || 0;
+    case 'totalAmount':       return rental.totalAmount || 0;
+    case 'paymentMethod':     return (rental.paymentMethod || 'cash').toLowerCase();
+    default: return '';
+  }
 }
 
 export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
@@ -64,17 +99,37 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   const [filterPayment, setFilterPayment] = useState<string>('all');
   const [selectedRentalForReceipt, setSelectedRentalForReceipt] = useState<RentalRecord | null>(null);
 
+  // Sorting state — default: vehicleTypeName A→Z
+  const [sortKey, setSortKey] = useState<SortKey>('vehicleTypeName');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+
   const t = getThemeClasses(themeMode, accent);
 
   const handleSetToday = () => {
     const today = getTodayISO();
     setFromDate(today);
     setToDate(today);
+    setCurrentPage(1);
   };
 
   const handleClearDates = () => {
     setFromDate('');
     setToDate('');
+    setCurrentPage(1);
+  };
+
+  // Handle column header click for sorting
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+    setCurrentPage(1);
   };
 
   // Filter logic
@@ -119,6 +174,29 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
       return true;
     });
   }, [completedRentals, fromDate, toDate, searchTerm, filterType, filterPayment]);
+
+  // Sorted rentals
+  const sortedRentals = useMemo(() => {
+    return [...filteredRentals].sort((a, b) => {
+      const aVal = getSortValue(a, sortKey);
+      const bVal = getSortValue(b, sortKey);
+      if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+      // Secondary sort: vehicleSerialNumber A-Z
+      const aSerial = (a.vehicleSerialNumber || '').toLowerCase();
+      const bSerial = (b.vehicleSerialNumber || '').toLowerCase();
+      if (aSerial < bSerial) return -1;
+      if (aSerial > bSerial) return 1;
+      return 0;
+    });
+  }, [filteredRentals, sortKey, sortDir]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(sortedRentals.length / PAGE_SIZE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStart = (safeCurrentPage - 1) * PAGE_SIZE;
+  const pageEnd = pageStart + PAGE_SIZE;
+  const pageRentals = sortedRentals.slice(pageStart, pageEnd);
 
   // Aggregated Total Values for Filtered View
   const filteredTotalValue = filteredRentals.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
@@ -182,6 +260,33 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Sortable column header component
+  const SortTh: React.FC<{
+    label: string;
+    colKey: SortKey;
+    className?: string;
+    align?: 'left' | 'right';
+  }> = ({ label, colKey, className = '', align = 'left' }) => {
+    const isActive = sortKey === colKey;
+    return (
+      <th
+        className={`px-3.5 py-3 cursor-pointer select-none group ${className}`}
+        onClick={() => handleSort(colKey)}
+      >
+        <span className={`inline-flex items-center gap-1 ${align === 'right' ? 'justify-end w-full' : ''}`}>
+          <span className={isActive ? t.textHeading : ''}>{label}</span>
+          {isActive ? (
+            sortDir === 'asc'
+              ? <ArrowUp className="w-3 h-3 text-emerald-400 shrink-0" />
+              : <ArrowDown className="w-3 h-3 text-emerald-400 shrink-0" />
+          ) : (
+            <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-60 shrink-0 transition" />
+          )}
+        </span>
+      </th>
+    );
   };
 
   return (
@@ -253,7 +358,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
         </div>
       </div>
 
-      {/* 2. DATE FILTER CONTROL BAR WITHOUT RADIO BUTTONS (USER SELECTS VIA CALENDAR) */}
+      {/* 2. DATE FILTER CONTROL BAR */}
       <div className={`${t.cardBg} rounded-2xl p-4 sm:p-5 border shadow-xl space-y-4`}>
         
         <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b ${t.divider}`}>
@@ -282,7 +387,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
           </div>
         </div>
 
-        {/* From & To Date Pickers with Visible Calendar Icons */}
+        {/* From & To Date Pickers */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
           {/* From Date */}
           <div>
@@ -291,22 +396,16 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               <span>From Date</span>
             </label>
             <div className="relative flex items-center">
-              <div 
-                className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-emerald-500"
-              >
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-emerald-500">
                 <Calendar className="w-4 h-4" />
               </div>
               <input
                 id="input-filter-from-date"
                 type="date"
                 value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
+                onChange={(e) => { setFromDate(e.target.value); setCurrentPage(1); }}
                 className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs font-mono font-medium ${t.textInput} cursor-pointer`}
-                onClick={(e) => {
-                  try {
-                    (e.target as HTMLInputElement).showPicker?.();
-                  } catch (err) {}
-                }}
+                onClick={(e) => { try { (e.target as HTMLInputElement).showPicker?.(); } catch (err) {} }}
               />
             </div>
           </div>
@@ -318,22 +417,16 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               <span>To Date</span>
             </label>
             <div className="relative flex items-center">
-              <div 
-                className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-teal-400"
-              >
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-teal-400">
                 <Calendar className="w-4 h-4" />
               </div>
               <input
                 id="input-filter-to-date"
                 type="date"
                 value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
+                onChange={(e) => { setToDate(e.target.value); setCurrentPage(1); }}
                 className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs font-mono font-medium ${t.textInput} cursor-pointer`}
-                onClick={(e) => {
-                  try {
-                    (e.target as HTMLInputElement).showPicker?.();
-                  } catch (err) {}
-                }}
+                onClick={(e) => { try { (e.target as HTMLInputElement).showPicker?.(); } catch (err) {} }}
               />
             </div>
           </div>
@@ -345,7 +438,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
             </label>
             <select
               value={filterPayment}
-              onChange={(e) => setFilterPayment(e.target.value)}
+              onChange={(e) => { setFilterPayment(e.target.value); setCurrentPage(1); }}
               className={`w-full rounded-xl px-3 py-2 text-xs font-semibold ${t.dropdownInput}`}
             >
               <option value="all">All Payment Methods</option>
@@ -378,7 +471,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
           </div>
         </div>
 
-        {/* Search Input (Cyan Theme) */}
+        {/* Search Input */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-cyan-500 flex items-center gap-1.5">
@@ -395,7 +488,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               type="text"
               placeholder="Search receipt #, serial, NIC/Passport, customer, or vehicle type..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
               className={`w-full rounded-xl pl-9 pr-4 py-2.5 text-xs sm:text-sm font-medium ${t.searchInput}`}
             />
             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-cyan-500">
@@ -404,7 +497,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
             {searchTerm && (
               <button
                 type="button"
-                onClick={() => setSearchTerm('')}
+                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
                 className="absolute inset-y-0 right-0 pr-3 flex items-center text-cyan-500 hover:text-cyan-400 cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -412,7 +505,6 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
             )}
           </div>
         </div>
-
       </div>
 
       {/* 3. SETTLED RENTALS HISTORY TABLE */}
@@ -427,9 +519,14 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               {filteredRentals.length} {filteredRentals.length === 1 ? 'Record' : 'Records'}
             </span>
           </div>
-          <span className={`text-xs font-mono font-bold text-emerald-500`}>
-            Total: {formatCurrency(filteredTotalValue, settings.currencySymbol, settings.currencyPosition)}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className={`text-xs font-mono font-bold text-emerald-500`}>
+              Total: {formatCurrency(filteredTotalValue, settings.currencySymbol, settings.currencyPosition)}
+            </span>
+            <span className={`text-[10px] ${t.textMuted} hidden sm:inline`}>
+              ↑↓ Click column headers to sort A→Z / Z→A
+            </span>
+          </div>
         </div>
 
         {filteredRentals.length === 0 ? (
@@ -439,97 +536,216 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               : 'No rentals matched your selected date range or search query.'}
           </div>
         ) : (
-          <div className={`overflow-x-auto rounded-xl border ${t.divider}`}>
-            <table className="w-full text-left text-xs whitespace-nowrap sm:whitespace-normal">
-              <thead className={`${t.cardSubtleBg} uppercase font-semibold border-b ${t.divider} ${t.textMuted}`}>
-                <tr>
-                  <th className="px-3.5 py-3">Receipt #</th>
-                  <th className="px-3.5 py-3">Serial & Type</th>
-                  <th className="px-3.5 py-3">Customer ID / Name</th>
-                  <th className="px-3.5 py-3">Start / Return Time</th>
-                  <th className="px-3.5 py-3">Duration</th>
-                  <th className="px-3.5 py-3">Paid Amount</th>
-                  <th className="px-3.5 py-3 text-right">Receipt</th>
-                </tr>
-              </thead>
-              <tbody className={`divide-y ${t.divider}`}>
-                {filteredRentals.map((rental) => (
-                  <tr key={rental.id} className="hover:bg-slate-500/5 transition">
-                    <td className={`px-3.5 py-3 font-mono font-bold ${t.textHeading}`}>
-                      #{rental.rentalNumber}
-                    </td>
-                    <td className="px-3.5 py-3">
-                      <div className="flex items-center gap-2">
-                        <VehicleIcon type={rental.vehicleIcon} className="w-4 h-4 text-emerald-500 shrink-0" />
+          <>
+            <div className={`overflow-x-auto rounded-xl border ${t.divider}`}>
+              <table className="w-full text-left text-xs whitespace-nowrap sm:whitespace-normal">
+                <thead className={`${t.cardSubtleBg} uppercase font-semibold border-b ${t.divider} ${t.textMuted}`}>
+                  <tr>
+                    <SortTh label="Receipt #"    colKey="rentalNumber" />
+                    <SortTh label="Category"     colKey="vehicleTypeName" />
+                    <SortTh label="Serial No."   colKey="vehicleSerialNumber" />
+                    <SortTh label="Customer"     colKey="customerName" />
+                    <SortTh label="Start Time"   colKey="startTime" />
+                    <SortTh label="Return Time"  colKey="endTime" />
+                    <SortTh label="Duration"     colKey="breakdown.totalMinutes" />
+                    <SortTh label="Paid Amount"  colKey="totalAmount" />
+                    <SortTh label="Payment"      colKey="paymentMethod" />
+                    <th className="px-3.5 py-3 text-right">Receipt</th>
+                  </tr>
+                </thead>
+                <tbody className={`divide-y ${t.divider}`}>
+                  {pageRentals.map((rental) => (
+                    <tr key={rental.id} className="hover:bg-slate-500/5 transition">
+                      {/* Receipt # */}
+                      <td className={`px-3.5 py-3 font-mono font-bold ${t.textHeading}`}>
+                        #{rental.rentalNumber}
+                      </td>
+                      {/* Category */}
+                      <td className="px-3.5 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <VehicleIcon type={rental.vehicleIcon} className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span className={`font-medium ${t.textMain}`}>{rental.vehicleTypeName}</span>
+                        </div>
+                      </td>
+                      {/* Serial No. */}
+                      <td className="px-3.5 py-3">
                         <span className={`font-mono font-bold ${t.textHeading}`}>
                           {rental.vehicleSerialNumber}
                         </span>
-                        <span className={`text-[10px] ${t.textMuted}`}>
-                          ({rental.vehicleTypeName})
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-3.5 py-3">
-                      {rental.customerName || rental.customerNicPassport || rental.customerPhone ? (
-                        <div className="space-y-0.5">
-                          {rental.customerName && (
-                            <span className={`font-medium block ${t.textHeading}`}>
-                              {rental.customerName}
-                            </span>
-                          )}
-                          {rental.customerNicPassport && (
-                            <span className="text-[10px] text-emerald-500 font-mono flex items-center gap-1 font-semibold">
-                              <IdCard className="w-3 h-3 shrink-0" />
-                              {rental.customerNicPassport}
-                            </span>
-                          )}
-                          {rental.customerPhone && (
-                            <span className={`text-[10px] font-mono flex items-center gap-1 ${t.textMuted}`}>
-                              <Phone className="w-3 h-3 shrink-0" />
-                              {rental.customerPhone}
-                            </span>
-                          )}
+                      </td>
+                      {/* Customer */}
+                      <td className="px-3.5 py-3">
+                        {rental.customerName || rental.customerNicPassport || rental.customerPhone ? (
+                          <div className="space-y-0.5">
+                            {rental.customerName && (
+                              <span className={`font-medium block ${t.textHeading}`}>
+                                {rental.customerName}
+                              </span>
+                            )}
+                            {rental.customerNicPassport && (
+                              <span className="text-[10px] text-emerald-500 font-mono flex items-center gap-1 font-semibold">
+                                <IdCard className="w-3 h-3 shrink-0" />
+                                {rental.customerNicPassport}
+                              </span>
+                            )}
+                            {rental.customerPhone && (
+                              <span className={`text-[10px] font-mono flex items-center gap-1 ${t.textMuted}`}>
+                                <Phone className="w-3 h-3 shrink-0" />
+                                {rental.customerPhone}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className={`italic ${t.textMuted}`}>Walk-in</span>
+                        )}
+                      </td>
+                      {/* Start Time */}
+                      <td className="px-3.5 py-3">
+                        <div className={`font-mono text-[11px] ${t.textMain}`}>{formatTime(rental.startTime)}</div>
+                        <div className={`text-[10px] ${t.textMuted}`}>{formatDate(rental.startTime)}</div>
+                      </td>
+                      {/* Return Time */}
+                      <td className="px-3.5 py-3">
+                        <div className={`font-mono text-[11px] ${t.textMain}`}>
+                          {rental.endTime ? formatTime(rental.endTime) : '—'}
                         </div>
-                      ) : (
-                        <span className={`italic ${t.textMuted}`}>Walk-in</span>
-                      )}
-                    </td>
-                    <td className="px-3.5 py-3">
-                      <div className={`font-mono text-[11px] ${t.textMain}`}>
-                        {formatTime(rental.startTime)} → {rental.endTime ? formatTime(rental.endTime) : '—'}
-                      </div>
-                      <div className={`text-[10px] ${t.textMuted}`}>
-                        {formatDate(rental.startTime)}
-                      </div>
-                    </td>
-                    <td className="px-3.5 py-3">
-                      <span className={`px-2 py-0.5 rounded font-mono font-semibold border ${t.cardSubtleBg} text-emerald-500`}>
-                        {rental.breakdown?.durationFormatted || `${rental.breakdown?.totalMinutes} mins`}
-                      </span>
-                    </td>
-                    <td className="px-3.5 py-3">
-                      <span className="font-mono font-bold text-emerald-500 text-sm">
-                        {formatCurrency(rental.totalAmount, settings.currencySymbol, settings.currencyPosition)}
-                      </span>
-                      <span className={`text-[10px] block capitalize ${t.textMuted}`}>
-                        via {rental.paymentMethod || 'cash'}
-                      </span>
-                    </td>
-                    <td className="px-3.5 py-3 text-right">
+                        {rental.endTime && (
+                          <div className={`text-[10px] ${t.textMuted}`}>{formatDate(rental.endTime)}</div>
+                        )}
+                      </td>
+                      {/* Duration */}
+                      <td className="px-3.5 py-3">
+                        <span className={`px-2 py-0.5 rounded font-mono font-semibold border ${t.cardSubtleBg} text-emerald-500`}>
+                          {rental.breakdown?.durationFormatted || `${rental.breakdown?.totalMinutes} mins`}
+                        </span>
+                      </td>
+                      {/* Paid Amount */}
+                      <td className="px-3.5 py-3">
+                        <span className="font-mono font-bold text-emerald-500 text-sm">
+                          {formatCurrency(rental.totalAmount, settings.currencySymbol, settings.currencyPosition)}
+                        </span>
+                      </td>
+                      {/* Payment Method */}
+                      <td className="px-3.5 py-3">
+                        <span className={`text-[11px] capitalize font-semibold px-2 py-0.5 rounded-full border ${t.cardSubtleBg} ${t.textMuted}`}>
+                          {rental.paymentMethod || 'cash'}
+                        </span>
+                      </td>
+                      {/* View receipt button */}
+                      <td className="px-3.5 py-3 text-right">
+                        <button
+                          id={`btn-view-receipt-${rental.rentalNumber}`}
+                          onClick={() => setSelectedRentalForReceipt(rental)}
+                          className={`px-2.5 py-1.5 rounded-lg transition inline-flex items-center gap-1 text-[11px] font-semibold cursor-pointer ${t.inactiveTab}`}
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>View</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className={`flex items-center justify-between pt-2 border-t ${t.divider} flex-wrap gap-3`}>
+              {/* Row count info */}
+              <span className={`text-xs ${t.textMuted}`}>
+                Showing{' '}
+                <span className={`font-bold ${t.textMain}`}>
+                  {pageStart + 1}–{Math.min(pageEnd, sortedRentals.length)}
+                </span>{' '}
+                of{' '}
+                <span className={`font-bold ${t.textMain}`}>{sortedRentals.length}</span>{' '}
+                records &nbsp;·&nbsp; Page{' '}
+                <span className={`font-bold ${t.textMain}`}>{safeCurrentPage}</span>{' '}
+                of{' '}
+                <span className={`font-bold ${t.textMain}`}>{totalPages}</span>
+                {sortedRentals.length > PAGE_SIZE && (
+                  <span className={`ml-2 text-[10px] ${t.textMuted}`}>
+                    ({PAGE_SIZE} rows/page)
+                  </span>
+                )}
+              </span>
+
+              {/* Page navigation */}
+              <div className="flex items-center gap-1.5">
+                {/* First page */}
+                <button
+                  type="button"
+                  disabled={safeCurrentPage === 1}
+                  onClick={() => setCurrentPage(1)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${t.inactiveTab}`}
+                  title="First page"
+                >
+                  «
+                </button>
+
+                {/* Prev */}
+                <button
+                  type="button"
+                  disabled={safeCurrentPage === 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 ${t.inactiveTab}`}
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  Prev
+                </button>
+
+                {/* Page number pills */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => Math.abs(p - safeCurrentPage) <= 2 || p === 1 || p === totalPages)
+                  .reduce<(number | '...')[]>((acc, p, idx, arr) => {
+                    if (idx > 0 && typeof arr[idx - 1] === 'number' && (p as number) - (arr[idx - 1] as number) > 1) {
+                      acc.push('...');
+                    }
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, idx) =>
+                    p === '...' ? (
+                      <span key={`ellipsis-${idx}`} className={`px-1.5 text-xs ${t.textMuted}`}>…</span>
+                    ) : (
                       <button
-                        id={`btn-view-receipt-${rental.rentalNumber}`}
-                        onClick={() => setSelectedRentalForReceipt(rental)}
-                        className={`px-2.5 py-1.5 rounded-lg transition inline-flex items-center gap-1 text-[11px] font-semibold cursor-pointer ${t.inactiveTab}`}
+                        key={p}
+                        type="button"
+                        onClick={() => setCurrentPage(p as number)}
+                        className={`w-8 h-8 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                          safeCurrentPage === p
+                            ? `${t.activeTab} shadow`
+                            : t.inactiveTab
+                        }`}
                       >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>View</span>
+                        {p}
                       </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    )
+                  )}
+
+                {/* Next */}
+                <button
+                  type="button"
+                  disabled={safeCurrentPage === totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 ${t.inactiveTab}`}
+                >
+                  Next
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Last page */}
+                <button
+                  type="button"
+                  disabled={safeCurrentPage === totalPages}
+                  onClick={() => setCurrentPage(totalPages)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${t.inactiveTab}`}
+                  title="Last page"
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
@@ -553,6 +769,13 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
             {/* Thermal Printable Format Area */}
             <div id="printable-receipt" className="bg-white text-slate-950 p-5 rounded-xl font-mono text-xs space-y-3 shadow border border-slate-200 overflow-y-auto flex-1">
               <div className="text-center border-b border-dashed border-slate-300 pb-3">
+                {settings.companyLogo && (
+                  <img
+                    src={settings.companyLogo}
+                    alt="Logo"
+                    className="w-12 h-12 rounded-lg object-cover mx-auto mb-1.5"
+                  />
+                )}
                 <h3 className="font-bold text-sm tracking-tight text-slate-900">{settings.businessName}</h3>
                 {settings.businessAddress && <p className="text-[10px] text-slate-600">{settings.businessAddress}</p>}
                 {settings.businessPhone && <p className="text-[10px] text-slate-600">Tel: {settings.businessPhone}</p>}

@@ -21,8 +21,6 @@ import {
   LogOut,
   Menu,
   Sparkles,
-  ChevronLeft,
-  ChevronRight,
   ChevronUp,
 } from 'lucide-react';
 import { AppSettings, RentalRecord, Vehicle } from '../types';
@@ -188,24 +186,23 @@ export const Navbar: React.FC<NavbarProps> = ({
         className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-6 border-b transition-colors ${t.headerBg}`}
         style={{ height: '4rem' }}
       >
-        {/* Left: Sidebar toggle + Logo */}
+        {/* Left: Logo */}
         <div className="flex items-center gap-3">
-          <button
-            id="btn-sidebar-toggle"
-            type="button"
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className={`p-2 rounded-xl border transition-all cursor-pointer ${t.inactiveTab}`}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <Menu className="w-4 h-4" />
-          </button>
           <div className="flex items-center gap-2.5">
-            <div
-              className="flex items-center justify-center w-8 h-8 rounded-xl text-white shadow-md"
-              style={{ background: 'linear-gradient(135deg,#10b981,#059669)' }}
-            >
-              <Bike className="w-4 h-4" />
-            </div>
+            {settings.companyLogo ? (
+              <img
+                src={settings.companyLogo}
+                alt="Company Logo"
+                className="w-8 h-8 rounded-xl object-cover shadow-md"
+              />
+            ) : (
+              <div
+                className="flex items-center justify-center w-8 h-8 rounded-xl text-white shadow-md"
+                style={{ background: 'linear-gradient(135deg,#10b981,#059669)' }}
+              >
+                <Bike className="w-4 h-4" />
+              </div>
+            )}
             <span className={`font-bold text-base sm:text-lg tracking-tight ${t.textHeading}`}>
               {settings.businessName || (settings as any).shopName || 'Cycly Rent'}
             </span>
@@ -270,16 +267,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          {/* Theme Toggle */}
-          <button
-            id="btn-theme-toggle"
-            type="button"
-            onClick={onToggleTheme}
-            className={`p-2 rounded-xl border flex items-center justify-center transition cursor-pointer ${t.inactiveTab}`}
-            title={themeMode === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-          >
-            {themeMode === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-600" />}
-          </button>
+
 
           {/* Profile Avatar */}
           <div className="relative">
@@ -287,10 +275,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               id="btn-profile-avatar"
               type="button"
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="flex flex-col items-center gap-0.5 cursor-pointer group"
+              className="flex items-center gap-0.5 cursor-pointer group"
               title={activeUser.name}
             >
-              <span className={`text-[10px] font-semibold ${t.textMuted} hidden sm:block`}>Profile</span>
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-lg ring-2 ring-offset-1 transition-all group-hover:scale-105"
                 style={{
@@ -321,6 +308,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </span>
                 </div>
                 <div className="p-1">
+                  {/* Dark / Light Mode Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => { onToggleTheme(); }}
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition cursor-pointer ${t.textMain} hover:bg-slate-500/10`}
+                  >
+                    {themeMode === 'dark' ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-indigo-600" />}
+                    {themeMode === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                  </button>
                   <button
                     type="button"
                     onClick={() => { handleOpenAuth(); setShowUserMenu(false); }}
@@ -352,42 +348,16 @@ export const Navbar: React.FC<NavbarProps> = ({
         style={{ top: '4rem', width: sidebarW }}
       >
         {/* Sidebar header */}
-        <div className={`flex items-center justify-between px-3 py-2.5 border-b shrink-0 ${t.divider}`}>
-          {!sidebarCollapsed ? (
-            <>
-              <div className="flex items-center gap-1">
-                <button
-                  id="btn-sidebar-collapse"
-                  type="button"
-                  onClick={() => setSidebarCollapsed(true)}
-                  className={`p-1.5 rounded-lg transition cursor-pointer ${inactiveItemClass}`}
-                  title="Collapse sidebar"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className={`text-xs font-semibold ${t.textMuted}`}>Side Menu</span>
-              </div>
-              <button
-                id="btn-sidebar-menu-icon"
-                type="button"
-                onClick={() => setSidebarCollapsed(true)}
-                className={`p-1.5 rounded-lg transition cursor-pointer ${inactiveItemClass}`}
-                title="Collapse sidebar"
-              >
-                <Menu className="w-4 h-4" />
-              </button>
-            </>
-          ) : (
-            <button
-              id="btn-sidebar-expand"
-              type="button"
-              onClick={() => setSidebarCollapsed(false)}
-              className={`mx-auto p-1.5 rounded-lg transition cursor-pointer ${inactiveItemClass}`}
-              title="Expand sidebar"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          )}
+        <div className={`flex items-center justify-center px-3 py-2.5 border-b shrink-0 ${t.divider}`}>
+          <button
+            id="btn-sidebar-toggle"
+            type="button"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className={`p-1.5 rounded-lg transition cursor-pointer ${inactiveItemClass}`}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <Menu className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Scroll up */}
@@ -453,23 +423,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         )}
 
-        {/* Bottom user strip */}
-        {!sidebarCollapsed && (
-          <div className={`shrink-0 border-t px-3 py-3 ${t.divider}`}>
-            <div className="flex items-center gap-2">
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                style={{ background: 'linear-gradient(135deg,#10b981,#059669)' }}
-              >
-                {avatarInitials}
-              </div>
-              <div className="min-w-0">
-                <p className={`text-xs font-semibold truncate ${t.textMain}`}>{activeUser.name}</p>
-                <p className={`text-[10px] truncate ${t.textMuted}`}>{activeUser.role}</p>
-              </div>
-            </div>
-          </div>
-        )}
+
       </aside>
     </>
   );

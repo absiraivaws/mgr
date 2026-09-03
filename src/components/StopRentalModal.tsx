@@ -154,6 +154,15 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
             </div>
           )}
 
+          {/* Cashier Info */}
+          {rental.cashierName && (
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs ${t.cardSubtleBg} border ${t.divider}`}>
+              <ShieldCheck className="w-3.5 h-3.5 text-violet-400" />
+              <span className={t.textMuted}>Cashier:</span>
+              <span className={`font-semibold ${t.textHeading}`}>{rental.cashierName}</span>
+            </div>
+          )}
+
           {/* Time & Duration Calculation Card */}
           <div className={`p-4 rounded-xl border space-y-2.5 ${t.cardSubtleBg}`}>
             <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-500/20">

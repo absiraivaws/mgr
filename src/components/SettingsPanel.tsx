@@ -941,6 +941,66 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               </h3>
             </div>
 
+            {/* Company Logo Upload */}
+            <div className="flex items-center gap-4">
+              <div className="shrink-0">
+                {storeForm.companyLogo ? (
+                  <img
+                    src={storeForm.companyLogo}
+                    alt="Company Logo"
+                    className="w-16 h-16 rounded-xl object-cover border-2 border-emerald-500/30 shadow-lg"
+                  />
+                ) : (
+                  <div
+                    className={`w-16 h-16 rounded-xl flex items-center justify-center border-2 border-dashed ${t.divider}`}
+                  >
+                    <Bike className={`w-6 h-6 ${t.textMuted}`} />
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 space-y-1.5">
+                <label className={`block text-xs font-semibold ${t.textHeading}`}>Company Logo</label>
+                <div className="flex items-center gap-2">
+                  <label
+                    className={`px-3 py-2 rounded-xl text-xs font-semibold cursor-pointer flex items-center gap-1.5 ${t.inactiveTab} hover:opacity-80 transition`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Upload Logo
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 500 * 1024) {
+                          alert('Logo image must be under 500KB');
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          const dataUrl = ev.target?.result as string;
+                          setStoreForm({ ...storeForm, companyLogo: dataUrl });
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                  </label>
+                  {storeForm.companyLogo && (
+                    <button
+                      type="button"
+                      onClick={() => setStoreForm({ ...storeForm, companyLogo: undefined })}
+                      className="px-2 py-2 rounded-xl text-xs font-semibold text-rose-500 hover:bg-rose-500/10 transition cursor-pointer flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <p className={`text-[10px] ${t.textMuted}`}>Recommended: 128×128px, PNG or JPEG, max 500KB</p>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>Business Name</label>

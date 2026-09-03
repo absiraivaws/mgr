@@ -82,6 +82,7 @@ export interface AppSettings {
   cashierName: string;
   soundEnabled: boolean;
   rentalNumberPrefix: string;
+  companyLogo?: string; // base64 data URL of the company logo image
 }
 
 export interface Customer {
