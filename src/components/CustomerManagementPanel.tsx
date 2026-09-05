@@ -45,7 +45,8 @@ import {
   getCustomerAge,
   formatWhatsAppBirthdayMessage,
   formatWhatsAppCustomMessage,
-  parseCustomerDob
+  parseCustomerDob,
+  cleanWhatsAppPhoneNumber
 } from '../utils/customer';
 
 interface CustomerManagementPanelProps {
@@ -203,6 +204,9 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
       return;
     }
 
+    const cleanPhone = formData.phone.trim().replace(/^@+/, '');
+    const cleanWa = (formData.whatsappNumber.trim() || formData.phone.trim()).replace(/^@+/, '');
+
     if (editingCustomer) {
       // Update existing
       const updated: Customer = {
@@ -212,8 +216,8 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
         nicPassport: cleanNic,
         address: formData.address.trim(),
         dob: formData.dob.trim(),
-        whatsappNumber: formData.whatsappNumber.trim() || formData.phone.trim(),
-        phone: formData.phone.trim(),
+        whatsappNumber: cleanWa,
+        phone: cleanPhone,
         notes: formData.notes.trim() || undefined,
       };
       onUpdateCustomer(updated);
@@ -227,8 +231,8 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
         nicPassport: cleanNic,
         address: formData.address.trim(),
         dob: formData.dob.trim(),
-        whatsappNumber: formData.whatsappNumber.trim() || formData.phone.trim(),
-        phone: formData.phone.trim(),
+        whatsappNumber: cleanWa,
+        phone: cleanPhone,
         notes: formData.notes.trim() || undefined,
         createdAt: Date.now(),
         totalRentalsCount: 0,
@@ -642,7 +646,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                     <td className="px-4 py-3 font-mono">
                       {customer.whatsappNumber || customer.phone ? (
                         <a
-                          href={`https://wa.me/${(customer.whatsappNumber || customer.phone || '').replace(/[^0-9]/g, '')}`}
+                          href={`https://wa.me/${cleanWhatsAppPhoneNumber(customer.whatsappNumber || customer.phone)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center gap-1 text-emerald-400 hover:underline"
@@ -704,7 +708,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                             type="button"
                             onClick={() => {
                               const msg = formatWhatsAppBirthdayMessage(customer, settings.businessName);
-                              const phone = (customer.whatsappNumber || customer.phone || '').replace(/[^0-9]/g, '');
+                              const phone = cleanWhatsAppPhoneNumber(customer.whatsappNumber || customer.phone);
                               try { confetti({ particleCount: 70, spread: 70 }); } catch {}
                               window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
                             }}
@@ -1101,7 +1105,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                 </span>
                 {viewingCustomer.whatsappNumber || viewingCustomer.phone ? (
                   <a
-                    href={`https://wa.me/${(viewingCustomer.whatsappNumber || viewingCustomer.phone || '').replace(/[^0-9]/g, '')}`}
+                    href={`https://wa.me/${cleanWhatsAppPhoneNumber(viewingCustomer.whatsappNumber || viewingCustomer.phone)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-mono font-bold text-emerald-400 hover:underline flex items-center gap-1"
@@ -1363,7 +1367,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                   {displayList.map((customer) => {
                     const isToday = isCustomerBirthdayToday(customer.dob);
                     const age = getCustomerAge(customer.dob);
-                    const phone = (customer.whatsappNumber || customer.phone || '').replace(/[^0-9]/g, '');
+                    const phone = cleanWhatsAppPhoneNumber(customer.whatsappNumber || customer.phone);
 
                     return (
                       <div
@@ -1613,7 +1617,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                   const resolvedText = formatWhatsAppCustomMessage(customMessageText, messagingCustomer, {
                     shop_name: settings.businessName || 'Mannar Green Ride',
                   });
-                  const phone = (messagingCustomer.whatsappNumber || messagingCustomer.phone || '').replace(/[^0-9]/g, '');
+                  const phone = cleanWhatsAppPhoneNumber(messagingCustomer.whatsappNumber || messagingCustomer.phone);
                   if (!phone) {
                     alert('This customer has no valid phone number.');
                     return;

@@ -209,6 +209,33 @@ export function formatWhatsAppCustomMessage(
   return text;
 }
 
+/**
+ * Clean and format phone number for WhatsApp wa.me links.
+ * Converts local numbers (e.g. 0770692088) to international format without '+' or leading 0 (e.g. 94770692088).
+ * This prevents WhatsApp from mistaking numbers starting with '0' as usernames (@0770692088).
+ */
+export function cleanWhatsAppPhoneNumber(phoneStr?: string, defaultCountryCode: string = '94'): string {
+  if (!phoneStr) return '';
+  // Strip any @, spaces, dashes, parentheses, or plus
+  let cleaned = phoneStr.trim().replace(/^@+/, '').replace(/[^0-9]/g, '');
+  if (!cleaned) return '';
+
+  // If number starts with 00 (international dialing prefix), remove 00
+  if (cleaned.startsWith('00')) {
+    cleaned = cleaned.slice(2);
+  }
+
+  // If starts with local trunk prefix '0' (e.g. 0770692088 -> 10 digits in SL)
+  if (cleaned.startsWith('0')) {
+    cleaned = defaultCountryCode + cleaned.slice(1);
+  } else if (cleaned.length === 9) {
+    // 9 digits without leading 0 (e.g. 770692088)
+    cleaned = defaultCountryCode + cleaned;
+  }
+
+  return cleaned;
+}
+
 export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
   {
     id: 'tmpl-birthday-default',
