@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShieldCheck, 
   UserCheck, 
@@ -589,10 +589,66 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   const [templateSuccess, setTemplateSuccess] = useState<string | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
 
+  const matchTemplateCategory = (tmplCat: string, filterCat: string): boolean => {
+    if (filterCat === 'all') return true;
+    const cat = (tmplCat || '').toLowerCase().trim();
+    if (cat === filterCat) return true;
+
+    if (filterCat === 'birthday') {
+      return cat === 'birthday' || cat.includes('birthday');
+    }
+    if (filterCat === 'rental') {
+      return cat === 'rental' || cat === 'welcome' || cat === 'return_reminder' || cat.includes('rental') || cat.includes('return') || cat.includes('start');
+    }
+    if (filterCat === 'reminder') {
+      return cat === 'reminder' || cat === 'rental_reminder' || cat === 'payment_reminder' || cat.includes('reminder');
+    }
+    if (filterCat === 'marketing') {
+      return (
+        cat === 'marketing' ||
+        cat === 'promotion' ||
+        cat === 'tourist_promo' ||
+        cat === 'fitness_promo' ||
+        cat === 'special_offer' ||
+        cat === 'holiday_greeting' ||
+        cat.includes('promo') ||
+        cat.includes('offer') ||
+        cat.includes('greeting')
+      );
+    }
+    if (filterCat === 'general') {
+      return cat === 'general' || cat === 'thank_you' || cat === 'other';
+    }
+    return false;
+  };
+
+  const getCategoryBadgeDetails = (cat: string) => {
+    if (matchTemplateCategory(cat, 'birthday')) {
+      return { label: 'Birthday Wishes', badge: 'bg-pink-500/15 text-pink-400 border-pink-500/30' };
+    }
+    if (matchTemplateCategory(cat, 'rental')) {
+      return { label: 'Rental Desk', badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' };
+    }
+    if (matchTemplateCategory(cat, 'reminder')) {
+      return { label: 'Reminder', badge: 'bg-amber-500/15 text-amber-400 border-amber-500/30' };
+    }
+    if (matchTemplateCategory(cat, 'marketing')) {
+      return { label: 'Marketing & Promo', badge: 'bg-purple-500/15 text-purple-400 border-purple-500/30' };
+    }
+    return { label: 'General', badge: 'bg-blue-500/15 text-blue-400 border-blue-500/30' };
+  };
+
+  const filteredTemplates = useMemo(() => {
+    return templates.filter((tmpl) => matchTemplateCategory(tmpl.category, templateCategoryFilter));
+  }, [templates, templateCategoryFilter]);
+
   const handleOpenAddTemplate = () => {
     setEditingTemplateId(null);
     setTmplTitle('');
-    setTmplCategory('general');
+    const defaultCat = (templateCategoryFilter !== 'all' && ['birthday', 'rental', 'reminder', 'marketing', 'general'].includes(templateCategoryFilter))
+      ? (templateCategoryFilter as MessageTemplateCategory)
+      : 'general';
+    setTmplCategory(defaultCat);
     setTmplContent('');
     setTemplateError(null);
     setIsTemplateModalOpen(true);
@@ -1360,16 +1416,23 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
             { id: 'general', label: '💬 General' },
           ].map((tab) => {
             const isActive = templateCategoryFilter === tab.id;
+            const count = tab.id === 'all'
+              ? templates.length
+              : templates.filter((t) => matchTemplateCategory(t.category, tab.id)).length;
+
             return (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setTemplateCategoryFilter(tab.id)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                   isActive ? t.activeTab : t.inactiveTab
                 }`}
               >
-                {tab.label}
+                <span>{tab.label}</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-slate-700/50 text-slate-300'}`}>
+                  {count}
+                </span>
               </button>
             );
           })}
@@ -1377,16 +1440,22 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
 
         {/* Template Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {templates
-            .filter((tmpl) => templateCategoryFilter === 'all' || tmpl.category === templateCategoryFilter)
-            .map((tmpl) => {
-              const categoryBadge = {
-                birthday: 'bg-pink-500/15 text-pink-400 border-pink-500/30',
-                rental: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-                reminder: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
-                marketing: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
-                general: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-              }[tmpl.category] || 'bg-slate-500/15 text-slate-300 border-slate-500/30';
+          {filteredTemplates.length === 0 ? (
+            <div className="col-span-full p-8 rounded-2xl border border-dashed border-slate-700 text-center space-y-2">
+              <p className={`text-sm font-semibold ${t.textHeading}`}>
+                No message templates found in this category.
+              </p>
+              <button
+                type="button"
+                onClick={handleOpenAddTemplate}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${t.primaryBtn}`}
+              >
+                + Create New Template
+              </button>
+            </div>
+          ) : (
+            filteredTemplates.map((tmpl) => {
+              const badgeInfo = getCategoryBadgeDetails(tmpl.category);
 
               return (
                 <div
@@ -1397,8 +1466,8 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                     <div className="flex items-start justify-between gap-2 mb-2.5">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${categoryBadge}`}>
-                            {tmpl.category}
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${badgeInfo.badge}`}>
+                            {badgeInfo.label}
                           </span>
                           <h4 className={`text-sm font-bold ${t.textHeading}`}>
                             {tmpl.title}
@@ -1433,22 +1502,13 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                   </div>
 
                   <div className="mt-3 pt-2.5 border-t border-slate-700/30 flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      <span>{tmpl.updatedAt ? new Date(tmpl.updatedAt).toLocaleDateString() : 'System Default'}</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditTemplate(tmpl)}
-                      className="text-emerald-400 font-semibold hover:underline cursor-pointer flex items-center gap-0.5"
-                    >
-                      <span>Customize</span>
-                      <ChevronRight className="w-3 h-3" />
-                    </button>
+                    <span className="font-mono text-[10px]">ID: {tmpl.id}</span>
+                    <span>Last updated: {new Date(tmpl.updatedAt || tmpl.createdAt || Date.now()).toLocaleDateString()}</span>
                   </div>
                 </div>
               );
-            })}
+            })
+          )}
         </div>
       </div>
 

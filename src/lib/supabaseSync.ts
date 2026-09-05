@@ -264,18 +264,19 @@ export async function syncCustomerToSupabase(customer: Customer) {
   if (!supabase) return;
 
   try {
+    const trimmedNic = (customer.nicPassport || '').trim();
     const payload = {
-      nic_passport: customer.nicPassport,
-      name: customer.name || customer.fullName || 'Customer',
-      full_name: customer.fullName || customer.name || 'Customer',
-      phone: customer.phone || '',
-      whatsapp_number: customer.whatsappNumber || customer.phone || '',
-      address: customer.address || '',
-      dob: customer.dob || '',
+      nic_passport: trimmedNic,
+      name: (customer.name || customer.fullName || 'Customer').trim(),
+      full_name: (customer.fullName || customer.name || 'Customer').trim(),
+      phone: (customer.phone || '').trim(),
+      whatsapp_number: (customer.whatsappNumber || customer.phone || '').trim(),
+      address: (customer.address || '').trim(),
+      dob: (customer.dob || '').trim(),
       status: customer.status || 'active',
-      status_remark: customer.statusRemark || null,
+      status_remark: customer.statusRemark ? customer.statusRemark.trim() : null,
       groups: customer.groups || [],
-      notes: customer.notes || null,
+      notes: customer.notes ? customer.notes.trim() : null,
       total_rentals_count: customer.totalRentalsCount ?? 0,
       last_rental_date: customer.lastRentalDate || null,
       created_at: customer.createdAt || Date.now(),
@@ -283,19 +284,19 @@ export async function syncCustomerToSupabase(customer: Customer) {
 
     // 1. Check if row exists by customer ID
     if (customer.id) {
-      const { data: byId } = await supabase.from('customers').select('id').eq('id', customer.id).maybeSingle();
+      const { data: byId } = await supabase.from('customers').select('id, nic_passport').eq('id', customer.id).maybeSingle();
       if (byId) {
         const { error } = await supabase.from('customers').update(payload).eq('id', customer.id);
-        if (error) console.error('Error updating customer by ID:', error);
-        return;
+        if (!error) return;
+        console.warn('Could not update customer by ID, checking by NIC fallback:', error.message);
       }
     }
 
     // 2. Check if row exists by nic_passport
-    if (customer.nicPassport) {
-      const { data: byNic } = await supabase.from('customers').select('id').eq('nic_passport', customer.nicPassport).maybeSingle();
+    if (trimmedNic) {
+      const { data: byNic } = await supabase.from('customers').select('id').eq('nic_passport', trimmedNic).maybeSingle();
       if (byNic) {
-        const { error } = await supabase.from('customers').update(payload).eq('nic_passport', customer.nicPassport);
+        const { error } = await supabase.from('customers').update(payload).eq('nic_passport', trimmedNic);
         if (error) console.error('Error updating customer by NIC:', error);
         return;
       }
@@ -321,8 +322,9 @@ export async function deleteCustomerFromSupabase(customerId: string, nicPassport
       const { error: errId } = await supabase.from('customers').delete().eq('id', customerId);
       if (errId) console.error('Error deleting customer by id:', errId);
     }
-    if (nicPassport) {
-      const { error: errNic } = await supabase.from('customers').delete().eq('nic_passport', nicPassport);
+    const trimmedNic = (nicPassport || '').trim();
+    if (trimmedNic) {
+      const { error: errNic } = await supabase.from('customers').delete().eq('nic_passport', trimmedNic);
       if (errNic) console.error('Error deleting customer by nic:', errNic);
     }
   } catch (err) {
@@ -774,7 +776,7 @@ export async function fetchIncomeEntries(): Promise<import('../types').IncomeEnt
       type: row.type as 'income' | 'expense',
       amount: Number(row.amount),
       category: row.category || 'Other',
-      who: row.who || 'Mark',
+      who: (row.who && row.who !== 'Mark') ? row.who : (row.cashier_name || 'Staff'),
       createdAt: row.created_at ? Number(row.created_at) : Date.now(),
       cashierName: row.cashier_name || '',
     }));

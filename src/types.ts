@@ -70,6 +70,8 @@ export interface RentalRecord {
   amountReceived?: number;
   changeAmount?: number;
   completedAt?: number;
+  sendWelcomeWhatsApp?: boolean;
+  sendEndWhatsApp?: boolean;
 }
 
 export interface AppSettings {

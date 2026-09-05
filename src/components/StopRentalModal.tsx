@@ -87,7 +87,7 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
   const [amountReceivedInput, setAmountReceivedInput] = useState<string>('');
   const [damageAmountInput, setDamageAmountInput] = useState<string>('');
   const [discountInput, setDiscountInput] = useState<string>('');
-  const [sendThankYouWhatsApp, setSendThankYouWhatsApp] = useState<boolean>(true);
+  const [sendThankYouWhatsApp, setSendThankYouWhatsApp] = useState<boolean>(rental.sendEndWhatsApp ?? true);
 
   const t = getThemeClasses(themeMode, accent);
 
@@ -554,22 +554,25 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
           )}
 
           {/* WhatsApp Return Thank-you Dispatch Checkbox */}
-          {rental.customerPhone && (
-            <div className="pt-2 px-1">
-              <label className="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={sendThankYouWhatsApp}
-                  onChange={(e) => setSendThankYouWhatsApp(e.target.checked)}
-                  className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
-                />
-                <span className="flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Send WhatsApp Return Receipt & Thank You message to customer</span>
-                </span>
-              </label>
-            </div>
-          )}
+          <div className="pt-2 px-1">
+            <label className="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={sendThankYouWhatsApp}
+                onChange={(e) => setSendThankYouWhatsApp(e.target.checked)}
+                className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
+              />
+              <span className="flex items-center gap-1.5 font-medium">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Send WhatsApp Return Receipt & Thank You message to customer</span>
+              </span>
+            </label>
+            {!rental.customerPhone && (
+              <p className="text-[10px] text-slate-400 italic mt-0.5 ml-6">
+                * Customer has no phone number recorded on file.
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Modal Actions */}

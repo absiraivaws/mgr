@@ -257,6 +257,82 @@ export default function App() {
     localStorage.setItem('v_rental_income', JSON.stringify(incomeEntries));
   }, [incomeEntries]);
 
+  // Reconcile and synchronize rental history with income entries
+  const reconcileRentalIncomeLedger = (
+    rentals: RentalRecord[],
+    incomes: IncomeEntry[],
+    fallbackCashier: string
+  ) => {
+    let hasChanges = false;
+    const currentIncomes = [...incomes];
+    const newItems: IncomeEntry[] = [];
+    const updatedItems: IncomeEntry[] = [];
+
+    for (const r of rentals) {
+      if (!r.totalAmount || r.totalAmount <= 0) continue;
+      const expectedId = `inc-rent-${r.id}`;
+      const existing = currentIncomes.find(
+        (i) => i.id === expectedId || i.description.includes(`Rental #${r.rentalNumber}`)
+      );
+      const cashier = r.cashierName || fallbackCashier || 'Staff';
+
+      if (!existing) {
+        const newEntry: IncomeEntry = {
+          id: expectedId,
+          date: new Date(r.completedAt || Date.now()).toISOString().slice(0, 10),
+          description: `Rental #${r.rentalNumber} — ${r.vehicleTypeName} (${r.vehicleSerialNumber})`,
+          type: 'income',
+          amount: r.totalAmount,
+          category: 'Rental Revenue',
+          who: cashier,
+          createdAt: r.completedAt || Date.now(),
+          cashierName: cashier,
+        };
+        currentIncomes.unshift(newEntry);
+        newItems.push(newEntry);
+        hasChanges = true;
+      } else {
+        let entryChanged = false;
+        const copy = { ...existing };
+        if (copy.who === 'Mark') {
+          copy.who = cashier;
+          entryChanged = true;
+        }
+        if (copy.amount !== r.totalAmount) {
+          copy.amount = r.totalAmount;
+          entryChanged = true;
+        }
+        if (!copy.cashierName && cashier) {
+          copy.cashierName = cashier;
+          entryChanged = true;
+        }
+        if (entryChanged) {
+          const idx = currentIncomes.findIndex((i) => i.id === existing.id);
+          if (idx !== -1) {
+            currentIncomes[idx] = copy;
+            updatedItems.push(copy);
+            hasChanges = true;
+          }
+        }
+      }
+    }
+
+    return { reconciledIncomes: currentIncomes, hasChanges, newItems, updatedItems };
+  };
+
+  // Local reconciliation to ensure completed rentals always match income entries and sanitize legacy 'Mark' entries
+  useEffect(() => {
+    const fallbackCashier = activeUser.name || currentUser?.name || settings.cashierName || 'Staff';
+    const { reconciledIncomes, hasChanges } = reconcileRentalIncomeLedger(
+      completedRentals,
+      incomeEntries,
+      fallbackCashier
+    );
+    if (hasChanges) {
+      setIncomeEntries(reconciledIncomes);
+    }
+  }, []);
+
   // Load from Supabase on startup and subscribe to realtime changes
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
@@ -304,9 +380,32 @@ export default function App() {
       else {
         console.log('No cloud data found, keeping local data as fallback');
       }
-      if (cloudIncome && cloudIncome.length > 0) {
+
+      // Reconcile rental history with income entries
+      const effectiveRentals = cloudData?.completedRentals !== undefined
+        ? cloudData.completedRentals.map((r: RentalRecord) =>
+            r.rentalNumber === 'REN-156' ? { ...r, rentalNumber: 'REN-101' } : r
+          )
+        : completedRentals;
+      const effectiveIncome = (cloudIncome && cloudIncome.length > 0) ? cloudIncome : incomeEntries;
+
+      const { reconciledIncomes, hasChanges, newItems, updatedItems } = reconcileRentalIncomeLedger(
+        effectiveRentals,
+        effectiveIncome,
+        currentUser?.name || settings.cashierName || 'Staff'
+      );
+
+      if (hasChanges) {
+        setIncomeEntries(reconciledIncomes);
+        if (isSupabaseConfigured()) {
+          [...newItems, ...updatedItems].forEach((entry) => {
+            syncIncomeEntryToSupabase(entry);
+          });
+        }
+      } else if (cloudIncome && cloudIncome.length > 0) {
         setIncomeEntries(cloudIncome);
       }
+
       if (cloudTemplates && cloudTemplates.length > 0) {
         setMessageTemplates(cloudTemplates);
         saveStoredMessageTemplates(cloudTemplates);
@@ -370,6 +469,8 @@ export default function App() {
     customerNotes?: string;
     depositAmount?: number;
     customStartTime?: number;
+    sendWelcomeWhatsApp?: boolean;
+    sendEndWhatsApp?: boolean;
   }) => {
     const typeObj = vehicleTypes.find((t) => t.id === params.vehicleTypeId) || vehicleTypes[0];
     
@@ -400,14 +501,16 @@ export default function App() {
         const nicKey = (params.customerNicPassport || '').trim().toUpperCase();
         const existingIdx = nicKey
           ? prev.findIndex((c) => c.nicPassport.trim().toUpperCase() === nicKey)
-          : prev.findIndex((c) => c.name.toLowerCase() === (params.customerName || '').trim().toLowerCase());
+          : -1;
 
         if (existingIdx >= 0) {
           const next = [...prev];
           next[existingIdx] = {
             ...next[existingIdx],
             name: params.customerName || next[existingIdx].name,
+            fullName: params.customerName || next[existingIdx].fullName || next[existingIdx].name,
             phone: params.customerPhone || next[existingIdx].phone,
+            whatsappNumber: params.customerPhone || next[existingIdx].whatsappNumber || next[existingIdx].phone,
             nicPassport: params.customerNicPassport || next[existingIdx].nicPassport,
             notes: params.customerNotes || next[existingIdx].notes,
             lastRentalDate: Date.now(),
@@ -419,7 +522,9 @@ export default function App() {
             id: `cust-${Date.now()}`,
             nicPassport: nicKey,
             name: params.customerName?.trim() || 'Guest Customer',
+            fullName: params.customerName?.trim() || 'Guest Customer',
             phone: params.customerPhone?.trim() || '',
+            whatsappNumber: params.customerPhone?.trim() || '',
             notes: params.customerNotes?.trim() || '',
             createdAt: Date.now(),
             lastRentalDate: Date.now(),
@@ -450,6 +555,8 @@ export default function App() {
       rateSnapshot: { ...typeObj.rates },
       totalAmount: typeObj.rates.firstHour,
       cashierName: currentUser?.name || settings.cashierName || 'Cashier',
+      sendWelcomeWhatsApp: params.sendWelcomeWhatsApp ?? true,
+      sendEndWhatsApp: params.sendEndWhatsApp ?? true,
     };
 
     setActiveRentals((prev) => [newRental, ...prev]);
@@ -497,6 +604,7 @@ export default function App() {
 
     // 4. Automatically add rental revenue to Income & Expenses Ledger
     if (completedRecord.totalAmount && completedRecord.totalAmount > 0) {
+      const activeCashier = completedRecord.cashierName || activeUser.name || currentUser?.name || settings.cashierName || 'Staff';
       const rentalIncomeEntry: IncomeEntry = {
         id: `inc-rent-${completedRecord.id}`,
         date: new Date(completedRecord.completedAt || Date.now()).toISOString().slice(0, 10),
@@ -504,9 +612,9 @@ export default function App() {
         type: 'income',
         amount: completedRecord.totalAmount,
         category: 'Rental Revenue',
-        who: 'Mark',
+        who: activeCashier,
         createdAt: Date.now(),
-        cashierName: completedRecord.cashierName || currentUser?.name || settings.cashierName || 'Cashier',
+        cashierName: activeCashier,
       };
 
       setIncomeEntries((prev) => [rentalIncomeEntry, ...prev]);
@@ -551,6 +659,31 @@ export default function App() {
     }
   };
 
+  const handleBulkImportCustomers = (importedCustomers: Customer[]) => {
+    setCustomers((prev) => {
+      const existingMap = new Map(prev.map((c) => [(c.nicPassport || '').trim().toUpperCase(), c]));
+      const updated = [...prev];
+      for (const imported of importedCustomers) {
+        const key = (imported.nicPassport || '').trim().toUpperCase();
+        if (key && existingMap.has(key)) {
+          const index = updated.findIndex((c) => (c.nicPassport || '').trim().toUpperCase() === key);
+          if (index !== -1) {
+            updated[index] = { ...updated[index], ...imported };
+          }
+        } else {
+          updated.unshift(imported);
+        }
+      }
+      return updated;
+    });
+
+    if (isSupabaseConfigured()) {
+      importedCustomers.forEach((c) => {
+        syncCustomerToSupabase(c);
+      });
+    }
+  };
+
   // Handler: Delete Completed Rental (Admin user only)
   const handleDeleteRental = (rentalId: string) => {
     const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
@@ -565,8 +698,18 @@ export default function App() {
 
     setCompletedRentals((prev) => prev.filter((r) => r.id !== rentalId));
 
+    // Also remove associated rental revenue entry from incomeEntries to keep history & ledger in sync
+    setIncomeEntries((prev) =>
+      prev.filter(
+        (entry) =>
+          entry.id !== `inc-rent-${target.id}` &&
+          !entry.description.includes(`Rental #${target.rentalNumber}`)
+      )
+    );
+
     if (isSupabaseConfigured()) {
       deleteRentalFromSupabase(target.id, target.rentalNumber);
+      deleteIncomeEntryFromSupabase(`inc-rent-${target.id}`);
     }
   };
 
@@ -680,6 +823,7 @@ export default function App() {
                 activeRentals={activeRentals}
                 completedRentals={completedRentals}
                 settings={settings}
+                currentUser={activeUser}
                 themeMode={themeMode}
                 accent={accent}
                 onStartRental={handleStartRental}
@@ -709,6 +853,7 @@ export default function App() {
               onAddCustomer={handleAddCustomer}
               onUpdateCustomer={handleUpdateCustomer}
               onDeleteCustomer={handleDeleteCustomer}
+              onBulkImportCustomers={handleBulkImportCustomers}
               onSaveCustomerGroup={(group) => {
                 setCustomerGroups((prev) => {
                   const exists = prev.findIndex((g) => g.id === group.id);

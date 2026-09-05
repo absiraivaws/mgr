@@ -21,6 +21,7 @@ import { VehicleIcon } from './VehicleIcon';
 import { formatCurrency, playSoundEffect, getNextRentalNumber } from '../utils/pricing';
 import { findCustomerByNic, searchCustomers, isCustomerSuspendedOrBlocked, cleanWhatsAppPhoneNumber } from '../utils/customer';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
+import { DEFAULT_USER, UserAccount } from '../utils/auth';
 
 interface StartRentalCardProps {
   vehicleTypes: VehicleType[];
@@ -29,6 +30,7 @@ interface StartRentalCardProps {
   activeRentals?: RentalRecord[];
   completedRentals?: RentalRecord[];
   settings: AppSettings;
+  currentUser?: UserAccount;
   themeMode?: ThemeMode;
   accent?: AccentColor;
   onStartRental: (params: {
@@ -40,6 +42,8 @@ interface StartRentalCardProps {
     customerNotes?: string;
     depositAmount?: number;
     customStartTime?: number;
+    sendWelcomeWhatsApp?: boolean;
+    sendEndWhatsApp?: boolean;
   }) => void;
   onQuickAddSerial?: (typeId: string, serial: string) => void;
 }
@@ -51,9 +55,11 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   activeRentals = [],
   completedRentals = [],
   settings,
+  currentUser,
   themeMode = 'dark',
   accent = 'emerald',
   onStartRental,
+  onQuickAddSerial,
 }) => {
   // Always start with Category and Serial Number blank
   const [selectedTypeId, setSelectedTypeId] = useState<string>('');
@@ -64,8 +70,13 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   const [customerNotes, setCustomerNotes] = useState<string>('');
   const [depositAmount, setDepositAmount] = useState<string>('');
   const [sendWelcomeWhatsApp, setSendWelcomeWhatsApp] = useState<boolean>(true);
+  const [sendEndWhatsApp, setSendEndWhatsApp] = useState<boolean>(true);
   const [customSerialMode, setCustomSerialMode] = useState<boolean>(false);
   const [isCustomStartTime, setIsCustomStartTime] = useState<boolean>(false);
+
+  const activeUser = currentUser || DEFAULT_USER;
+  const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+  const isAdmin = activeUser.role === 'admin' || isRootAdmin;
   const [customStartTimeInput, setCustomStartTimeInput] = useState<string>(() => {
     const d = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -259,6 +270,8 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
       customerNotes: customerNotes.trim() || undefined,
       depositAmount: depositAmount ? parseFloat(depositAmount) : undefined,
       customStartTime: customStartMs,
+      sendWelcomeWhatsApp,
+      sendEndWhatsApp,
     });
 
     // Send automated WhatsApp Welcome Message if opted-in and phone exists
@@ -729,9 +742,9 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
           </div>
         </div>
 
-        {/* WhatsApp Welcome Dispatch Toggle Option */}
-        {(customerPhone || matchedCustomer?.phone || matchedCustomer?.whatsappNumber) && (
-          <div className="pt-2 px-1">
+        {/* Automated WhatsApp Dispatch Options - Always Active & Visible */}
+        <div className="pt-2 px-1 space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -739,49 +752,64 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
                 onChange={(e) => setSendWelcomeWhatsApp(e.target.checked)}
                 className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
               />
-              <span className="flex items-center gap-1.5">
+              <span className="flex items-center gap-1.5 font-medium">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Send WhatsApp Welcome & Confirmation message when rental starts</span>
+                <span>Send WhatsApp start message (Welcome & Confirmation)</span>
+              </span>
+            </label>
+
+            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={sendEndWhatsApp}
+                onChange={(e) => setSendEndWhatsApp(e.target.checked)}
+                className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
+              />
+              <span className="flex items-center gap-1.5 font-medium">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Send WhatsApp end message (Return Receipt & Thank You)</span>
               </span>
             </label>
           </div>
-        )}
-
-        {/* Custom Start Time Option */}
-        <div className="pt-2 px-1">
-          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={isCustomStartTime}
-              onChange={(e) => setIsCustomStartTime(e.target.checked)}
-              className="w-4 h-4 rounded text-indigo-500 focus:ring-indigo-500 bg-slate-900 border-slate-700 cursor-pointer"
-            />
-            <span className="flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Specify Custom Start Time (backdate if customer started earlier)</span>
-            </span>
-          </label>
-
-          {isCustomStartTime && (
-            <div className="mt-2.5 p-3 rounded-xl border border-indigo-500/40 bg-indigo-950/30 flex flex-col sm:flex-row sm:items-center gap-2.5">
-              <span className="text-[11px] font-semibold text-indigo-200 shrink-0">
-                Rental Started At:
-              </span>
-              <input
-                type="datetime-local"
-                value={customStartTimeInput}
-                onChange={(e) => {
-                  setCustomStartTimeInput(e.target.value);
-                  setErrorMsg(null);
-                }}
-                className={`rounded-xl px-3 py-1.5 text-xs font-mono ${t.textInput} flex-1`}
-              />
-              <span className="text-[10px] text-indigo-300/70">
-                Duration will count from this time
-              </span>
-            </div>
-          )}
         </div>
+
+        {/* Custom Start Time Option - Strictly Admin Only */}
+        {isAdmin && (
+          <div className="pt-2 px-1">
+            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isCustomStartTime}
+                onChange={(e) => setIsCustomStartTime(e.target.checked)}
+                className="w-4 h-4 rounded text-indigo-500 focus:ring-indigo-500 bg-slate-900 border-slate-700 cursor-pointer"
+              />
+              <span className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Specify Custom Start Time (backdate if customer started earlier)</span>
+              </span>
+            </label>
+
+            {isCustomStartTime && (
+              <div className="mt-2.5 p-3 rounded-xl border border-indigo-500/40 bg-indigo-950/30 flex flex-col sm:flex-row sm:items-center gap-2.5">
+                <span className="text-[11px] font-semibold text-indigo-200 shrink-0">
+                  Rental Started At:
+                </span>
+                <input
+                  type="datetime-local"
+                  value={customStartTimeInput}
+                  onChange={(e) => {
+                    setCustomStartTimeInput(e.target.value);
+                    setErrorMsg(null);
+                  }}
+                  className={`rounded-xl px-3 py-1.5 text-xs font-mono ${t.textInput} flex-1`}
+                />
+                <span className="text-[10px] text-indigo-300/70">
+                  Duration will count from this time
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Start Rental Primary Action Button */}
         <div className="pt-2">

@@ -44,12 +44,6 @@ const CATEGORIES = [
   'Other',
 ];
 
-const BASE_WHO_OPTIONS = [
-  'Mark',
-  'Jenis',
-  'Beni',
-];
-
 export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
   entries,
   settings,
@@ -65,7 +59,7 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
   const isRootAdmin = currentUser?.email?.toLowerCase() === DEFAULT_USER.email.toLowerCase();
   const isAdmin = currentUser?.role === 'admin' || isRootAdmin;
 
-  // Dynamic known staff list
+  // Dynamic known staff list - dynamically loaded from registered user accounts and current user
   const staffOptions = useMemo(() => {
     const names = new Set<string>();
     if (currentUser?.name) names.add(currentUser.name);
@@ -75,10 +69,19 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
     } catch {
       // ignore
     }
-    entries.forEach((e) => { if (e.who) names.add(e.who); });
-    BASE_WHO_OPTIONS.forEach((n) => names.add(n));
-    return Array.from(names).filter(Boolean);
-  }, [currentUser, entries]);
+    if (settings?.cashierName) {
+      names.add(settings.cashierName);
+    }
+    entries.forEach((e) => {
+      if (e.who && e.who !== 'Mark') names.add(e.who);
+      if (e.cashierName) names.add(e.cashierName);
+    });
+    // Fallback if no users defined yet
+    if (names.size === 0) {
+      names.add(currentUser?.name || 'Staff');
+    }
+    return Array.from(names).filter(Boolean).sort();
+  }, [currentUser, entries, settings]);
 
   // Form state - Who defaults to currently logged-in user, never defaulting to "Mark"
   const defaultWho = currentUser?.name || 'Staff';

@@ -37,7 +37,9 @@ import {
   SlidersHorizontal,
   Mail,
   CheckCircle,
-  Clock
+  Clock,
+  FileSpreadsheet,
+  Upload
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { AppSettings, Customer, MessageTemplate, CustomerGroup, CustomerStatus, MessageHistoryEntry } from '../types';
@@ -58,8 +60,8 @@ import {
   getStoredCustomerGroups,
   getStoredMessageHistory
 } from '../utils/customer';
-import { CustomerMessagingTab } from './CustomerMessagingTab';
 import { CustomerGroupsModal } from './CustomerGroupsModal';
+import { BulkCustomerUploadModal, downloadCustomerTemplateFile } from './BulkCustomerUploadModal';
 
 interface CustomerManagementPanelProps {
   customers: Customer[];
@@ -74,6 +76,7 @@ interface CustomerManagementPanelProps {
   onAddCustomer: (customer: Customer) => void;
   onUpdateCustomer: (customer: Customer) => void;
   onDeleteCustomer: (customerId: string, nicPassport: string) => void;
+  onBulkImportCustomers?: (imported: Customer[]) => void;
   onSaveCustomerGroup?: (group: CustomerGroup) => void;
   onDeleteCustomerGroup?: (groupId: string) => void;
   onAddMessageHistory?: (entry: MessageHistoryEntry) => void;
@@ -96,6 +99,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
   onAddCustomer,
   onUpdateCustomer,
   onDeleteCustomer,
+  onBulkImportCustomers,
   onSaveCustomerGroup,
   onDeleteCustomerGroup,
   onAddMessageHistory,
@@ -106,8 +110,8 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
   const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
   const isAdmin = activeUser.role === 'admin' || isRootAdmin;
 
-  // Subtab State: 'directory' | 'messages'
-  const [activeCustomerSubTab, setActiveCustomerSubTab] = useState<'directory' | 'messages'>('directory');
+  // Bulk Upload Modal State
+  const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
   const [isGroupsModalOpen, setIsGroupsModalOpen] = useState(false);
 
   // Search & Filter State
@@ -465,63 +469,6 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
 
   return (
     <div className="space-y-6">
-      
-      {/* Subtab Navigation: Directory vs Messages & Campaigns */}
-      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b ${t.divider}`}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setActiveCustomerSubTab('directory')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shadow-sm ${
-              activeCustomerSubTab === 'directory' ? t.primaryBtn : t.inactiveTab
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>Customer Directory & Profiles ({customers.length})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveCustomerSubTab('messages')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shadow-sm ${
-              activeCustomerSubTab === 'messages' ? t.primaryBtn : t.inactiveTab
-            }`}
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span>Messages & Bulk Campaigns</span>
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsGroupsModalOpen(true)}
-            className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-cyan-500/40 bg-cyan-500/10 text-cyan-600 dark:text-cyan-300 hover:bg-cyan-500/20 transition cursor-pointer"
-          >
-            <Tag className="w-3.5 h-3.5" />
-            <span>Manage Customer Groups ({customerGroups.length})</span>
-          </button>
-        </div>
-      </div>
-
-      {activeCustomerSubTab === 'messages' ? (
-        <CustomerMessagingTab
-          customers={customers}
-          templates={templates}
-          customerGroups={customerGroups}
-          messageHistory={messageHistory}
-          currentUser={currentUser}
-          themeMode={themeMode}
-          accent={accent}
-          shopName={settings.businessName || 'Cycly Rent'}
-          onAddMessageHistory={(entry) => {
-            if (onAddMessageHistory) {
-              onAddMessageHistory(entry);
-            }
-          }}
-        />
-      ) : (
-        <>
           {/* Top Banner & Stat Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* Total Customers */}
@@ -615,15 +562,26 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
-                    id="btn-birthday-shortcut"
+                    id="btn-download-customer-template"
                     type="button"
-                    onClick={() => setIsBirthdayModalOpen(true)}
-                    className="py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm bg-gradient-to-r from-rose-500/20 to-pink-500/20 border border-rose-500/30 text-rose-400 hover:bg-rose-500/30"
+                    onClick={downloadCustomerTemplateFile}
+                    className={`py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition cursor-pointer shadow-sm ${t.cardSubtleBg} ${t.border} ${t.textHeading} hover:border-emerald-500`}
+                    title="Download Excel/CSV Bulk Customer Upload Template"
                   >
-                    <Cake className="w-4 h-4 text-rose-400" />
-                    <span>Birthday Wishes {todayBirthdays.length > 0 ? `(${todayBirthdays.length})` : ''}</span>
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+                    <span>Download Template</span>
+                  </button>
+                  <button
+                    id="btn-bulk-import-customers"
+                    type="button"
+                    onClick={() => setIsBulkUploadModalOpen(true)}
+                    className="py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition cursor-pointer shadow-sm bg-emerald-500/10 border-emerald-500/30 text-emerald-500 dark:text-emerald-400 hover:bg-emerald-500/20"
+                    title="Upload Bulk Customers via Excel/CSV"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Bulk Upload (Excel/CSV)</span>
                   </button>
                   <button
                     id="btn-register-customer-table"
@@ -1033,8 +991,6 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
           </div>
         </div>
       </div>
-    </>
-  )}
 
       {/* ================= MODAL: ADD / EDIT CUSTOMER ================= */}
       {(isAddModalOpen || editingCustomer) && (
@@ -1995,6 +1951,24 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
             if (onDeleteCustomerGroup) {
               onDeleteCustomerGroup(groupId);
             }
+          }}
+        />
+      )}
+
+      {/* Bulk Customer Upload Modal */}
+      {isBulkUploadModalOpen && (
+        <BulkCustomerUploadModal
+          existingCustomers={customers}
+          themeMode={themeMode}
+          accent={accent}
+          onClose={() => setIsBulkUploadModalOpen(false)}
+          onImportCustomers={(imported) => {
+            if (onBulkImportCustomers) {
+              onBulkImportCustomers(imported);
+            } else {
+              imported.forEach((c) => onAddCustomer(c));
+            }
+            setIsBulkUploadModalOpen(false);
           }}
         />
       )}
