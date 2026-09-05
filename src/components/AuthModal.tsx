@@ -57,6 +57,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   // Forgot password form state
   const [forgotEmail, setForgotEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   // Feedback messages
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -93,7 +96,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  // Handle Forgot Password - Send reset email
+  // Handle Forgot Password - Update or Send reset email
   const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearMessages();
@@ -103,9 +106,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
+    if (newPassword) {
+      if (newPassword.length < 6) {
+        setErrorMessage('New password must be at least 6 characters long.');
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        setErrorMessage('New password and confirmation do not match.');
+        return;
+      }
+
+      const res = await resetUserPassword(forgotEmail, newPassword);
+      if (res.success) {
+        setSuccessMessage('Password successfully updated and synced with Supabase! You can now log in.');
+        setTimeout(() => {
+          setActiveView('login');
+          setLoginEmail(forgotEmail);
+          setLoginPassword(newPassword);
+          setNewPassword('');
+          setConfirmPassword('');
+          setSuccessMessage(null);
+        }, 1500);
+      } else {
+        setErrorMessage(res.error || 'Failed to update password.');
+      }
+      return;
+    }
+
+    // Otherwise send reset link
     const res = await resetUserPassword(forgotEmail);
     if (res.success) {
-      setSuccessMessage('Password reset link sent to your email. Please check your inbox and follow the link to reset your password.');
+      setSuccessMessage('Password reset request processed. If Supabase email is active, check your inbox.');
       setTimeout(() => {
         setActiveView('login');
         setSuccessMessage(null);
@@ -271,16 +302,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </form>
         )}
 
-        {/* 2. FORGOT PASSWORD SCREEN - Send reset email */}
+        {/* 2. FORGOT PASSWORD SCREEN - Send reset email or enter new password directly */}
         {activeView === 'forgot' && (
-          <form onSubmit={handleForgotSubmit} className="space-y-4">
+          <form onSubmit={handleForgotSubmit} className="space-y-3.5">
             <p className={`text-xs ${t.textMuted}`}>
-              Enter your registered email address. We&apos;ll send you a link to reset your password.
+              Enter your registered email address and set your new password. This updates immediately and syncs with Supabase.
             </p>
 
             <div>
               <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
-                Registered Email
+                Registered Email <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
@@ -298,6 +329,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             </div>
 
+            <div>
+              <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                New Password (minimum 6 characters)
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <input
+                  type={showNewPassword ? 'text' : 'password'}
+                  placeholder="Enter new secure password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className={`w-full pl-9 pr-10 py-2 text-sm rounded-xl font-medium ${t.textInput}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-200 cursor-pointer"
+                >
+                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                Confirm New Password
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <input
+                  type={showNewPassword ? 'text' : 'password'}
+                  placeholder="Re-enter new password to confirm"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className={`w-full pl-9 pr-3 py-2 text-sm rounded-xl font-medium ${t.textInput}`}
+                />
+              </div>
+            </div>
+
             <div className="flex items-center justify-between pt-2">
               <button
                 type="button"
@@ -309,10 +383,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </button>
               <button
                 type="submit"
-                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn} cursor-pointer`}
+                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn} cursor-pointer shadow-md`}
               >
                 <Key className="w-3.5 h-3.5" />
-                <span>Send Reset Link</span>
+                <span>{newPassword ? 'Update & Sync Password' : 'Send Reset Link'}</span>
               </button>
             </div>
           </form>

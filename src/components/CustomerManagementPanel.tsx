@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Users,
   Search,
@@ -27,11 +27,26 @@ import {
   ChevronRight,
   ExternalLink,
   Lock,
-  Bike
+  Bike,
+  Cake,
+  Gift,
+  Send,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
-import { AppSettings, Customer } from '../types';
+import confetti from 'canvas-confetti';
+import { AppSettings, Customer, MessageTemplate } from '../types';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { DEFAULT_USER, UserAccount, getUserPermissions } from '../utils/auth';
+import {
+  isCustomerBirthdayToday,
+  isCustomerBirthdayThisMonth,
+  isCustomerBirthdayUpcoming,
+  getCustomerAge,
+  formatWhatsAppBirthdayMessage,
+  formatWhatsAppCustomMessage,
+  parseCustomerDob
+} from '../utils/customer';
 
 interface CustomerManagementPanelProps {
   customers: Customer[];
@@ -39,6 +54,8 @@ interface CustomerManagementPanelProps {
   currentUser?: UserAccount;
   themeMode?: ThemeMode;
   accent?: AccentColor;
+  templates?: MessageTemplate[];
+  completedRentals?: any[];
   onAddCustomer: (customer: Customer) => void;
   onUpdateCustomer: (customer: Customer) => void;
   onDeleteCustomer: (customerId: string, nicPassport: string) => void;
@@ -55,6 +72,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
   currentUser,
   themeMode = 'dark',
   accent = 'emerald',
+  templates = [],
   onAddCustomer,
   onUpdateCustomer,
   onDeleteCustomer,
@@ -76,6 +94,39 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [viewingCustomer, setViewingCustomer] = useState<Customer | null>(null);
   const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
+
+  // Birthday & WhatsApp Messaging States
+  const [isBirthdayModalOpen, setIsBirthdayModalOpen] = useState(false);
+  const [birthdayFilter, setBirthdayFilter] = useState<'today' | 'month' | 'upcoming' | 'all'>('today');
+  const [messagingCustomer, setMessagingCustomer] = useState<Customer | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('default-birthday');
+  const [customMessageText, setCustomMessageText] = useState<string>('');
+
+  // Birthday calculations
+  const todayBirthdays = useMemo(() => {
+    return customers.filter((c) => isCustomerBirthdayToday(c.dob));
+  }, [customers]);
+
+  const thisMonthBirthdays = useMemo(() => {
+    return customers.filter((c) => isCustomerBirthdayThisMonth(c.dob));
+  }, [customers]);
+
+  const upcomingBirthdays = useMemo(() => {
+    return customers.filter((c) => isCustomerBirthdayUpcoming(c.dob, 7));
+  }, [customers]);
+
+  // Trigger celebration confetti when birthday modal opens with today's birthdays
+  useEffect(() => {
+    if (isBirthdayModalOpen && todayBirthdays.length > 0) {
+      try {
+        confetti({
+          particleCount: 65,
+          spread: 70,
+          origin: { y: 0.6 }
+        });
+      } catch {}
+    }
+  }, [isBirthdayModalOpen, todayBirthdays.length]);
 
   // Form Fields State (Used for both Add & Edit)
   const [formData, setFormData] = useState({
@@ -283,7 +334,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
   const startIndex = (safePage - 1) * PAGE_SIZE;
   const paginatedCustomers = filteredCustomers.slice(startIndex, startIndex + PAGE_SIZE);
 
-  // Column Header Component with A-Z and Z-A symbols
+  // Column Header Component with Up/Down symbols (No lengthy A-Z / Z-A words)
   const SortableTh: React.FC<{
     label: string;
     field: SortField;
@@ -304,22 +355,22 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
             <span>{label}</span>
           </button>
           
-          {/* A-Z / Z-A Sorting Badges */}
-          <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+          {/* Up / Down Sorting Symbol Buttons */}
+          <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden bg-slate-500/10 shrink-0">
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 handleSort(field, 'asc');
               }}
-              title={`Sort ${label} A-Z`}
-              className={`px-1.5 py-0.5 transition cursor-pointer ${
+              title={`Sort ${label} ascending (▲)`}
+              className={`p-1 transition cursor-pointer flex items-center justify-center ${
                 isActive && sortDir === 'asc'
-                  ? 'bg-emerald-500 text-white font-black shadow-xs'
+                  ? 'bg-emerald-500 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-500/20'
               }`}
             >
-              A-Z
+              <ArrowUp className="w-3 h-3" />
             </button>
             <div className="w-[1px] h-3 bg-slate-500/30" />
             <button
@@ -328,14 +379,14 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                 e.stopPropagation();
                 handleSort(field, 'desc');
               }}
-              title={`Sort ${label} Z-A`}
-              className={`px-1.5 py-0.5 transition cursor-pointer ${
+              title={`Sort ${label} descending (▼)`}
+              className={`p-1 transition cursor-pointer flex items-center justify-center ${
                 isActive && sortDir === 'desc'
-                  ? 'bg-emerald-500 text-white font-black shadow-xs'
+                  ? 'bg-emerald-500 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-500/20'
               }`}
             >
-              Z-A
+              <ArrowDown className="w-3 h-3" />
             </button>
           </div>
         </div>
@@ -384,24 +435,37 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
           <p className={`text-xs ${t.textMuted}`}>Customers with 2+ completed rentals</p>
         </div>
 
-        {/* Quick Action Card */}
-        <div className={`p-5 rounded-2xl border shadow-lg ${t.cardBg} flex flex-col justify-between`}>
-          <div>
+        {/* Birthday Action Card (Replaced duplicate register customer) */}
+        <div className={`p-5 rounded-2xl border shadow-lg ${t.cardBg} flex flex-col justify-between relative overflow-hidden`}>
+          <div className="flex items-center justify-between">
             <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
-              Customer Directory
+              Customer Birthdays
             </span>
-            <p className={`text-xs ${t.textHeading} font-semibold mt-1`}>
-              Search by NIC or register new customers
+            {todayBirthdays.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse flex items-center gap-1 shadow-sm">
+                <Cake className="w-3 h-3" />
+                <span>{todayBirthdays.length} Today!</span>
+              </span>
+            )}
+          </div>
+          <div>
+            <h3 className={`text-sm sm:text-base font-bold ${t.textHeading} mt-1`}>
+              {todayBirthdays.length > 0
+                ? `${todayBirthdays.length} Celebrant(s) Today 🎂`
+                : 'Birthday Wishes & WhatsApp'}
+            </h3>
+            <p className={`text-xs ${t.textMuted} mt-0.5`}>
+              Send greetings directly to customers on WhatsApp
             </p>
           </div>
           <button
-            id="btn-add-customer-top"
+            id="btn-customer-birthday-top"
             type="button"
-            onClick={openAddModal}
-            className={`mt-2 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-md ${t.primaryBtn}`}
+            onClick={() => setIsBirthdayModalOpen(true)}
+            className="mt-3 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-md bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 hover:opacity-95 text-white"
           >
-            <Plus className="w-4 h-4" />
-            <span>Register New Customer</span>
+            <Cake className="w-4 h-4" />
+            <span>Birthday {todayBirthdays.length > 0 ? `(${todayBirthdays.length} Today 🎂)` : 'Wishes'}</span>
           </button>
         </div>
       </div>
@@ -421,12 +485,21 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                   Customer Directory & Identity Records
                 </h2>
                 <p className={`text-xs ${t.textMuted}`}>
-                  Showing max 20 customers per page with A-Z / Z-A column sorting
+                  Showing max 20 customers per page with quick column sorting
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2.5">
+              <button
+                id="btn-birthday-shortcut"
+                type="button"
+                onClick={() => setIsBirthdayModalOpen(true)}
+                className="py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm bg-gradient-to-r from-rose-500/20 to-pink-500/20 border border-rose-500/30 text-rose-400 hover:bg-rose-500/30"
+              >
+                <Cake className="w-4 h-4 text-rose-400" />
+                <span>Birthday Wishes {todayBirthdays.length > 0 ? `(${todayBirthdays.length})` : ''}</span>
+              </button>
               <button
                 id="btn-register-customer-table"
                 type="button"
@@ -586,10 +659,18 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                     {/* Date of Birth */}
                     <td className={`px-4 py-3 font-mono ${t.textMuted}`}>
                       {customer.dob ? (
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3 text-indigo-400" />
-                          <span>{customer.dob}</span>
-                        </span>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-indigo-400" />
+                            <span>{customer.dob}</span>
+                          </span>
+                          {isCustomerBirthdayToday(customer.dob) && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-black bg-rose-500/15 text-rose-400 border border-rose-500/30 animate-pulse w-max">
+                              <Cake className="w-2.5 h-2.5" />
+                              <span>Birthday Today!</span>
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="italic">—</span>
                       )}
@@ -614,9 +695,44 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                       </span>
                     </td>
 
-                    {/* Actions (View, Edit, Delete) */}
+                    {/* Actions (WhatsApp, Birthday, View, Edit, Delete) */}
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <div className="inline-flex items-center justify-end gap-1.5">
+                        {/* Birthday WhatsApp Shortcut (if birthday today) */}
+                        {isCustomerBirthdayToday(customer.dob) && (customer.whatsappNumber || customer.phone) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const msg = formatWhatsAppBirthdayMessage(customer, settings.businessName);
+                              const phone = (customer.whatsappNumber || customer.phone || '').replace(/[^0-9]/g, '');
+                              try { confetti({ particleCount: 70, spread: 70 }); } catch {}
+                              window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+                            }}
+                            className="p-1.5 rounded-lg border border-rose-500/40 text-rose-400 bg-rose-500/10 hover:bg-rose-500/25 transition cursor-pointer shadow-xs"
+                            title="Send Birthday Wish on WhatsApp"
+                          >
+                            <Cake className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+                          </button>
+                        )}
+
+                        {/* WhatsApp Message */}
+                        {(customer.whatsappNumber || customer.phone) && (
+                          <button
+                            id={`btn-msg-customer-${customer.id}`}
+                            type="button"
+                            onClick={() => {
+                              setMessagingCustomer(customer);
+                              const defaultText = `Hello ${customer.fullName || customer.name}, greeting from ${settings.businessName || 'Mannar Green Ride'}!`;
+                              setCustomMessageText(defaultText);
+                              setSelectedTemplateId('custom');
+                            }}
+                            className="p-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/15 transition cursor-pointer"
+                            title="Send WhatsApp Message"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                          </button>
+                        )}
+
                         {/* View Profile */}
                         <button
                           id={`btn-view-customer-${customer.id}`}
@@ -1031,18 +1147,43 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
 
             {/* Modal Actions */}
             <div className="flex items-center justify-between pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const target = viewingCustomer;
-                  setViewingCustomer(null);
-                  openEditModal(target);
-                }}
-                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn} cursor-pointer`}
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-                <span>Edit Profile</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = viewingCustomer;
+                    setViewingCustomer(null);
+                    openEditModal(target);
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn} cursor-pointer`}
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Edit Profile</span>
+                </button>
+
+                {(viewingCustomer.whatsappNumber || viewingCustomer.phone) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = viewingCustomer;
+                      setViewingCustomer(null);
+                      setMessagingCustomer(target);
+                      if (isCustomerBirthdayToday(target.dob)) {
+                        setSelectedTemplateId('default-birthday');
+                        setCustomMessageText(formatWhatsAppBirthdayMessage(target, settings.businessName));
+                      } else {
+                        setSelectedTemplateId('custom');
+                        setCustomMessageText(`Hello ${target.fullName || target.name}, greeting from ${settings.businessName || 'Mannar Green Ride'}!`);
+                      }
+                    }}
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer shadow-md"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
+                  </button>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={() => setViewingCustomer(null)}
@@ -1096,6 +1237,397 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                 Confirm Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: CUSTOMER BIRTHDAYS & WHATSAPP GREETINGS ================= */}
+      {isBirthdayModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className={`${t.modalBg} rounded-2xl w-full max-w-2xl p-5 sm:p-6 space-y-5 shadow-2xl border ${t.divider} max-h-[90vh] overflow-y-auto`}>
+            
+            {/* Modal Header */}
+            <div className={`flex items-center justify-between pb-3 border-b ${t.divider}`}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-500 text-white flex items-center justify-center shadow-lg">
+                  <Cake className="w-6 h-6 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className={`font-bold text-base sm:text-lg flex items-center gap-2 ${t.textHeading}`}>
+                    <span>Customer Birthdays & Greetings</span>
+                    {todayBirthdays.length > 0 && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-black bg-rose-500 text-white shadow-xs">
+                        {todayBirthdays.length} Today!
+                      </span>
+                    )}
+                  </h3>
+                  <p className={`text-xs ${t.textMuted}`}>
+                    Celebrate customer birthdays and send personalized WhatsApp wishes
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBirthdayModalOpen(false)}
+                className={`p-1.5 rounded-lg ${t.textMuted} hover:${t.textMain} hover:bg-slate-800/20 cursor-pointer`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-700/30 pb-3">
+              <button
+                type="button"
+                onClick={() => setBirthdayFilter('today')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  birthdayFilter === 'today'
+                    ? 'bg-rose-500 text-white shadow-md'
+                    : `${t.cardSubtleBg} ${t.textMuted} hover:text-white`
+                }`}
+              >
+                <Cake className="w-3.5 h-3.5" />
+                <span>Today ({todayBirthdays.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBirthdayFilter('upcoming')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  birthdayFilter === 'upcoming'
+                    ? 'bg-amber-500 text-white shadow-md'
+                    : `${t.cardSubtleBg} ${t.textMuted} hover:text-white`
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Upcoming 7 Days ({upcomingBirthdays.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBirthdayFilter('month')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  birthdayFilter === 'month'
+                    ? 'bg-indigo-500 text-white shadow-md'
+                    : `${t.cardSubtleBg} ${t.textMuted} hover:text-white`
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>This Month ({thisMonthBirthdays.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBirthdayFilter('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  birthdayFilter === 'all'
+                    ? 'bg-teal-500 text-white shadow-md'
+                    : `${t.cardSubtleBg} ${t.textMuted} hover:text-white`
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>All Customers ({customers.filter(c => Boolean(c.dob)).length} with DOB)</span>
+              </button>
+            </div>
+
+            {/* Birthday List Display */}
+            {(() => {
+              let displayList: Customer[] = [];
+              if (birthdayFilter === 'today') displayList = todayBirthdays;
+              else if (birthdayFilter === 'upcoming') displayList = upcomingBirthdays;
+              else if (birthdayFilter === 'month') displayList = thisMonthBirthdays;
+              else displayList = customers.filter(c => Boolean(c.dob));
+
+              if (displayList.length === 0) {
+                return (
+                  <div className="py-12 text-center space-y-3">
+                    <div className="w-14 h-14 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto text-rose-400">
+                      <Cake className="w-7 h-7" />
+                    </div>
+                    <p className={`text-sm font-bold ${t.textHeading}`}>
+                      {birthdayFilter === 'today'
+                        ? 'No Customer Birthdays Today'
+                        : 'No Birthday Records Found in this Filter'}
+                    </p>
+                    <p className={`text-xs ${t.textMuted} max-w-sm mx-auto`}>
+                      {birthdayFilter === 'today'
+                        ? 'Check "This Month" or "Upcoming 7 Days" to see who will be celebrating their special day soon!'
+                        : 'Add the Date of Birth when editing or creating customer profiles to track their celebrations.'}
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3">
+                  {displayList.map((customer) => {
+                    const isToday = isCustomerBirthdayToday(customer.dob);
+                    const age = getCustomerAge(customer.dob);
+                    const phone = (customer.whatsappNumber || customer.phone || '').replace(/[^0-9]/g, '');
+
+                    return (
+                      <div
+                        key={customer.id}
+                        className={`p-4 rounded-2xl border transition-all ${
+                          isToday
+                            ? 'border-rose-500/50 bg-gradient-to-r from-rose-500/10 via-pink-500/5 to-transparent shadow-md'
+                            : `${t.cardSubtleBg} ${t.divider}`
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          
+                          <div className="flex items-center gap-3">
+                            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm text-white shadow-md shrink-0 ${
+                              isToday
+                                ? 'bg-gradient-to-tr from-pink-600 to-rose-400'
+                                : 'bg-gradient-to-tr from-cyan-600 to-teal-500'
+                            }`}>
+                              {(customer.fullName || customer.name || 'C').charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className={`font-bold text-sm ${t.textHeading}`}>
+                                  {customer.fullName || customer.name}
+                                </h4>
+                                {isToday && (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white flex items-center gap-1 shadow-xs animate-bounce">
+                                    <Cake className="w-3 h-3" />
+                                    <span>Birthday Today!</span>
+                                  </span>
+                                )}
+                                {age && (
+                                  <span className="text-[11px] font-medium text-amber-400">
+                                    ({age} yrs old)
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-3 text-xs mt-1 text-slate-400">
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                                  <span className="font-mono">{customer.dob}</span>
+                                </span>
+                                <span className="font-mono text-cyan-400">
+                                  NIC: {customer.nicPassport}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Quick Action Button */}
+                          <div className="flex items-center gap-2 self-end sm:self-center">
+                            {phone ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const greeting = formatWhatsAppBirthdayMessage(customer, settings.businessName);
+                                  try {
+                                    confetti({
+                                      particleCount: 80,
+                                      spread: 70,
+                                      origin: { y: 0.6 }
+                                    });
+                                  } catch {}
+                                  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(greeting)}`, '_blank');
+                                }}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shadow-md ${
+                                  isToday
+                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white'
+                                    : 'bg-emerald-600/90 hover:bg-emerald-600 text-white'
+                                }`}
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>Send WhatsApp Wish</span>
+                              </button>
+                            ) : (
+                              <span className="text-xs text-slate-500 italic">No phone on file</span>
+                            )}
+                          </div>
+
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* Footer */}
+            <div className={`flex items-center justify-between pt-3 border-t ${t.divider}`}>
+              <span className={`text-xs ${t.textMuted}`}>
+                Messages use the business name: <strong>{settings.businessName || 'Mannar Green Ride'}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsBirthdayModalOpen(false)}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold ${t.inactiveTab} cursor-pointer`}
+              >
+                Close
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: SEND CUSTOM WHATSAPP MESSAGE ================= */}
+      {messagingCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className={`${t.modalBg} rounded-2xl w-full max-w-lg p-5 sm:p-6 space-y-4 shadow-2xl border ${t.divider} max-h-[90vh] overflow-y-auto`}>
+            
+            {/* Modal Header */}
+            <div className={`flex items-center justify-between pb-3 border-b ${t.divider}`}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-md">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className={`font-bold text-base ${t.textHeading}`}>
+                    Send WhatsApp Message
+                  </h3>
+                  <p className={`text-xs ${t.textMuted}`}>
+                    To: <strong>{messagingCustomer.fullName || messagingCustomer.name}</strong> ({messagingCustomer.whatsappNumber || messagingCustomer.phone})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMessagingCustomer(null)}
+                className={`p-1.5 rounded-lg ${t.textMuted} hover:${t.textMain} hover:bg-slate-800/20 cursor-pointer`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Template Selector */}
+            <div>
+              <label className={`block text-xs font-semibold mb-1.5 ${t.textHeading}`}>
+                Select Message Template
+              </label>
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedTemplateId(val);
+                  if (val === 'default-birthday') {
+                    setCustomMessageText(formatWhatsAppBirthdayMessage(messagingCustomer, settings.businessName));
+                  } else if (val === 'default-welcome') {
+                    setCustomMessageText(`👋 Hello ${messagingCustomer.fullName || messagingCustomer.name}, thank you for renting with ${settings.businessName || 'Mannar Green Ride'}! We hope you have an incredible and safe ride! 🚴‍♂️`);
+                  } else if (val === 'default-thanks') {
+                    setCustomMessageText(`🙏 Dear ${messagingCustomer.fullName || messagingCustomer.name}, thank you for choosing ${settings.businessName || 'Mannar Green Ride'}! We appreciate your ride with us. See you next time! ✨`);
+                  } else if (val === 'default-promo') {
+                    setCustomMessageText(`🌟 Hello ${messagingCustomer.fullName || messagingCustomer.name}! Exclusive special offer this week at ${settings.businessName || 'Mannar Green Ride'}! Rent any bike or scooter with special discount rates. Contact us to reserve! 🚲`);
+                  } else {
+                    const found = templates.find((tpl) => tpl.id === val);
+                    if (found) {
+                      setCustomMessageText(formatWhatsAppCustomMessage(found.content, messagingCustomer, { shop_name: settings.businessName || 'Mannar Green Ride' }));
+                    }
+                  }
+                }}
+                className={`w-full rounded-xl px-3 py-2.5 text-xs font-medium ${t.dropdownInput}`}
+              >
+                <option value="custom">✏️ Custom Blank Message</option>
+                <option value="default-birthday">🎉 Birthday Wishes Template</option>
+                <option value="default-welcome">👋 Rental Start & Welcome Template</option>
+                <option value="default-thanks">🙏 Thank You & Return Template</option>
+                <option value="default-promo">🌟 Special Discount & Offer Template</option>
+                {templates.map((tpl) => (
+                  <option key={tpl.id} value={tpl.id}>
+                    📄 {tpl.title} ({tpl.category})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Message Text Area */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className={`block text-xs font-semibold ${t.textHeading}`}>
+                  Message Content
+                </label>
+                <span className={`text-[10px] ${t.textMuted}`}>
+                  WhatsApp supports *bold*, _italic_
+                </span>
+              </div>
+              <textarea
+                rows={5}
+                value={customMessageText}
+                onChange={(e) => setCustomMessageText(e.target.value)}
+                placeholder="Type your message here..."
+                className={`w-full rounded-xl p-3 text-xs sm:text-sm font-medium ${t.textInput}`}
+              />
+            </div>
+
+            {/* Quick Placeholder Chips */}
+            <div>
+              <span className={`block text-[11px] font-semibold mb-1.5 ${t.textMuted}`}>
+                Quick Insert Placeholders:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { tag: '{customer_name}', label: 'Customer Name' },
+                  { tag: '{shop_name}', label: 'Business Name' },
+                  { tag: '{phone}', label: 'Phone' },
+                  { tag: '{nic_passport}', label: 'NIC' },
+                  { tag: '{dob}', label: 'DOB' },
+                ].map((item) => (
+                  <button
+                    key={item.tag}
+                    type="button"
+                    onClick={() => {
+                      setCustomMessageText((prev) => prev + ' ' + item.tag);
+                    }}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border transition cursor-pointer ${t.cardSubtleBg} border-slate-600/30 text-cyan-400 hover:bg-cyan-500/15`}
+                  >
+                    + {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* WhatsApp Live Preview Bubble */}
+            <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 space-y-1.5">
+              <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold">
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>WhatsApp Live Preview</span>
+              </div>
+              <div className="bg-emerald-900/40 text-emerald-100 rounded-xl p-3 text-xs font-medium whitespace-pre-wrap border border-emerald-700/30">
+                {formatWhatsAppCustomMessage(customMessageText, messagingCustomer, {
+                  shop_name: settings.businessName || 'Mannar Green Ride',
+                }) || <span className="italic text-slate-500">Preview of your message will appear here...</span>}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-between pt-2">
+              <button
+                type="button"
+                onClick={() => setMessagingCustomer(null)}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold ${t.inactiveTab} cursor-pointer`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const resolvedText = formatWhatsAppCustomMessage(customMessageText, messagingCustomer, {
+                    shop_name: settings.businessName || 'Mannar Green Ride',
+                  });
+                  const phone = (messagingCustomer.whatsappNumber || messagingCustomer.phone || '').replace(/[^0-9]/g, '');
+                  if (!phone) {
+                    alert('This customer has no valid phone number.');
+                    return;
+                  }
+                  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(resolvedText)}`, '_blank');
+                  setMessagingCustomer(null);
+                }}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Open in WhatsApp</span>
+              </button>
+            </div>
+
           </div>
         </div>
       )}

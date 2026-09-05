@@ -4,7 +4,7 @@
  */
 
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
-import { getSupabaseCredentials } from '../lib/supabase';
+import { getSupabaseCredentials, getSupabase, isSupabaseConfigured } from '../lib/supabase';
 
 let supabaseInstance: SupabaseClient | null = null;
 
@@ -504,7 +504,41 @@ export async function authenticateUser(email: string, password: string): Promise
   // Fallback to localStorage-based authentication
   const users = getStoredUsers();
   const normalizedEmail = (email || '').trim().toLowerCase();
-  const found = users.find((u) => u && u.email && u.email.toLowerCase() === normalizedEmail);
+  let found = users.find((u) => u && u.email && u.email.toLowerCase() === normalizedEmail);
+
+  // If not found in localStorage or password doesn't match, check Supabase user_accounts table
+  if (isSupabaseConfigured()) {
+    const supa = getSupabase();
+    if (supa) {
+      try {
+        const { data: supaRow } = await supa
+          .from('user_accounts')
+          .select('*')
+          .eq('email', normalizedEmail)
+          .maybeSingle();
+
+        if (supaRow && (supaRow.password_hash === password || !supaRow.password_hash)) {
+          const syncedUser: UserAccount = {
+            id: supaRow.id,
+            name: supaRow.name,
+            email: supaRow.email,
+            phone: supaRow.phone || undefined,
+            role: supaRow.role,
+            password: supaRow.password_hash || password,
+            createdAt: supaRow.created_at ? Number(supaRow.created_at) : Date.now(),
+          };
+          const updatedUsers = users.some(u => u.id === syncedUser.id)
+            ? users.map(u => u.id === syncedUser.id ? syncedUser : u)
+            : [...users, syncedUser];
+          saveStoredUsers(updatedUsers);
+          setCurrentUserSession(syncedUser);
+          return { success: true, user: syncedUser };
+        }
+      } catch (err) {
+        console.warn('Supabase auth check fallback:', err);
+      }
+    }
+  }
 
   if (!found) {
     return { success: false, error: 'No account found with this email address.' };
@@ -525,6 +559,8 @@ export async function registerNewUser(params: {
   role?: UserRole;
   phone?: string;
 }): Promise<{ success: boolean; user?: UserAccount; error?: string }> {
+  const normalizedEmail = (params.email || '').trim().toLowerCase();
+
   // Try Supabase Auth first if configured
   const supaAuth = getSupabaseAuth();
   if (supaAuth) {
@@ -539,26 +575,21 @@ export async function registerNewUser(params: {
           },
         },
       });
-      if (error) {
-        // Fall through to localStorage fallback
-      } else if (data.user) {
-        // Map Supabase user to App UserAccount
+      if (!error && data.user) {
         const users = getStoredUsers();
-        // Check if user already exists in localStorage
         const existing = users.find(
-          (u) => u && u.email && u.email.toLowerCase() === data.user.email.toLowerCase()
+          (u) => u && u.email && u.email.toLowerCase() === data.user.email?.toLowerCase()
         );
         if (existing) {
           setCurrentUserSession(existing);
           return { success: true, user: existing };
         }
-        // Create new user profile from Supabase auth
         const newUser: UserAccount = {
           id: `supa-${data.user.id}`,
           name: data.user.user_metadata?.name || params.name.trim(),
-          email: data.user.email,
+          email: data.user.email || normalizedEmail,
           role: params.role || 'cashier',
-          password: '', // placeholder - auth happens via Supabase, not localStorage password check
+          password: params.password,
           phone: params.phone?.trim() || undefined,
           createdAt: Date.now(),
           avatarColor: 'emerald',
@@ -566,6 +597,21 @@ export async function registerNewUser(params: {
         const usersUpdated = [newUser, ...users];
         saveStoredUsers(usersUpdated);
         setCurrentUserSession(newUser);
+        // Also save to user_accounts table
+        if (isSupabaseConfigured()) {
+          const supa = getSupabase();
+          if (supa) {
+            await supa.from('user_accounts').upsert({
+              id: newUser.id,
+              name: newUser.name,
+              email: newUser.email,
+              phone: newUser.phone || null,
+              role: newUser.role,
+              password_hash: newUser.password,
+              created_at: newUser.createdAt,
+            }, { onConflict: 'id' });
+          }
+        }
         return { success: true, user: newUser };
       }
     } catch (e) {
@@ -575,7 +621,6 @@ export async function registerNewUser(params: {
 
   // Fallback to localStorage-based registration
   const users = getStoredUsers();
-  const normalizedEmail = (params.email || '').trim().toLowerCase();
 
   if (users.some((u) => u && u.email && u.email.toLowerCase() === normalizedEmail)) {
     return { success: false, error: 'An account with this email already exists. Please sign in.' };
@@ -597,61 +642,104 @@ export async function registerNewUser(params: {
 
   const updatedUsers = [...users, newUser];
   saveStoredUsers(updatedUsers);
+
+  // Sync to Supabase user_accounts table if configured
+  if (isSupabaseConfigured()) {
+    const supa = getSupabase();
+    if (supa) {
+      try {
+        await supa.from('user_accounts').upsert({
+          id: newUser.id,
+          name: newUser.name,
+          email: newUser.email,
+          phone: newUser.phone || null,
+          role: newUser.role,
+          password_hash: newUser.password,
+          created_at: newUser.createdAt,
+        }, { onConflict: 'id' });
+      } catch (err) {
+        console.warn('Failed to sync new user to Supabase:', err);
+      }
+    }
+  }
+
   return { success: true, user: newUser };
 }
 
 export async function resetUserPassword(email: string, newPassword?: string): Promise<{ success: boolean; error?: string }> {
+  const normalizedEmail = (email || '').trim().toLowerCase();
+
+  if (!normalizedEmail || !normalizedEmail.includes('@')) {
+    return { success: false, error: 'Please enter a valid registered email address.' };
+  }
+
+  if (newPassword) {
+    if (newPassword.length < 6) {
+      return { success: false, error: 'New password must be at least 6 characters.' };
+    }
+
+    // 1. Update in localStorage
+    const users = getStoredUsers();
+    const idx = users.findIndex((u) => u && u.email && u.email.toLowerCase() === normalizedEmail);
+
+    if (idx !== -1) {
+      users[idx] = {
+        ...users[idx],
+        password: newPassword,
+      };
+      saveStoredUsers(users);
+
+      // If current logged-in user is this one, update session too
+      const current = getCurrentUser();
+      if (current && current.email && current.email.toLowerCase() === normalizedEmail) {
+        setCurrentUserSession(users[idx]);
+      }
+    }
+
+    // 2. Update directly in Supabase user_accounts table
+    if (isSupabaseConfigured()) {
+      const supa = getSupabase();
+      if (supa) {
+        try {
+          await supa
+            .from('user_accounts')
+            .update({ password_hash: newPassword })
+            .eq('email', normalizedEmail);
+        } catch (err) {
+          console.warn('Failed to update password in Supabase user_accounts:', err);
+        }
+      }
+    }
+
+    // 3. Update in Supabase Auth if session active
+    const supaAuth = getSupabaseAuth();
+    if (supaAuth) {
+      try {
+        await supaAuth.auth.updateUser({
+          password: newPassword,
+        });
+      } catch (e) {
+        // Active Supabase Auth session might not be present, ignore
+      }
+    }
+
+    return { success: true };
+  }
+
+  // If no newPassword provided, send reset link via Supabase Auth
   const supaAuth = getSupabaseAuth();
   if (supaAuth) {
     try {
-      if (newPassword) {
-        // If newPassword is provided, update the password directly (for admin or after email link)
-        const { data, error } = await supaAuth.auth.updateUser({
-          password: newPassword,
-        });
-        if (error) {
-          return { success: false, error: error.message };
-        }
-        return { success: true };
-      } else {
-        // Send password reset email via Supabase
-        const { error } = await supaAuth.auth.resetPasswordForEmail(email, {
-          redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
-        });
-        if (error) {
-          return { success: false, error: error.message };
-        }
-        return { success: true };
+      const { error } = await supaAuth.auth.resetPasswordForEmail(email, {
+        redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+      });
+      if (error) {
+        return { success: false, error: error.message };
       }
+      return { success: true };
     } catch (e) {
       return { success: false, error: 'Failed to send password reset email. Please try again.' };
     }
-  }
-
-  // Supabase not configured - fallback to localStorage (only for local development)
-  const users = getStoredUsers();
-  const normalizedEmail = (email || '').trim().toLowerCase();
-  const idx = users.findIndex((u) => u && u.email && u.email.toLowerCase() === normalizedEmail);
-
-  if (idx === -1) {
-    return { success: false, error: 'No user account registered with this email address.' };
-  }
-
-  if (!newPassword || newPassword.length < 6) {
-    return { success: false, error: 'New password must be at least 6 characters.' };
-  }
-
-  users[idx] = {
-    ...users[idx],
-    password: newPassword,
-  };
-
-  saveStoredUsers(users);
-
-  // If current logged-in user is this one, update session too
-  const current = getCurrentUser();
-  if (current && current.email && current.email.toLowerCase() === normalizedEmail) {
-    setCurrentUserSession(users[idx]);
   }
 
   return { success: true };
@@ -663,7 +751,7 @@ export async function resetUserPassword(email: string, newPassword?: string): Pr
 export function updateUserRoleAndDetails(
   userId: string, 
   newRole: UserRole,
-  updatedData?: Partial<Pick<UserAccount, 'name' | 'phone'>>
+  updatedData?: Partial<Pick<UserAccount, 'name' | 'phone' | 'password'>>
 ): { success: boolean; user?: UserAccount; error?: string } {
   const users = getStoredUsers();
   const idx = users.findIndex((u) => u.id === userId);
@@ -682,9 +770,25 @@ export function updateUserRoleAndDetails(
     role: newRole,
     name: updatedData?.name?.trim() || users[idx].name,
     phone: updatedData?.phone !== undefined ? updatedData.phone.trim() : users[idx].phone,
+    password: updatedData?.password || users[idx].password,
   };
 
   saveStoredUsers(users);
+
+  // Sync to Supabase user_accounts table
+  if (isSupabaseConfigured()) {
+    const supa = getSupabase();
+    if (supa) {
+      supa.from('user_accounts').upsert({
+        id: users[idx].id,
+        name: users[idx].name,
+        email: users[idx].email,
+        phone: users[idx].phone || null,
+        role: users[idx].role,
+        password_hash: users[idx].password,
+      }, { onConflict: 'id' }).then(() => {});
+    }
+  }
 
   // Update session if it's the current user
   const current = getCurrentUser();
@@ -712,6 +816,14 @@ export function deleteUserAccount(userId: string): { success: boolean; error?: s
 
   const filtered = users.filter((u) => u.id !== userId);
   saveStoredUsers(filtered);
+
+  // Sync delete to Supabase user_accounts table
+  if (isSupabaseConfigured()) {
+    const supa = getSupabase();
+    if (supa) {
+      supa.from('user_accounts').delete().eq('id', userId).then(() => {});
+    }
+  }
 
   return { success: true };
 }

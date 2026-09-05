@@ -46,7 +46,7 @@ import {
   INITIAL_VEHICLES,
   INITIAL_VEHICLE_TYPES 
 } from './data/initialData';
-import { AppSettings, Customer, IncomeEntry, RentalRecord, Vehicle, VehicleType } from './types';
+import { AppSettings, Customer, IncomeEntry, MessageTemplate, RentalRecord, Vehicle, VehicleType } from './types';
 import { Navbar, NavTabType } from './components/Navbar';
 import { StartRentalCard } from './components/StartRentalCard';
 import { ActiveRentalsList } from './components/ActiveRentalsList';
@@ -75,8 +75,10 @@ import {
   syncAllRolesToSupabase,
   fetchIncomeEntries,
   deleteIncomeEntryFromSupabase,
-  deleteRentalFromSupabase
+  deleteRentalFromSupabase,
+  fetchMessageTemplatesFromSupabase,
 } from './lib/supabaseSync';
+import { getStoredMessageTemplates, saveStoredMessageTemplates } from './utils/customer';
 import { isSupabaseConfigured } from './lib/supabase';
 import { 
   AccentColor, 
@@ -205,6 +207,9 @@ export default function App() {
   // Stopping / Settlement Modal state
   const [settlingRental, setSettlingRental] = useState<RentalRecord | null>(null);
 
+  // Message Templates
+  const [messageTemplates, setMessageTemplates] = useState<MessageTemplate[]>(() => getStoredMessageTemplates());
+
   // Sync to localStorage
   useEffect(() => {
     localStorage.setItem('v_rental_settings', JSON.stringify(settings));
@@ -239,9 +244,10 @@ export default function App() {
     if (!isSupabaseConfigured()) return;
 
     const loadData = async () => {
-      const [cloudData, cloudIncome] = await Promise.all([
+      const [cloudData, cloudIncome, cloudTemplates] = await Promise.all([
         fetchSupabaseData(),
         fetchIncomeEntries(),
+        fetchMessageTemplatesFromSupabase(),
       ]);
       if (cloudData) {
         // Only overwrite local data if cloud data exists AND has content
@@ -271,6 +277,10 @@ export default function App() {
       }
       if (cloudIncome && cloudIncome.length > 0) {
         setIncomeEntries(cloudIncome);
+      }
+      if (cloudTemplates && cloudTemplates.length > 0) {
+        setMessageTemplates(cloudTemplates);
+        saveStoredMessageTemplates(cloudTemplates);
       }
     };
 
@@ -504,10 +514,10 @@ export default function App() {
     }
   };
 
-  const handleDeleteCustomer = (customerId: string) => {
-    setCustomers((prev) => prev.filter((c) => c.id !== customerId));
+  const handleDeleteCustomer = (customerId: string, nicPassport?: string) => {
+    setCustomers((prev) => prev.filter((c) => c.id !== customerId && (!nicPassport || c.nicPassport !== nicPassport)));
     if (isSupabaseConfigured()) {
-      deleteCustomerFromSupabase(customerId);
+      deleteCustomerFromSupabase(customerId, nicPassport);
     }
   };
 
@@ -546,6 +556,32 @@ export default function App() {
     setCurrentUser(DEFAULT_USER);
     setIsFullLoginPage(true);
   };
+
+  // Auto-logout inactivity monitor based on settings.autoLogoutMinutes
+  useEffect(() => {
+    const timeoutMinutes = settings.autoLogoutMinutes ?? 15;
+    if (timeoutMinutes <= 0 || isFullLoginPage) return;
+
+    const timeoutMs = timeoutMinutes * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        console.warn(`[Security] Session auto-logout triggered after ${timeoutMinutes}m of inactivity.`);
+        handleLogout();
+      }, timeoutMs);
+    };
+
+    const events = ['mousedown', 'mousemove', 'keydown', 'touchstart', 'scroll'];
+    events.forEach((evt) => window.addEventListener(evt, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timer);
+      events.forEach((evt) => window.removeEventListener(evt, resetTimer));
+    };
+  }, [settings.autoLogoutMinutes, isFullLoginPage]);
 
   // If user explicitly navigated to full login page
   if (isFullLoginPage) {
@@ -636,6 +672,7 @@ export default function App() {
               currentUser={activeUser}
               themeMode={themeMode}
               accent={accent}
+              templates={messageTemplates}
               onAddCustomer={handleAddCustomer}
               onUpdateCustomer={handleUpdateCustomer}
               onDeleteCustomer={handleDeleteCustomer}
@@ -660,6 +697,11 @@ export default function App() {
               currentUser={activeUser}
               themeMode={themeMode}
               accent={accent}
+              settings={settings}
+              onUpdateSettings={(updated) => {
+                const nextSettings = { ...settings, ...updated };
+                handleUpdateSettings(nextSettings);
+              }}
               onUserListChange={() => {
                 const refreshed = getCurrentUser();
                 if (refreshed) setCurrentUser(refreshed);

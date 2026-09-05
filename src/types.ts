@@ -83,6 +83,7 @@ export interface AppSettings {
   soundEnabled: boolean;
   rentalNumberPrefix: string;
   companyLogo?: string; // base64 data URL of the company logo image
+  autoLogoutMinutes?: number; // Inactivity timeout in minutes (e.g. 5, 15, 30, 60, 0 for never)
 }
 
 export interface Customer {
@@ -112,5 +113,13 @@ export interface IncomeEntry {
   who?: string;           // Person responsible: Mark, Jenis, Beni, etc.
 }
 
+export type MessageTemplateCategory = 'birthday' | 'rental' | 'reminder' | 'marketing' | 'general';
 
-
+export interface MessageTemplate {
+  id: string;
+  title: string;
+  category: MessageTemplateCategory;
+  content: string;
+  createdAt?: number;
+  updatedAt?: number;
+}

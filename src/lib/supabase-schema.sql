@@ -94,8 +94,11 @@ CREATE TABLE IF NOT EXISTS app_settings (
   cashier_name TEXT DEFAULT 'Counter Cashier',
   sound_enabled BOOLEAN DEFAULT TRUE,
   rental_number_prefix TEXT DEFAULT 'REN',
+  auto_logout_minutes INT DEFAULT 15,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS auto_logout_minutes INT DEFAULT 15;
 
 -- Enable Row Level Security (RLS) & Public read/write access policies (for rental operations desk)
 ALTER TABLE vehicle_types ENABLE ROW LEVEL SECURITY;
@@ -145,8 +148,19 @@ CREATE TABLE IF NOT EXISTS user_roles (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 9. MESSAGE TEMPLATES TABLE (WhatsApp & Customer Communication)
+CREATE TABLE IF NOT EXISTS message_templates (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'general',
+  content TEXT NOT NULL,
+  created_at BIGINT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 ALTER TABLE user_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE message_templates ENABLE ROW LEVEL SECURITY;
 
 -- Allow anon & authenticated users to perform operations on tables
 DO $$
@@ -189,6 +203,11 @@ BEGIN
   -- User Roles policies
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_roles' AND policyname = 'Allow all user_roles') THEN
     CREATE POLICY "Allow all user_roles" ON user_roles FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+
+  -- Message Templates policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'message_templates' AND policyname = 'Allow all message_templates') THEN
+    CREATE POLICY "Allow all message_templates" ON message_templates FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
 

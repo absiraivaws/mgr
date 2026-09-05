@@ -296,7 +296,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
     document.body.removeChild(link);
   };
 
-  // Sortable column header component with literal A-Z and Z-A options
+  // Sortable column header component with Up / Down symbol buttons
   const SortTh: React.FC<{
     label: string;
     colKey: SortKey;
@@ -317,22 +317,23 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
           >
             <span>{label}</span>
           </button>
-          {/* Explicit A-Z and Z-A symbols on the heading */}
-          <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+          
+          {/* Up and Down Sorting Symbol Buttons */}
+          <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden bg-slate-500/10 shrink-0">
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 handleSort(colKey, 'asc');
               }}
-              title={`Sort ${label} A-Z`}
-              className={`px-1.5 py-0.5 transition cursor-pointer flex items-center gap-0.5 ${
+              title={`Sort ${label} ascending (▲)`}
+              className={`p-1 transition cursor-pointer flex items-center justify-center ${
                 isActive && sortDir === 'asc'
-                  ? 'bg-emerald-500 text-white font-black shadow-xs'
+                  ? 'bg-emerald-500 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-500/20'
               }`}
             >
-              <span>A-Z</span>
+              <ArrowUp className="w-3 h-3" />
             </button>
             <div className="w-[1px] h-3 bg-slate-500/30" />
             <button
@@ -341,14 +342,14 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                 e.stopPropagation();
                 handleSort(colKey, 'desc');
               }}
-              title={`Sort ${label} Z-A`}
-              className={`px-1.5 py-0.5 transition cursor-pointer flex items-center gap-0.5 ${
+              title={`Sort ${label} descending (▼)`}
+              className={`p-1 transition cursor-pointer flex items-center justify-center ${
                 isActive && sortDir === 'desc'
-                  ? 'bg-emerald-500 text-white font-black shadow-xs'
+                  ? 'bg-emerald-500 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-500/20'
               }`}
             >
-              <span>Z-A</span>
+              <ArrowDown className="w-3 h-3" />
             </button>
           </div>
         </div>

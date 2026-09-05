@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   DollarSign,
   TrendingUp,
@@ -13,11 +13,14 @@ import {
   X,
   Filter,
   Lock,
+  ArrowUp,
+  ArrowDown,
+  User,
 } from 'lucide-react';
 import { AppSettings, IncomeEntry } from '../types';
 import { formatCurrency } from '../utils/pricing';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
-import { DEFAULT_USER, UserAccount } from '../utils/auth';
+import { DEFAULT_USER, UserAccount, getStoredUsers } from '../utils/auth';
 
 interface IncomeExpensesPanelProps {
   entries: IncomeEntry[];
@@ -41,7 +44,7 @@ const CATEGORIES = [
   'Other',
 ];
 
-const WHO_OPTIONS = [
+const BASE_WHO_OPTIONS = [
   'Mark',
   'Jenis',
   'Beni',
@@ -62,16 +65,41 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
   const isRootAdmin = currentUser?.email?.toLowerCase() === DEFAULT_USER.email.toLowerCase();
   const isAdmin = currentUser?.role === 'admin' || isRootAdmin;
 
-  // Form state
+  // Dynamic known staff list
+  const staffOptions = useMemo(() => {
+    const names = new Set<string>();
+    if (currentUser?.name) names.add(currentUser.name);
+    try {
+      const stored = getStoredUsers();
+      stored.forEach((u) => { if (u.name) names.add(u.name); });
+    } catch {
+      // ignore
+    }
+    entries.forEach((e) => { if (e.who) names.add(e.who); });
+    BASE_WHO_OPTIONS.forEach((n) => names.add(n));
+    return Array.from(names).filter(Boolean);
+  }, [currentUser, entries]);
+
+  // Form state - Who defaults to currently logged-in user, never defaulting to "Mark"
+  const defaultWho = currentUser?.name || 'Staff';
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'income' | 'expense'>('income');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('Other');
-  const [who, setWho] = useState('Mark');
+  const [who, setWho] = useState(defaultWho);
+  const [customWho, setCustomWho] = useState('');
+  const [isCustomWho, setIsCustomWho] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState(false);
   const [showForm, setShowForm] = useState(false);
+
+  // Sync who with currentUser if not manually changed
+  useEffect(() => {
+    if (currentUser?.name && (who === 'Staff' || who === 'Mark' || !who)) {
+      setWho(currentUser.name);
+    }
+  }, [currentUser]);
 
   // Filter and Search State
   const [searchTerm, setSearchTerm] = useState('');
@@ -216,6 +244,8 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
       return;
     }
 
+    const finalWho = isCustomWho && customWho.trim() ? customWho.trim() : (who.trim() || defaultWho);
+
     const newEntry: IncomeEntry = {
       id: `inc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       date,
@@ -223,7 +253,7 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
       type,
       amount: parsedAmount,
       category,
-      who,
+      who: finalWho,
       createdAt: Date.now(),
       cashierName: currentUser?.name || settings.cashierName || 'Cashier',
     };
@@ -234,7 +264,9 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
     setDescription('');
     setAmount('');
     setCategory('Other');
-    setWho('Mark');
+    setWho(defaultWho);
+    setCustomWho('');
+    setIsCustomWho(false);
     setDate(new Date().toISOString().slice(0, 10));
     setFormError(null);
     setFormSuccess(true);
@@ -429,22 +461,60 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
               </select>
             </div>
 
-            {/* Who */}
+            {/* Who / Handled By */}
             <div>
-              <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${t.textHeading}`}>
-                <Tag className="inline w-3.5 h-3.5 mr-1" />
-                Who
-              </label>
-              <select
-                id="select-income-who"
-                value={who}
-                onChange={(e) => setWho(e.target.value)}
-                className={`w-full rounded-xl px-3 py-2.5 text-xs font-medium appearance-none ${t.dropdownInput}`}
-              >
-                {WHO_OPTIONS.map((name) => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className={`text-xs font-semibold uppercase tracking-wider ${t.textHeading}`}>
+                  <User className="inline w-3.5 h-3.5 mr-1 text-emerald-500" />
+                  Who / Handled By
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCustomWho(!isCustomWho);
+                    if (!isCustomWho) {
+                      setCustomWho('');
+                    }
+                  }}
+                  className="text-[11px] font-semibold text-emerald-500 hover:underline cursor-pointer"
+                >
+                  {isCustomWho ? '← Choose from staff' : '+ Custom name'}
+                </button>
+              </div>
+
+              {isCustomWho ? (
+                <input
+                  id="input-income-custom-who"
+                  type="text"
+                  placeholder="Enter person / staff name..."
+                  value={customWho}
+                  onChange={(e) => setCustomWho(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2.5 text-xs font-medium ${t.textInput}`}
+                  required={isCustomWho}
+                  autoFocus
+                />
+              ) : (
+                <select
+                  id="select-income-who"
+                  value={who}
+                  onChange={(e) => {
+                    if (e.target.value === '__custom__') {
+                      setIsCustomWho(true);
+                      setCustomWho('');
+                    } else {
+                      setWho(e.target.value);
+                    }
+                  }}
+                  className={`w-full rounded-xl px-3 py-2.5 text-xs font-medium appearance-none ${t.dropdownInput}`}
+                >
+                  {staffOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name} {currentUser?.name === name ? '(You)' : ''}
+                    </option>
+                  ))}
+                  <option value="__custom__">+ Enter Custom Person Name...</option>
+                </select>
+              )}
             </div>
 
             {/* Submit */}
@@ -612,21 +682,23 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
                       >
                         Date
                       </button>
-                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden bg-slate-500/10 shrink-0">
                         <button
                           type="button"
                           onClick={() => handleSort('date', 'asc')}
-                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'date' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Ascending (▲)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'date' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          A-Z
+                          <ArrowUp className="w-3 h-3" />
                         </button>
                         <div className="w-[1px] h-3 bg-slate-500/30" />
                         <button
                           type="button"
                           onClick={() => handleSort('date', 'desc')}
-                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'date' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Descending (▼)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'date' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          Z-A
+                          <ArrowDown className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
@@ -642,21 +714,23 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
                       >
                         Description
                       </button>
-                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden bg-slate-500/10 shrink-0">
                         <button
                           type="button"
                           onClick={() => handleSort('description', 'asc')}
-                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'description' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Ascending (▲)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'description' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          A-Z
+                          <ArrowUp className="w-3 h-3" />
                         </button>
                         <div className="w-[1px] h-3 bg-slate-500/30" />
                         <button
                           type="button"
                           onClick={() => handleSort('description', 'desc')}
-                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'description' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Descending (▼)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'description' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          Z-A
+                          <ArrowDown className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
@@ -672,21 +746,23 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
                       >
                         Category
                       </button>
-                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden bg-slate-500/10 shrink-0">
                         <button
                           type="button"
                           onClick={() => handleSort('category', 'asc')}
-                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'category' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Ascending (▲)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'category' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          A-Z
+                          <ArrowUp className="w-3 h-3" />
                         </button>
                         <div className="w-[1px] h-3 bg-slate-500/30" />
                         <button
                           type="button"
                           onClick={() => handleSort('category', 'desc')}
-                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'category' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Descending (▼)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'category' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          Z-A
+                          <ArrowDown className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
@@ -702,21 +778,23 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
                       >
                         Who
                       </button>
-                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden bg-slate-500/10 shrink-0">
                         <button
                           type="button"
                           onClick={() => handleSort('who', 'asc')}
-                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'who' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Ascending (▲)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'who' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          A-Z
+                          <ArrowUp className="w-3 h-3" />
                         </button>
                         <div className="w-[1px] h-3 bg-slate-500/30" />
                         <button
                           type="button"
                           onClick={() => handleSort('who', 'desc')}
-                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'who' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Descending (▼)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'who' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          Z-A
+                          <ArrowDown className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
@@ -732,21 +810,23 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
                       >
                         Type
                       </button>
-                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden bg-slate-500/10 shrink-0">
                         <button
                           type="button"
                           onClick={() => handleSort('type', 'asc')}
-                          className={`px-1 py-0.5 transition cursor-pointer ${sortField === 'type' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Ascending (▲)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'type' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          A-Z
+                          <ArrowUp className="w-3 h-3" />
                         </button>
                         <div className="w-[1px] h-3 bg-slate-500/30" />
                         <button
                           type="button"
                           onClick={() => handleSort('type', 'desc')}
-                          className={`px-1 py-0.5 transition cursor-pointer ${sortField === 'type' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Descending (▼)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'type' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          Z-A
+                          <ArrowDown className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
@@ -762,21 +842,23 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
                       >
                         Amount
                       </button>
-                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden text-[9px] font-bold bg-slate-500/10 shrink-0">
+                      <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden bg-slate-500/10 shrink-0">
                         <button
                           type="button"
                           onClick={() => handleSort('amount', 'asc')}
-                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'amount' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Ascending (▲)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'amount' && sortDir === 'asc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          A-Z
+                          <ArrowUp className="w-3 h-3" />
                         </button>
                         <div className="w-[1px] h-3 bg-slate-500/30" />
                         <button
                           type="button"
                           onClick={() => handleSort('amount', 'desc')}
-                          className={`px-1.5 py-0.5 transition cursor-pointer ${sortField === 'amount' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
+                          title="Sort Descending (▼)"
+                          className={`p-1 transition cursor-pointer flex items-center justify-center ${sortField === 'amount' && sortDir === 'desc' ? 'bg-emerald-500 text-white font-black' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          Z-A
+                          <ArrowDown className="w-3 h-3" />
                         </button>
                       </div>
                     </div>

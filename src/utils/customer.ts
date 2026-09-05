@@ -1,4 +1,4 @@
-import { Customer, RentalRecord } from '../types';
+import { Customer, MessageTemplate, RentalRecord } from '../types';
 
 /**
  * Searches for customer by NIC/Passport number or partial query (name/phone/NIC)
@@ -85,3 +85,194 @@ export function consolidateCustomers(
 
   return Array.from(customerMap.values());
 }
+
+/**
+ * Parses customer date of birth (e.g. YYYY-MM-DD or DD-MM-YYYY or MM-DD)
+ */
+export function parseCustomerDob(dob?: string): { month: number; day: number; year?: number } | null {
+  if (!dob || !dob.trim()) return null;
+  const parts = dob.trim().split(/[-/.]/);
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      // YYYY-MM-DD
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10);
+      const day = parseInt(parts[2], 10);
+      if (!isNaN(month) && !isNaN(day)) return { month, day, year };
+    } else {
+      // DD-MM-YYYY or MM-DD-YYYY
+      const p0 = parseInt(parts[0], 10);
+      const p1 = parseInt(parts[1], 10);
+      const year = parseInt(parts[2], 10);
+      if (p0 > 12) {
+        return { month: p1, day: p0, year };
+      } else {
+        return { month: p0, day: p1, year };
+      }
+    }
+  } else if (parts.length === 2) {
+    const month = parseInt(parts[0], 10);
+    const day = parseInt(parts[1], 10);
+    if (!isNaN(month) && !isNaN(day)) return { month, day };
+  }
+  return null;
+}
+
+/**
+ * Check if today is the customer's birthday
+ */
+export function isCustomerBirthdayToday(dob?: string): boolean {
+  const parsed = parseCustomerDob(dob);
+  if (!parsed) return false;
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentDay = now.getDate();
+  return parsed.month === currentMonth && parsed.day === currentDay;
+}
+
+/**
+ * Check if the customer's birthday falls in the current calendar month
+ */
+export function isCustomerBirthdayThisMonth(dob?: string): boolean {
+  const parsed = parseCustomerDob(dob);
+  if (!parsed) return false;
+  const now = new Date();
+  return parsed.month === (now.getMonth() + 1);
+}
+
+/**
+ * Check if customer's birthday is upcoming within the next N days
+ */
+export function isCustomerBirthdayUpcoming(dob?: string, daysAhead: number = 7): boolean {
+  const parsed = parseCustomerDob(dob);
+  if (!parsed) return false;
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const bdayThisYear = new Date(currentYear, parsed.month - 1, parsed.day);
+  const diffTime = bdayThisYear.getTime() - new Date(currentYear, now.getMonth(), now.getDate()).getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays >= 0 && diffDays <= daysAhead;
+}
+
+/**
+ * Calculates current age of customer if birth year is known
+ */
+export function getCustomerAge(dob?: string): number | null {
+  const parsed = parseCustomerDob(dob);
+  if (!parsed || !parsed.year) return null;
+  const now = new Date();
+  let age = now.getFullYear() - parsed.year;
+  const m = (now.getMonth() + 1) - parsed.month;
+  if (m < 0 || (m === 0 && now.getDate() < parsed.day)) {
+    age--;
+  }
+  return age > 0 ? age : null;
+}
+
+/**
+ * Format default Birthday WhatsApp Message
+ */
+export function formatWhatsAppBirthdayMessage(customer: Customer, businessName: string = 'Mannar Green Ride'): string {
+  const name = customer.fullName || customer.name || 'Valued Customer';
+  const age = getCustomerAge(customer.dob);
+  const ageStr = age ? ` on turning ${age}` : '';
+
+  return `🎉 *Happy Birthday ${name}!* 🎂🎈\n\nWishing you a wonderful celebration${ageStr} filled with happiness and joy from all of us at *${businessName}*! 🚴‍♂️✨\n\nAs a token of our appreciation, we invite you to enjoy a special birthday discount on your next ride with us. Have an incredible year ahead!\n\nWarm regards,\n*${businessName}* Team`;
+}
+
+/**
+ * Replace placeholders like {customer_name}, {shop_name}, {dob}, {nic_passport}, {phone}
+ */
+export function formatWhatsAppCustomMessage(
+  templateContent: string,
+  customer: Customer,
+  extra: Record<string, string> = {}
+): string {
+  let text = templateContent;
+  const name = customer.fullName || customer.name || 'Customer';
+  const phone = customer.whatsappNumber || customer.phone || '';
+  const nic = customer.nicPassport || '';
+  const dob = customer.dob || '';
+
+  text = text.replace(/\{customer_name\}/gi, name);
+  text = text.replace(/\{name\}/gi, name);
+  text = text.replace(/\{phone\}/gi, phone);
+  text = text.replace(/\{nic_passport\}/gi, nic);
+  text = text.replace(/\{nic\}/gi, nic);
+  text = text.replace(/\{dob\}/gi, dob);
+
+  Object.entries(extra).forEach(([key, val]) => {
+    const reg = new RegExp(`\\{${key}\\}`, 'gi');
+    text = text.replace(reg, val);
+  });
+
+  return text;
+}
+
+export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
+  {
+    id: 'tmpl-birthday-default',
+    title: 'Birthday Celebration Wishes',
+    category: 'birthday',
+    content: `🎉 *Happy Birthday {customer_name}!* 🎂🎈\n\nWishing you a wonderful celebration filled with joy and happiness from all of us at *{shop_name}*! 🚴‍♂️✨\n\nAs a token of our appreciation, please enjoy a special birthday discount on your next ride with us. Have an incredible year ahead!\n\nWarm regards,\n*{shop_name}* Team`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-rental-start',
+    title: 'Rental Started & Welcome',
+    category: 'rental',
+    content: `🚴 *Welcome to {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has started.\n\nPlease wear your helmet and ride safely! If you need assistance or wish to extend your hire, contact us anytime.\n\nEnjoy your ride!\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-rental-thanks',
+    title: 'Return Completed & Thank You',
+    category: 'rental',
+    content: `🙏 *Thank you for riding with {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} has been settled successfully.\n\nWe hope you enjoyed exploring the sights of Mannar! We look forward to seeing you again soon. 🌿🚲\n\nBest regards,\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-weekend-promo',
+    title: 'Weekend Promo & Discount',
+    category: 'marketing',
+    content: `🌟 *Special Weekend Ride at {shop_name}!* \n\nHello {customer_name}, enjoy our sunny coastlines with a special weekend discount on all bike hires! \n\nVisit us today or reply to reserve your ride.\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-general-reminder',
+    title: 'General Notification / Reminder',
+    category: 'reminder',
+    content: `🔔 *Notification from {shop_name}*\n\nHello {customer_name}, here is an update regarding your rental account. For any questions, please reply directly to this message.\n\nThank you,\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+];
+
+const TEMPLATES_STORAGE_KEY = 'v_rental_message_templates';
+
+export function getStoredMessageTemplates(): MessageTemplate[] {
+  try {
+    const raw = localStorage.getItem(TEMPLATES_STORAGE_KEY);
+    if (!raw) return DEFAULT_MESSAGE_TEMPLATES;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch (err) {
+    console.error('Error reading stored message templates:', err);
+  }
+  return DEFAULT_MESSAGE_TEMPLATES;
+}
+
+export function saveStoredMessageTemplates(templates: MessageTemplate[]): void {
+  try {
+    localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
+  } catch (err) {
+    console.error('Error saving message templates:', err);
+  }
+}
+

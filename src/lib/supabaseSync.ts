@@ -68,7 +68,7 @@ export async function fetchSupabaseData(): Promise<{
       }));
     }
 
-    if (customersRes.data && customersRes.data.length > 0) {
+    if (customersRes.data) {
       result.customers = customersRes.data.map((row) => ({
         id: row.id,
         nicPassport: row.nic_passport,
@@ -79,7 +79,7 @@ export async function fetchSupabaseData(): Promise<{
         address: row.address || '',
         dob: row.dob || '',
         notes: row.notes || '',
-        totalRentalsCount: row.total_rentals_count || 1,
+        totalRentalsCount: row.total_rentals_count ?? 0,
         lastRentalDate: row.last_rental_date ? Number(row.last_rental_date) : undefined,
         createdAt: row.created_at ? Number(row.created_at) : undefined,
       }));
@@ -143,6 +143,7 @@ export async function fetchSupabaseData(): Promise<{
         cashierName: row.cashier_name,
         soundEnabled: row.sound_enabled ?? true,
         rentalNumberPrefix: row.rental_number_prefix || 'REN',
+        autoLogoutMinutes: row.auto_logout_minutes ?? 15,
       };
     }
 
@@ -255,17 +256,34 @@ export async function syncCustomerToSupabase(customer: Customer) {
       address: customer.address || '',
       dob: customer.dob || '',
       notes: customer.notes || null,
-      total_rentals_count: customer.totalRentalsCount || 1,
+      total_rentals_count: customer.totalRentalsCount ?? 0,
       last_rental_date: customer.lastRentalDate || null,
       created_at: customer.createdAt || Date.now(),
     };
 
-    const { data: existing } = await supabase.from('customers').select('id').eq('nic_passport', customer.nicPassport).maybeSingle();
-    if (existing) {
-      await supabase.from('customers').update(payload).eq('nic_passport', customer.nicPassport);
-    } else {
-      await supabase.from('customers').insert({ id: customer.id, ...payload });
+    // 1. Check if row exists by customer ID
+    if (customer.id) {
+      const { data: byId } = await supabase.from('customers').select('id').eq('id', customer.id).maybeSingle();
+      if (byId) {
+        const { error } = await supabase.from('customers').update(payload).eq('id', customer.id);
+        if (error) console.error('Error updating customer by ID:', error);
+        return;
+      }
     }
+
+    // 2. Check if row exists by nic_passport
+    if (customer.nicPassport) {
+      const { data: byNic } = await supabase.from('customers').select('id').eq('nic_passport', customer.nicPassport).maybeSingle();
+      if (byNic) {
+        const { error } = await supabase.from('customers').update(payload).eq('nic_passport', customer.nicPassport);
+        if (error) console.error('Error updating customer by NIC:', error);
+        return;
+      }
+    }
+
+    // 3. Otherwise insert fresh row
+    const { error } = await supabase.from('customers').insert({ id: customer.id, ...payload });
+    if (error) console.error('Error inserting customer:', error);
   } catch (err) {
     console.error('Failed to sync customer to Supabase:', err);
   }
@@ -279,10 +297,13 @@ export async function deleteCustomerFromSupabase(customerId: string, nicPassport
   if (!supabase) return;
 
   try {
+    if (customerId) {
+      const { error: errId } = await supabase.from('customers').delete().eq('id', customerId);
+      if (errId) console.error('Error deleting customer by id:', errId);
+    }
     if (nicPassport) {
-      await supabase.from('customers').delete().eq('nic_passport', nicPassport);
-    } else {
-      await supabase.from('customers').delete().eq('id', customerId);
+      const { error: errNic } = await supabase.from('customers').delete().eq('nic_passport', nicPassport);
+      if (errNic) console.error('Error deleting customer by nic:', errNic);
     }
   } catch (err) {
     console.error('Failed to delete customer from Supabase:', err);
@@ -386,6 +407,7 @@ export async function syncSettingsToSupabase(settings: AppSettings) {
       cashier_name: settings.cashierName || '',
       sound_enabled: settings.soundEnabled ?? true,
       rental_number_prefix: settings.rentalNumberPrefix || 'CYC',
+      auto_logout_minutes: settings.autoLogoutMinutes ?? 15,
     };
 
     const { error } = await supabase.from('app_settings').upsert(payload, { onConflict: 'id' });
@@ -757,7 +779,7 @@ export async function syncIncomeEntryToSupabase(entry: import('../types').Income
       type: entry.type,
       amount: entry.amount,
       category: entry.category || 'Other',
-      who: entry.who || 'Mark',
+      who: entry.who || 'Staff',
       created_at: entry.createdAt,
       cashier_name: entry.cashierName || '',
     };
@@ -779,5 +801,120 @@ export async function deleteIncomeEntryFromSupabase(id: string) {
     await supabase.from('income_expenses').delete().eq('id', id);
   } catch (err) {
     console.error('Failed to delete income entry from Supabase:', err);
+  }
+}
+
+/**
+ * Directly update a user's password in the Supabase user_accounts table
+ */
+export async function updateUserPasswordInSupabase(email: string, newPassword: string): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await supabase
+      .from('user_accounts')
+      .update({ password_hash: newPassword })
+      .eq('email', email.trim().toLowerCase());
+    if (error) {
+      console.error('Failed to update password in Supabase user_accounts:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Error updating user password in Supabase:', err);
+    return false;
+  }
+}
+
+/**
+ * Fetch all message templates from Supabase
+ */
+export async function fetchMessageTemplatesFromSupabase(): Promise<import('../types').MessageTemplate[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('message_templates')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.warn('Failed to fetch message_templates from Supabase:', error);
+      return null;
+    }
+
+    if (data) {
+      return data.map((row) => ({
+        id: row.id,
+        title: row.title,
+        category: row.category,
+        content: row.content,
+        createdAt: row.created_at ? Number(row.created_at) : undefined,
+      }));
+    }
+    return [];
+  } catch (err) {
+    console.warn('Error fetching message templates:', err);
+    return null;
+  }
+}
+
+/**
+ * Sync a single message template to Supabase
+ */
+export async function syncMessageTemplateToSupabase(template: import('../types').MessageTemplate) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    const payload = {
+      id: template.id,
+      title: template.title,
+      category: template.category,
+      content: template.content,
+      created_at: template.createdAt || Date.now(),
+    };
+
+    await supabase.from('message_templates').upsert(payload, { onConflict: 'id' });
+  } catch (err) {
+    console.error('Failed to sync message template to Supabase:', err);
+  }
+}
+
+/**
+ * Delete a message template from Supabase
+ */
+export async function deleteMessageTemplateFromSupabase(id: string) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    await supabase.from('message_templates').delete().eq('id', id);
+  } catch (err) {
+    console.error('Failed to delete message template from Supabase:', err);
+  }
+}
+
+/**
+ * Sync all message templates to Supabase
+ */
+export async function syncAllMessageTemplatesToSupabase(templates: import('../types').MessageTemplate[]) {
+  const supabase = getSupabase();
+  if (!supabase || templates.length === 0) return;
+
+  try {
+    const payload = templates.map((t) => ({
+      id: t.id,
+      title: t.title,
+      category: t.category,
+      content: t.content,
+      created_at: t.createdAt || Date.now(),
+    }));
+
+    await supabase.from('message_templates').upsert(payload, { onConflict: 'id' });
+  } catch (err) {
+    console.error('Failed to batch sync message templates to Supabase:', err);
   }
 }
