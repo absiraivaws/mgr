@@ -13,12 +13,13 @@ import {
   Sparkles, 
   UserCheck, 
   Info,
-  ChevronDown
+  ChevronDown,
+  Clock,
 } from 'lucide-react';
 import { AppSettings, Customer, RentalRecord, Vehicle, VehicleType } from '../types';
 import { VehicleIcon } from './VehicleIcon';
-import { formatCurrency, playSoundEffect } from '../utils/pricing';
-import { findCustomerByNic, searchCustomers } from '../utils/customer';
+import { formatCurrency, playSoundEffect, getNextRentalNumber } from '../utils/pricing';
+import { findCustomerByNic, searchCustomers, isCustomerSuspendedOrBlocked, cleanWhatsAppPhoneNumber } from '../utils/customer';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 
 interface StartRentalCardProps {
@@ -38,6 +39,7 @@ interface StartRentalCardProps {
     customerNicPassport?: string;
     customerNotes?: string;
     depositAmount?: number;
+    customStartTime?: number;
   }) => void;
   onQuickAddSerial?: (typeId: string, serial: string) => void;
 }
@@ -61,7 +63,14 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   const [customerNicPassport, setCustomerNicPassport] = useState<string>('');
   const [customerNotes, setCustomerNotes] = useState<string>('');
   const [depositAmount, setDepositAmount] = useState<string>('');
+  const [sendWelcomeWhatsApp, setSendWelcomeWhatsApp] = useState<boolean>(true);
   const [customSerialMode, setCustomSerialMode] = useState<boolean>(false);
+  const [isCustomStartTime, setIsCustomStartTime] = useState<boolean>(false);
+  const [customStartTimeInput, setCustomStartTimeInput] = useState<string>(() => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Customer Auto-Lookup & Suggestion state
@@ -85,6 +94,11 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
 
   const todayCompletedCount = todayCompleted.length;
   const todayCompletedAmount = todayCompleted.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+
+  // Compute upcoming rental number
+  const nextRentalNumber = useMemo(() => {
+    return getNextRentalNumber(activeRentals, completedRentals, settings.rentalNumberPrefix || 'REN');
+  }, [activeRentals, completedRentals, settings.rentalNumberPrefix]);
 
   // Sorted vehicle types A-Z by Category name
   const sortedVehicleTypes = useMemo(() => {
@@ -210,19 +224,55 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
       return;
     }
 
+    // Verify Customer Status: Block if suspended or blocked
+    if (matchedCustomer && isCustomerSuspendedOrBlocked(matchedCustomer)) {
+      setErrorMsg(`Cannot start rental: Customer ${matchedCustomer.fullName || matchedCustomer.name} is currently ${matchedCustomer.status?.toUpperCase()}${matchedCustomer.statusRemark ? ` (${matchedCustomer.statusRemark})` : ''}.`);
+      return;
+    }
+
     if (settings.soundEnabled) {
       playSoundEffect('start');
+    }
+
+    const phoneToUse = customerPhone.trim() || matchedCustomer?.whatsappNumber || matchedCustomer?.phone;
+
+    let customStartMs: number | undefined = undefined;
+    if (isCustomStartTime && customStartTimeInput) {
+      const parsed = new Date(customStartTimeInput).getTime();
+      if (isNaN(parsed)) {
+        setErrorMsg('Please enter a valid custom start date and time.');
+        return;
+      }
+      if (parsed > Date.now() + 5 * 60 * 1000) {
+        setErrorMsg('Custom start time cannot be set in the future.');
+        return;
+      }
+      customStartMs = parsed;
     }
 
     onStartRental({
       vehicleTypeId: selectedTypeId,
       vehicleSerialNumber: cleanSerial,
       customerName: customerName.trim() || undefined,
-      customerPhone: customerPhone.trim() || undefined,
+      customerPhone: phoneToUse || undefined,
       customerNicPassport: customerNicPassport.trim() || undefined,
       customerNotes: customerNotes.trim() || undefined,
       depositAmount: depositAmount ? parseFloat(depositAmount) : undefined,
+      customStartTime: customStartMs,
     });
+
+    // Send automated WhatsApp Welcome Message if opted-in and phone exists
+    if (sendWelcomeWhatsApp && phoneToUse) {
+      try {
+        const cleanPhone = cleanWhatsAppPhoneNumber(phoneToUse);
+        const custName = customerName.trim() || matchedCustomer?.fullName || matchedCustomer?.name || 'Valued Customer';
+        const shop = settings.businessName || 'Cycly Rent';
+        const welcomeText = `Hello ${custName}! 🚴 Welcome to ${shop}. Your rental for ${cleanSerial} (${selectedType?.name || 'Vehicle'}) has started! Have a wonderful and safe ride. If you need any assistance, feel free to reply or call us.`;
+        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(welcomeText)}`, '_blank');
+      } catch (err) {
+        console.error('Failed to trigger WhatsApp welcome:', err);
+      }
+    }
 
     // Reset vehicle selection and customer fields back to blank
     setSelectedTypeId('');
@@ -272,10 +322,16 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
           </div>
         </div>
 
-        {/* Visual Badge Indicator */}
-        <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${t.badge}`}>
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>POS Desk</span>
+        {/* Visual Badge Indicators */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 font-mono font-bold text-xs shadow-xs" title="Upcoming rental receipt number">
+            <Hash className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Next: #{nextRentalNumber}</span>
+          </div>
+          <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold ${t.badge}`}>
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>POS Desk</span>
+          </div>
         </div>
       </div>
 
@@ -512,7 +568,12 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
                         </span>
                       )}
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="text-right shrink-0 flex items-center gap-1.5">
+                      {isCustomerSuspendedOrBlocked(cust) && (
+                        <span className="text-[9px] uppercase font-extrabold px-1.5 py-0.5 rounded bg-rose-500 text-white animate-pulse">
+                          {cust.status}
+                        </span>
+                      )}
                       <span className={`text-[10px] px-2 py-0.5 rounded-full border ${t.badge}`}>
                         {cust.totalRentalsCount ? `${cust.totalRentalsCount} trips` : 'Saved'}
                       </span>
@@ -524,20 +585,37 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
 
             {/* Matched Customer Notification Banner */}
             {matchedCustomer && (
-              <div className={`mt-2 p-3 rounded-xl border space-y-2 text-xs bg-emerald-500/10 border-emerald-500/30 text-emerald-400`}>
-                <div className="flex items-center justify-between gap-2 border-b border-emerald-500/20 pb-2">
+              <div className={`mt-2 p-3 rounded-xl border space-y-2 text-xs ${
+                isCustomerSuspendedOrBlocked(matchedCustomer) 
+                  ? 'bg-rose-500/15 border-rose-500/50 text-rose-200' 
+                  : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+              }`}>
+                <div className="flex items-center justify-between gap-2 border-b border-current/20 pb-2">
                   <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 shrink-0 text-emerald-400" />
+                    {isCustomerSuspendedOrBlocked(matchedCustomer) ? (
+                      <AlertCircle className="w-5 h-5 shrink-0 text-rose-400" />
+                    ) : (
+                      <Sparkles className="w-4 h-4 shrink-0 text-emerald-400" />
+                    )}
                     <div>
-                      <div className="font-bold flex items-center gap-1.5 text-sm text-white">
+                      <div className="font-bold flex items-center gap-1.5 text-sm text-white flex-wrap">
                         <span>{matchedCustomer.fullName || matchedCustomer.name}</span>
+                        {matchedCustomer.status && (
+                          <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${
+                            isCustomerSuspendedOrBlocked(matchedCustomer)
+                              ? 'bg-rose-500 text-white animate-pulse'
+                              : 'bg-emerald-500/20 text-emerald-300'
+                          }`}>
+                            {matchedCustomer.status}
+                          </span>
+                        )}
                         {matchedCustomer.totalRentalsCount !== undefined && (
-                          <span className="text-[10px] font-normal bg-emerald-500/20 px-2 py-0.5 rounded text-emerald-300">
+                          <span className="text-[10px] font-normal bg-slate-800/80 px-2 py-0.5 rounded text-slate-300">
                             {matchedCustomer.totalRentalsCount} past rentals
                           </span>
                         )}
                       </div>
-                      <span className="text-[11px] text-emerald-300/80 font-mono">
+                      <span className="text-[11px] opacity-80 font-mono">
                         NIC: {matchedCustomer.nicPassport}
                       </span>
                     </div>
@@ -550,6 +628,24 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
                     Clear
                   </button>
                 </div>
+
+                {/* Prominent Suspended/Blocked Warning Message */}
+                {isCustomerSuspendedOrBlocked(matchedCustomer) && (
+                  <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-500/40 text-rose-200 space-y-1">
+                    <div className="flex items-center gap-1.5 font-black text-rose-400 text-xs">
+                      <span>⚠ Warning: This customer is currently {matchedCustomer.status?.toUpperCase()}.</span>
+                    </div>
+                    {matchedCustomer.statusRemark && (
+                      <p className="text-xs text-rose-200">
+                        <span className="font-bold text-rose-300">Reason / Remark: </span>
+                        {matchedCustomer.statusRemark}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-rose-400 font-semibold">
+                      New rentals are blocked for this customer account.
+                    </p>
+                  </div>
+                )}
 
                 {/* Additional Customer Attributes */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-slate-300 pt-1">
@@ -569,6 +665,16 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
                     <div>
                       <span className="text-slate-400 block text-[10px]">DOB:</span>
                       <span className="font-mono font-medium">{matchedCustomer.dob}</span>
+                    </div>
+                  )}
+                  {matchedCustomer.groups && matchedCustomer.groups.length > 0 && (
+                    <div className="sm:col-span-3 flex items-center gap-1 flex-wrap">
+                      <span className="text-slate-400 text-[10px]">Groups:</span>
+                      {matchedCustomer.groups.map((g) => (
+                        <span key={g} className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 text-[10px] font-semibold border border-slate-700">
+                          {g}
+                        </span>
+                      ))}
                     </div>
                   )}
                   {matchedCustomer.address && (
@@ -623,22 +729,88 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
           </div>
         </div>
 
+        {/* WhatsApp Welcome Dispatch Toggle Option */}
+        {(customerPhone || matchedCustomer?.phone || matchedCustomer?.whatsappNumber) && (
+          <div className="pt-2 px-1">
+            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={sendWelcomeWhatsApp}
+                onChange={(e) => setSendWelcomeWhatsApp(e.target.checked)}
+                className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
+              />
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Send WhatsApp Welcome & Confirmation message when rental starts</span>
+              </span>
+            </label>
+          </div>
+        )}
+
+        {/* Custom Start Time Option */}
+        <div className="pt-2 px-1">
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={isCustomStartTime}
+              onChange={(e) => setIsCustomStartTime(e.target.checked)}
+              className="w-4 h-4 rounded text-indigo-500 focus:ring-indigo-500 bg-slate-900 border-slate-700 cursor-pointer"
+            />
+            <span className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Specify Custom Start Time (backdate if customer started earlier)</span>
+            </span>
+          </label>
+
+          {isCustomStartTime && (
+            <div className="mt-2.5 p-3 rounded-xl border border-indigo-500/40 bg-indigo-950/30 flex flex-col sm:flex-row sm:items-center gap-2.5">
+              <span className="text-[11px] font-semibold text-indigo-200 shrink-0">
+                Rental Started At:
+              </span>
+              <input
+                type="datetime-local"
+                value={customStartTimeInput}
+                onChange={(e) => {
+                  setCustomStartTimeInput(e.target.value);
+                  setErrorMsg(null);
+                }}
+                className={`rounded-xl px-3 py-1.5 text-xs font-mono ${t.textInput} flex-1`}
+              />
+              <span className="text-[10px] text-indigo-300/70">
+                Duration will count from this time
+              </span>
+            </div>
+          )}
+        </div>
+
         {/* Start Rental Primary Action Button */}
         <div className="pt-2">
-          <button
-            id="btn-start-rental"
-            type="submit"
-            disabled={!selectedSerial && !customSerialMode}
-            className={`w-full py-3.5 px-4 sm:px-6 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed font-bold text-sm sm:text-base flex items-center justify-center gap-2 sm:gap-3 transition cursor-pointer active:scale-[0.99] min-h-[48px] shadow-lg ${t.primaryBtn}`}
-          >
-            <Play className="w-5 h-5 fill-white shrink-0" />
-            <span>Start Rental Timer</span>
-            {selectedSerial && (
-              <span className="font-mono text-xs bg-black/30 text-white px-2 py-0.5 rounded border border-white/20 truncate max-w-[120px]">
-                {selectedSerial}
+          {matchedCustomer && isCustomerSuspendedOrBlocked(matchedCustomer) ? (
+            <div className="p-3 bg-rose-500/20 border border-rose-500/50 rounded-xl text-center space-y-1">
+              <span className="font-bold text-sm text-rose-300 flex items-center justify-center gap-2">
+                <AlertCircle className="w-4 h-4" />
+                <span>Rental Restricted: Customer is {matchedCustomer.status?.toUpperCase()}</span>
               </span>
-            )}
-          </button>
+              <p className="text-xs text-rose-200">
+                Cannot start rental while customer status is suspended or blocked.
+              </p>
+            </div>
+          ) : (
+            <button
+              id="btn-start-rental"
+              type="submit"
+              disabled={!selectedSerial && !customSerialMode}
+              className={`w-full py-3.5 px-4 sm:px-6 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed font-bold text-sm sm:text-base flex items-center justify-center gap-2 sm:gap-3 transition cursor-pointer active:scale-[0.99] min-h-[48px] shadow-lg ${t.primaryBtn}`}
+            >
+              <Play className="w-5 h-5 fill-white shrink-0" />
+              <span>Start Rental #{nextRentalNumber}</span>
+              {selectedSerial && (
+                <span className="font-mono text-xs bg-black/30 text-white px-2 py-0.5 rounded border border-white/20 truncate max-w-[120px]">
+                  {selectedSerial}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </form>
     </div>

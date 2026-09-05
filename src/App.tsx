@@ -38,6 +38,8 @@ import {
   BarChart,
   Clipboard,
   CalendarDays,
+  MessageSquare,
+  Tag,
 } from 'lucide-react';
 import { 
   INITIAL_CUSTOMERS,
@@ -46,7 +48,7 @@ import {
   INITIAL_VEHICLES,
   INITIAL_VEHICLE_TYPES 
 } from './data/initialData';
-import { AppSettings, Customer, IncomeEntry, MessageTemplate, RentalRecord, Vehicle, VehicleType } from './types';
+import { AppSettings, Customer, CustomerGroup, IncomeEntry, MessageHistoryEntry, MessageTemplate, RentalRecord, Vehicle, VehicleType } from './types';
 import { Navbar, NavTabType } from './components/Navbar';
 import { StartRentalCard } from './components/StartRentalCard';
 import { ActiveRentalsList } from './components/ActiveRentalsList';
@@ -57,6 +59,8 @@ import { UserRolesManager } from './components/UserRolesManager';
 import { DashboardStats } from './components/DashboardStats';
 import { IncomeExpensesPanel } from './components/IncomeExpensesPanel';
 import { CustomerManagementPanel } from './components/CustomerManagementPanel';
+import { CustomerMessagingTab } from './components/CustomerMessagingTab';
+import { CustomerGroupsModal } from './components/CustomerGroupsModal';
 import { AuthModal } from './components/AuthModal';
 import { LoginPage } from './components/LoginPage';
 import { 
@@ -78,7 +82,8 @@ import {
   deleteRentalFromSupabase,
   fetchMessageTemplatesFromSupabase,
 } from './lib/supabaseSync';
-import { getStoredMessageTemplates, saveStoredMessageTemplates } from './utils/customer';
+import { getStoredMessageTemplates, saveStoredMessageTemplates, getStoredCustomerGroups, saveStoredCustomerGroups, getStoredMessageHistory, saveStoredMessageHistory } from './utils/customer';
+import { getNextRentalNumber } from './utils/pricing';
 import { isSupabaseConfigured } from './lib/supabase';
 import { 
   AccentColor, 
@@ -103,7 +108,7 @@ import {
 export default function App() {
   // Navigation tabs: 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers'
   const [activeTab, setActiveTab] = useState<NavTabType>('rentals');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   // Income & Expenses entries
   const [incomeEntries, setIncomeEntries] = useState<IncomeEntry[]>(() => {
@@ -183,7 +188,11 @@ export default function App() {
       const saved = localStorage.getItem('v_rental_history');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((r: RentalRecord) =>
+            r.rentalNumber === 'REN-156' ? { ...r, rentalNumber: 'REN-101' } : r
+          );
+        }
       }
       return INITIAL_COMPLETED_RENTALS;
     } catch {
@@ -209,6 +218,15 @@ export default function App() {
 
   // Message Templates
   const [messageTemplates, setMessageTemplates] = useState<MessageTemplate[]>(() => getStoredMessageTemplates());
+
+  // Customer Groups
+  const [customerGroups, setCustomerGroups] = useState<CustomerGroup[]>(() => getStoredCustomerGroups());
+
+  // Message History (WhatsApp send log)
+  const [messageHistory, setMessageHistory] = useState<MessageHistoryEntry[]>(() => getStoredMessageHistory());
+
+  // Modal for managing customer groups from dedicated Messages tab
+  const [isMessagesGroupsModalOpen, setIsMessagesGroupsModalOpen] = useState(false);
 
   // Sync to localStorage
   useEffect(() => {
@@ -256,7 +274,12 @@ export default function App() {
         if (cloudData.customers && cloudData.customers.length > 0) setCustomers(cloudData.customers);
         // Always load rentals from Supabase to ensure history is up to date
         if (cloudData.activeRentals !== undefined) setActiveRentals(cloudData.activeRentals);
-        if (cloudData.completedRentals !== undefined) setCompletedRentals(cloudData.completedRentals);
+        if (cloudData.completedRentals !== undefined) {
+          const sanitized = cloudData.completedRentals.map((r: RentalRecord) =>
+            r.rentalNumber === 'REN-156' ? { ...r, rentalNumber: 'REN-101' } : r
+          );
+          setCompletedRentals(sanitized);
+        }
         if (cloudData.settings) setSettings(cloudData.settings);
 
         if (cloudData.userAccounts && cloudData.userAccounts.length > 0) {
@@ -269,6 +292,12 @@ export default function App() {
           saveStoredRoles(cloudData.roles);
         } else {
           syncAllRolesToSupabase(getStoredRoles());
+        }
+
+        // Load customer groups from Supabase
+        if (cloudData.customerGroups && cloudData.customerGroups.length > 0) {
+          setCustomerGroups(cloudData.customerGroups);
+          saveStoredCustomerGroups(cloudData.customerGroups);
         }
       }
       // If cloud data is empty/missing, keep local initial data as fallback
@@ -340,6 +369,7 @@ export default function App() {
     customerNicPassport?: string;
     customerNotes?: string;
     depositAmount?: number;
+    customStartTime?: number;
   }) => {
     const typeObj = vehicleTypes.find((t) => t.id === params.vehicleTypeId) || vehicleTypes[0];
     
@@ -401,10 +431,10 @@ export default function App() {
       });
     }
 
-    const rentalCount = completedRentals.length + activeRentals.length + 101;
+    const nextRentalNumber = getNextRentalNumber(activeRentals, completedRentals, settings.rentalNumberPrefix || 'REN');
     const newRental: RentalRecord = {
       id: `rental-${Date.now()}`,
-      rentalNumber: `${settings.rentalNumberPrefix || 'REN'}-${rentalCount}`,
+      rentalNumber: nextRentalNumber,
       vehicleId: vehicleObj.id,
       vehicleSerialNumber: params.vehicleSerialNumber.toUpperCase(),
       vehicleTypeId: typeObj.id,
@@ -415,7 +445,7 @@ export default function App() {
       customerNicPassport: params.customerNicPassport,
       customerNotes: params.customerNotes,
       depositAmount: params.depositAmount,
-      startTime: Date.now(),
+      startTime: params.customStartTime || Date.now(),
       status: 'active',
       rateSnapshot: { ...typeObj.rates },
       totalAmount: typeObj.rates.firstHour,
@@ -590,6 +620,7 @@ export default function App() {
         onLoginSuccess={(user) => {
           setCurrentUser(user);
           setIsFullLoginPage(false);
+          setSidebarCollapsed(true);
           setSettings((prev) => ({ ...prev, cashierName: user.name }));
           setActiveTab('rentals');
         }}
@@ -673,10 +704,113 @@ export default function App() {
               themeMode={themeMode}
               accent={accent}
               templates={messageTemplates}
+              customerGroups={customerGroups}
+              messageHistory={messageHistory}
               onAddCustomer={handleAddCustomer}
               onUpdateCustomer={handleUpdateCustomer}
               onDeleteCustomer={handleDeleteCustomer}
+              onSaveCustomerGroup={(group) => {
+                setCustomerGroups((prev) => {
+                  const exists = prev.findIndex((g) => g.id === group.id);
+                  const next = exists >= 0
+                    ? prev.map((g) => g.id === group.id ? group : g)
+                    : [group, ...prev];
+                  saveStoredCustomerGroups(next);
+                  return next;
+                });
+              }}
+              onDeleteCustomerGroup={(groupId) => {
+                setCustomerGroups((prev) => {
+                  const next = prev.filter((g) => g.id !== groupId);
+                  saveStoredCustomerGroups(next);
+                  return next;
+                });
+              }}
+              onAddMessageHistory={(entry) => {
+                setMessageHistory((prev) => {
+                  const next = [entry, ...prev].slice(0, 1000); // keep last 1000
+                  saveStoredMessageHistory(next);
+                  return next;
+                });
+              }}
             />
+          )}
+
+          {/* Tab: Customer Messages & Bulk WhatsApp Campaigns */}
+          {activeTab === 'messages' && (
+            <div className="space-y-6">
+              {/* Header card with contrast from background page colour */}
+              <div className={`p-5 sm:p-6 rounded-2xl border ${t.divider} ${t.cardBg} shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
+                <div>
+                  <h2 className={`text-xl sm:text-2xl font-black ${t.textHeading} tracking-tight flex items-center gap-2.5`}>
+                    <MessageSquare className="w-6 h-6 text-emerald-500 dark:text-emerald-400" />
+                    <span>Customer Messages & Bulk Campaigns</span>
+                  </h2>
+                  <p className={`text-xs sm:text-sm ${t.textMuted} mt-1`}>
+                    Broadcast templates, customer segment filtering, automated notifications, and complete WhatsApp dispatch logs
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setIsMessagesGroupsModalOpen(true)}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 border transition cursor-pointer shadow-sm ${t.cardSubtleBg} ${t.border} ${t.textHeading} hover:border-cyan-500`}
+                  >
+                    <Tag className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
+                    <span>Manage Customer Groups ({customerGroups.length})</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Messaging Suite Component */}
+              <CustomerMessagingTab
+                customers={customers}
+                templates={messageTemplates}
+                customerGroups={customerGroups}
+                messageHistory={messageHistory}
+                currentUser={activeUser}
+                themeMode={themeMode}
+                accent={accent}
+                shopName={settings.businessName || 'Cycly Rent'}
+                onAddMessageHistory={(entry) => {
+                  setMessageHistory((prev) => {
+                    const next = [entry, ...prev].slice(0, 1000); // keep last 1000
+                    saveStoredMessageHistory(next);
+                    return next;
+                  });
+                }}
+              />
+
+              {/* Customer Groups Management Modal */}
+              {isMessagesGroupsModalOpen && (
+                <CustomerGroupsModal
+                  groups={customerGroups}
+                  customers={customers}
+                  currentUser={activeUser}
+                  themeMode={themeMode}
+                  accent={accent}
+                  onClose={() => setIsMessagesGroupsModalOpen(false)}
+                  onSaveGroup={(group) => {
+                    setCustomerGroups((prev) => {
+                      const exists = prev.findIndex((g) => g.id === group.id);
+                      const next = exists >= 0
+                        ? prev.map((g) => g.id === group.id ? group : g)
+                        : [group, ...prev];
+                      saveStoredCustomerGroups(next);
+                      return next;
+                    });
+                  }}
+                  onDeleteGroup={(groupId) => {
+                    setCustomerGroups((prev) => {
+                      const next = prev.filter((g) => g.id !== groupId);
+                      saveStoredCustomerGroups(next);
+                      return next;
+                    });
+                  }}
+                />
+              )}
+            </div>
           )}
 
           {/* Tab 3: History & Daily Settlement */}
@@ -763,6 +897,7 @@ export default function App() {
               activeRentals={activeRentals}
               allVehicles={vehicles}
               todayCompletedRentals={completedRentals}
+              messageHistory={messageHistory}
               settings={settings}
               currentUser={activeUser}
               themeMode={themeMode}
@@ -780,6 +915,7 @@ export default function App() {
         currentUser={activeUser}
         onUserChange={(u) => {
           setCurrentUser(u);
+          setSidebarCollapsed(true);
           setSettings((prev) => ({ ...prev, cashierName: u.name }));
         }}
         onOpenUserRoles={() => {

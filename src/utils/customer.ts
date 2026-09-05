@@ -1,4 +1,5 @@
-import { Customer, MessageTemplate, RentalRecord } from '../types';
+import React from 'react';
+import { Customer, CustomerGroup, CustomerStatus, MessageHistoryEntry, MessageTemplate, RentalRecord } from '../types';
 
 /**
  * Searches for customer by NIC/Passport number or partial query (name/phone/NIC)
@@ -238,6 +239,14 @@ export function cleanWhatsAppPhoneNumber(phoneStr?: string, defaultCountryCode: 
 
 export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
   {
+    id: 'tmpl-welcome-start',
+    title: 'Rental Started & Welcome',
+    category: 'welcome',
+    content: `🚴 *Welcome to {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has started at {start_time}.\n\nPlease wear your helmet and ride safely! If you need assistance or wish to extend your hire, contact us anytime.\n\nEnjoy your ride!\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
     id: 'tmpl-birthday-default',
     title: 'Birthday Celebration Wishes',
     category: 'birthday',
@@ -246,33 +255,81 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     updatedAt: Date.now(),
   },
   {
-    id: 'tmpl-rental-start',
-    title: 'Rental Started & Welcome',
-    category: 'rental',
-    content: `🚴 *Welcome to {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has started.\n\nPlease wear your helmet and ride safely! If you need assistance or wish to extend your hire, contact us anytime.\n\nEnjoy your ride!\n*{shop_name}*`,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  },
-  {
-    id: 'tmpl-rental-thanks',
-    title: 'Return Completed & Thank You',
-    category: 'rental',
-    content: `🙏 *Thank you for riding with {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} has been settled successfully.\n\nWe hope you enjoyed exploring the sights of Mannar! We look forward to seeing you again soon. 🌿🚲\n\nBest regards,\n*{shop_name}*`,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  },
-  {
     id: 'tmpl-weekend-promo',
-    title: 'Weekend Promo & Discount',
-    category: 'marketing',
-    content: `🌟 *Special Weekend Ride at {shop_name}!* \n\nHello {customer_name}, enjoy our sunny coastlines with a special weekend discount on all bike hires! \n\nVisit us today or reply to reserve your ride.\n*{shop_name}*`,
+    title: 'Special Promotion / Discount',
+    category: 'promotion',
+    content: `🌟 *Special Promotion at {shop_name}!* \n\nHello {customer_name}, enjoy our sunny coastlines with a special weekend discount on all bike hires! \n\nVisit us today or reply to reserve your ride.\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-rental-reminder',
+    title: 'Active Rental Reminder',
+    category: 'rental_reminder',
+    content: `⏰ *Rental Reminder - {shop_name}*\n\nHello {customer_name}, your active hire for *{vehicle_name}* (#{rental_number}) is ongoing. If you'd like to extend your rental or have questions, please reach out to us here!\n\nRide safely,\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-return-thanks',
+    title: 'Return Completed & Thank You',
+    category: 'return_reminder',
+    content: `🙏 *Thank you for riding with {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has been settled successfully.\n• Duration: {duration}\n• Amount: {amount}\n\nWe hope you enjoyed exploring the sights of Mannar! We look forward to seeing you again soon. 🌿🚲\n\nBest regards,\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-payment-reminder',
+    title: 'Payment & Invoice Reminder',
+    category: 'payment_reminder',
+    content: `💳 *Payment Reminder - {shop_name}*\n\nHello {customer_name}, this is a gentle reminder regarding the outstanding balance of {amount} on rental #{rental_number}. Please visit our counter or reply here for direct payment.\n\nThank you,\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-fitness-promo',
+    title: 'Fitness & Health Ride Promotion',
+    category: 'fitness_promo',
+    content: `💪 *Stay Active & Fit with {shop_name}!* \n\nHello {customer_name}! Start your mornings with invigorating cycling along Mannar's coastal trails. Ask about our weekly fitness passes for exclusive member perks!\n\nSee you on the road,\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-tourist-promo',
+    title: 'Tourist & Explorer Package',
+    category: 'tourist_promo',
+    content: `🗺️ *Explore Mannar Island by Bicycle!*\n\nWelcome {customer_name}! Uncover hidden beaches, the historic Baobab tree, and migratory bird sites at your own pace with our premium explorer bikes.\n\nBook your island tour today!\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-thank-you',
+    title: 'Customer Appreciation & Thank You',
+    category: 'thank_you',
+    content: `✨ *Thank You from {shop_name}!* \n\nDear {customer_name}, thank you for choosing us for your travels. Your support means the world to our local team. We hope to see you again soon!\n\nWarmest regards,\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-special-offer',
+    title: 'VIP Special Offer',
+    category: 'special_offer',
+    content: `🎁 *Exclusive VIP Offer - {shop_name}*\n\nDear {customer_name}, as a valued member of our {shop_name} community, enjoy complimentary gear and 25% off on your next full-day rental!\n\nShow this message at the counter.\n*{shop_name}*`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'tmpl-holiday-greeting',
+    title: 'Festive Holiday Greeting',
+    category: 'holiday_greeting',
+    content: `🎄🎉 *Warm Holiday Greetings from {shop_name}!* \n\nWishing you and your loved ones a season filled with peace, joy, and memorable adventures. Happy Holidays from our entire team! 🚴‍♂️✨`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
   {
     id: 'tmpl-general-reminder',
-    title: 'General Notification / Reminder',
-    category: 'reminder',
+    title: 'General Notification',
+    category: 'general',
     content: `🔔 *Notification from {shop_name}*\n\nHello {customer_name}, here is an update regarding your rental account. For any questions, please reply directly to this message.\n\nThank you,\n*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -302,4 +359,148 @@ export function saveStoredMessageTemplates(templates: MessageTemplate[]): void {
     console.error('Error saving message templates:', err);
   }
 }
+
+// --- CUSTOMER GROUPS UTILITIES ---
+
+export const DEFAULT_CUSTOMER_GROUPS: CustomerGroup[] = [
+  { id: 'grp-vip', name: 'VIP', color: 'amber', description: 'Priority clients and high-value frequent riders', isActive: true, createdAt: 1700000000000 },
+  { id: 'grp-tourist', name: 'Tourist', color: 'emerald', description: 'International and out-of-town visitors', isActive: true, createdAt: 1700000000000 },
+  { id: 'grp-hotel', name: 'Hotel Guest', color: 'teal', description: 'Guests staying at partner resorts and hotels', isActive: true, createdAt: 1700000000000 },
+  { id: 'grp-regular', name: 'Regular Customer', color: 'purple', description: 'Consistent weekly and monthly renters', isActive: true, createdAt: 1700000000000 },
+  { id: 'grp-new', name: 'New Customer', color: 'cyan', description: 'First-time riders registered this season', isActive: true, createdAt: 1700000000000 },
+  { id: 'grp-student', name: 'Student', color: 'blue', description: 'Local school and university students with discounts', isActive: true, createdAt: 1700000000000 },
+  { id: 'grp-corporate', name: 'Corporate', color: 'indigo', description: 'Business clients and corporate retreat participants', isActive: true, createdAt: 1700000000000 },
+  { id: 'grp-fitness', name: 'Fitness Member', color: 'rose', description: 'Morning cycling and endurance training members', isActive: true, createdAt: 1700000000000 },
+  { id: 'grp-staff', name: 'Staff', color: 'pink', description: 'Internal team, guides, and store personnel', isActive: true, createdAt: 1700000000000 },
+  { id: 'grp-other', name: 'Other', color: 'slate', description: 'General and unclassified customer group', isActive: true, createdAt: 1700000000000 },
+];
+
+const CUSTOMER_GROUPS_STORAGE_KEY = 'v_rental_customer_groups';
+
+export function getStoredCustomerGroups(): CustomerGroup[] {
+  try {
+    const raw = localStorage.getItem(CUSTOMER_GROUPS_STORAGE_KEY);
+    if (!raw) return DEFAULT_CUSTOMER_GROUPS;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch (err) {
+    console.error('Error reading stored customer groups:', err);
+  }
+  return DEFAULT_CUSTOMER_GROUPS;
+}
+
+export function saveStoredCustomerGroups(groups: CustomerGroup[]): void {
+  try {
+    localStorage.setItem(CUSTOMER_GROUPS_STORAGE_KEY, JSON.stringify(groups));
+  } catch (err) {
+    console.error('Error saving customer groups:', err);
+  }
+}
+
+// --- CUSTOMER STATUS & RESTRICTION UTILITIES ---
+
+export function isCustomerSuspendedOrBlocked(customer?: Customer | null): boolean {
+  if (!customer || !customer.status) return false;
+  return customer.status === 'suspended' || customer.status === 'blocked';
+}
+
+export function getCustomerStatusInfo(status?: CustomerStatus): {
+  label: string;
+  badgeClass: string;
+  isRestricted: boolean;
+  borderClass: string;
+} {
+  switch (status) {
+    case 'suspended':
+      return {
+        label: 'Suspended',
+        badgeClass: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+        isRestricted: true,
+        borderClass: 'border-amber-500/40',
+      };
+    case 'blocked':
+      return {
+        label: 'Blocked',
+        badgeClass: 'bg-rose-500/15 text-rose-400 border-rose-500/30 font-black',
+        isRestricted: true,
+        borderClass: 'border-rose-500/50',
+      };
+    case 'inactive':
+      return {
+        label: 'Inactive',
+        badgeClass: 'bg-slate-500/15 text-slate-400 border-slate-500/30',
+        isRestricted: false,
+        borderClass: 'border-slate-500/30',
+      };
+    case 'pending_verification':
+      return {
+        label: 'Pending Verification',
+        badgeClass: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+        isRestricted: false,
+        borderClass: 'border-cyan-500/30',
+      };
+    case 'active':
+    default:
+      return {
+        label: 'Active',
+        badgeClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+        isRestricted: false,
+        borderClass: 'border-emerald-500/30',
+      };
+  }
+}
+
+export function getCustomerStatusBadge(status?: CustomerStatus): React.ReactNode {
+  const info = getCustomerStatusInfo(status);
+  return React.createElement(
+    'span',
+    {
+      className: `inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${info.badgeClass}`,
+    },
+    info.label
+  );
+}
+
+// --- MESSAGE HISTORY AUDIT LOG UTILITIES ---
+
+const MESSAGE_HISTORY_STORAGE_KEY = 'v_rental_message_history';
+
+export function getStoredMessageHistory(): MessageHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(MESSAGE_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch (err) {
+    console.error('Error reading stored message history:', err);
+  }
+  return [];
+}
+
+export function saveStoredMessageHistory(entries: MessageHistoryEntry[]): void {
+  try {
+    localStorage.setItem(MESSAGE_HISTORY_STORAGE_KEY, JSON.stringify(entries));
+  } catch (err) {
+    console.error('Error saving message history:', err);
+  }
+}
+
+export function addMessageHistoryEntry(
+  entry: Omit<MessageHistoryEntry, 'id' | 'sentAt'>
+): MessageHistoryEntry {
+  const current = getStoredMessageHistory();
+  const newEntry: MessageHistoryEntry = {
+    ...entry,
+    id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    sentAt: Date.now(),
+  };
+  const updated = [newEntry, ...current].slice(0, 500); // retain last 500 records
+  saveStoredMessageHistory(updated);
+  return newEntry;
+}
+
 

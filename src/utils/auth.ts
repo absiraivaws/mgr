@@ -26,6 +26,7 @@ export interface RolePermissionSet {
   accessRentals: boolean;    // "Rental Desk"
   accessHistory: boolean;    // "History"
   accessCustomers?: boolean; // "Customers"
+  accessMessages?: boolean;  // "Messages"
   accessUsers: boolean;      // "Users & Role"
   accessSettings: boolean;   // "Rates & Inventory"
   accessIncome?: boolean;    // "Income & Expenses"
@@ -76,6 +77,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       accessRentals: true,
       accessHistory: true,
       accessCustomers: true,
+      accessMessages: true,
       accessUsers: true,
       accessSettings: true,
       accessIncome: true,
@@ -99,6 +101,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       accessRentals: true,
       accessHistory: true,
       accessCustomers: true,
+      accessMessages: true,
       accessUsers: false,
       accessSettings: true,
       accessIncome: true,
@@ -122,6 +125,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       accessRentals: true,
       accessHistory: true,
       accessCustomers: true,
+      accessMessages: true,
       accessUsers: false,
       accessSettings: false,
       accessIncome: false,
@@ -162,6 +166,7 @@ export function getStoredRoles(): RoleDefinition[] {
           accessRentals: role.permissions?.accessRentals ?? (defaultMatch ? defaultMatch.permissions.accessRentals : true),
           accessHistory: role.permissions?.accessHistory ?? (defaultMatch ? defaultMatch.permissions.accessHistory : true),
           accessCustomers: role.permissions?.accessCustomers ?? (defaultMatch?.permissions?.accessCustomers ?? true),
+          accessMessages: role.permissions?.accessMessages ?? (defaultMatch?.permissions?.accessMessages ?? true),
           accessUsers: role.permissions?.accessUsers ?? (defaultMatch ? defaultMatch.permissions.accessUsers : false),
           accessSettings: role.permissions?.accessSettings ?? (defaultMatch ? defaultMatch.permissions.accessSettings : false),
           accessIncome: role.permissions?.accessIncome ?? (defaultMatch?.permissions?.accessIncome ?? false),
@@ -211,6 +216,7 @@ export function updateRolePermissions(
     updatedPerms.accessRentals = true;
     updatedPerms.accessHistory = true;
     updatedPerms.accessCustomers = true;
+    updatedPerms.accessMessages = true;
     updatedPerms.accessUsers = true;
     updatedPerms.accessSettings = true;
     updatedPerms.accessIncome = true;
@@ -234,6 +240,7 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
       accessRentals: true,
       accessHistory: false,
       accessCustomers: true,
+      accessMessages: true,
       accessUsers: false,
       accessSettings: false,
       accessIncome: false,
@@ -253,6 +260,7 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
       accessRentals: true,
       accessHistory: true,
       accessCustomers: true,
+      accessMessages: true,
       accessUsers: true,
       accessSettings: true,
       accessIncome: true,
@@ -278,6 +286,7 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
     accessRentals: true,
     accessHistory: true,
     accessCustomers: true,
+    accessMessages: true,
     accessUsers: false,
     accessSettings: false,
     accessIncome: false,
@@ -319,6 +328,7 @@ export function createCustomRole(params: {
       accessRentals: params.permissions?.accessRentals ?? true,
       accessHistory: params.permissions?.accessHistory ?? true,
       accessCustomers: params.permissions?.accessCustomers ?? true,
+      accessMessages: params.permissions?.accessMessages ?? true,
       accessUsers: params.permissions?.accessUsers ?? false,
       accessSettings: params.permissions?.accessSettings ?? false,
       accessIncome: params.permissions?.accessIncome ?? false,

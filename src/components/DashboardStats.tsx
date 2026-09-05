@@ -20,9 +20,14 @@ import {
   Activity,
   Zap,
   BarChart3,
-  LineChart as LineChartIcon
+  LineChart as LineChartIcon,
+  MessageSquare,
+  Send,
+  CheckCircle2,
+  XCircle,
+  Cake
 } from 'lucide-react';
-import { AppSettings, RentalRecord, Vehicle } from '../types';
+import { AppSettings, MessageHistoryEntry, RentalRecord, Vehicle } from '../types';
 import { formatCurrency } from '../utils/pricing';
 import { DEFAULT_USER, UserAccount } from '../utils/auth';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
@@ -31,6 +36,7 @@ interface DashboardStatsProps {
   activeRentals: RentalRecord[];
   allVehicles: Vehicle[];
   todayCompletedRentals: RentalRecord[];
+  messageHistory?: MessageHistoryEntry[];
   settings: AppSettings;
   currentUser?: UserAccount;
   themeMode: ThemeMode;
@@ -41,6 +47,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
   activeRentals,
   allVehicles,
   todayCompletedRentals,
+  messageHistory = [],
   settings,
   currentUser,
   themeMode,
@@ -78,6 +85,23 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
   const availableVehiclesCount = allVehicles.filter(v => v.status === 'available').length;
   const totalVehiclesCount = allVehicles.length;
   const completedTodayCount = todayOnlyRentals.length;
+
+  // Today's messaging summary
+  const todayMsgStats = useMemo(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayStartMs = todayStart.getTime();
+    const todayMsgs = messageHistory.filter((m) => m.sentAt >= todayStartMs);
+    return {
+      total: todayMsgs.length,
+      sent: todayMsgs.filter((m) => m.status === 'sent' || m.status === 'delivered' || m.status === 'read').length,
+      delivered: todayMsgs.filter((m) => m.status === 'delivered' || m.status === 'read').length,
+      failed: todayMsgs.filter((m) => m.status === 'failed').length,
+      pending: todayMsgs.filter((m) => m.status === 'queued' || m.status === 'sending' || m.status === 'scheduled').length,
+      birthday: todayMsgs.filter((m) => m.messageType === 'birthday').length,
+      bulkCampaigns: new Set(todayMsgs.filter((m) => m.messageType === 'bulk' && m.campaignName).map((m) => m.campaignName)).size,
+    };
+  }, [messageHistory]);
 
   // Rental status distribution
   const statusCounts = {
@@ -665,6 +689,86 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
               <Bike className="w-5 h-5 text-purple-400" />
             </div>
           </div>
+        </div>
+
+        {/* Today's Messaging Summary Widget */}
+        <div className={`p-5 rounded-2xl border shadow-sm ${t.cardSubtleBg} ${t.divider}`}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-violet-600 to-fuchsia-500 text-white flex items-center justify-center shadow-md">
+                <MessageSquare className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className={`text-sm font-bold ${t.textHeading}`}>Today's Messaging Summary</h3>
+                <p className={`text-xs ${t.textMuted}`}>WhatsApp messages dispatched today</p>
+              </div>
+            </div>
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30`}>
+              {todayMsgStats.total} Total
+            </span>
+          </div>
+
+          {todayMsgStats.total === 0 ? (
+            <p className={`text-sm ${t.textMuted} text-center py-4`}>
+              No messages dispatched yet today
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {/* Sent */}
+              <div className={`p-3 rounded-xl border-l-4 border-emerald-500 ${themeMode === 'dark' ? 'bg-emerald-500/10' : 'bg-emerald-50'}`}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Send className="w-3.5 h-3.5 text-emerald-500" />
+                  <span className={`text-[11px] font-bold uppercase tracking-wide ${t.textMuted}`}>Sent</span>
+                </div>
+                <p className="text-2xl font-extrabold font-mono text-emerald-500">{todayMsgStats.sent}</p>
+              </div>
+
+              {/* Delivered */}
+              <div className={`p-3 rounded-xl border-l-4 border-teal-500 ${themeMode === 'dark' ? 'bg-teal-500/10' : 'bg-teal-50'}`}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-500" />
+                  <span className={`text-[11px] font-bold uppercase tracking-wide ${t.textMuted}`}>Delivered</span>
+                </div>
+                <p className="text-2xl font-extrabold font-mono text-teal-500">{todayMsgStats.delivered}</p>
+              </div>
+
+              {/* Failed */}
+              <div className={`p-3 rounded-xl border-l-4 border-rose-500 ${themeMode === 'dark' ? 'bg-rose-500/10' : 'bg-rose-50'}`}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <XCircle className="w-3.5 h-3.5 text-rose-500" />
+                  <span className={`text-[11px] font-bold uppercase tracking-wide ${t.textMuted}`}>Failed</span>
+                </div>
+                <p className="text-2xl font-extrabold font-mono text-rose-500">{todayMsgStats.failed}</p>
+              </div>
+
+              {/* Pending / Queued */}
+              <div className={`p-3 rounded-xl border-l-4 border-amber-500 ${themeMode === 'dark' ? 'bg-amber-500/10' : 'bg-amber-50'}`}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Clock className="w-3.5 h-3.5 text-amber-500" />
+                  <span className={`text-[11px] font-bold uppercase tracking-wide ${t.textMuted}`}>Pending</span>
+                </div>
+                <p className="text-2xl font-extrabold font-mono text-amber-500">{todayMsgStats.pending}</p>
+              </div>
+
+              {/* Birthday Wishes */}
+              <div className={`p-3 rounded-xl border-l-4 border-pink-500 ${themeMode === 'dark' ? 'bg-pink-500/10' : 'bg-pink-50'}`}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Cake className="w-3.5 h-3.5 text-pink-500" />
+                  <span className={`text-[11px] font-bold uppercase tracking-wide ${t.textMuted}`}>Birthdays</span>
+                </div>
+                <p className="text-2xl font-extrabold font-mono text-pink-500">{todayMsgStats.birthday}</p>
+              </div>
+
+              {/* Active Bulk Campaigns */}
+              <div className={`p-3 rounded-xl border-l-4 border-violet-500 ${themeMode === 'dark' ? 'bg-violet-500/10' : 'bg-violet-50'}`}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Users className="w-3.5 h-3.5 text-violet-500" />
+                  <span className={`text-[11px] font-bold uppercase tracking-wide ${t.textMuted}`}>Campaigns</span>
+                </div>
+                <p className="text-2xl font-extrabold font-mono text-violet-500">{todayMsgStats.bulkCampaigns}</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Pending Rentals Section */}

@@ -86,6 +86,17 @@ export interface AppSettings {
   autoLogoutMinutes?: number; // Inactivity timeout in minutes (e.g. 5, 15, 30, 60, 0 for never)
 }
 
+export type CustomerStatus = 'active' | 'suspended' | 'blocked' | 'inactive' | 'pending_verification';
+
+export interface CustomerGroup {
+  id: string;
+  name: string;
+  color: string;
+  description?: string;
+  isActive: boolean;
+  createdAt: number;
+}
+
 export interface Customer {
   id: string;
   nicPassport: string;
@@ -96,6 +107,10 @@ export interface Customer {
   whatsappNumber?: string;
   phone?: string;             // Mobile Number
   notes?: string;
+  status?: CustomerStatus;    // Customer status (defaults to 'active')
+  statusRemark?: string;      // Mandatory when status is 'suspended' or 'blocked'
+  statusUpdatedAt?: number;
+  groups?: string[];          // Assigned customer group IDs or names
   createdAt?: number;
   lastRentalDate?: number;
   totalRentalsCount?: number;
@@ -113,7 +128,23 @@ export interface IncomeEntry {
   who?: string;           // Person responsible: Mark, Jenis, Beni, etc.
 }
 
-export type MessageTemplateCategory = 'birthday' | 'rental' | 'reminder' | 'marketing' | 'general';
+export type MessageTemplateCategory = 
+  | 'welcome'
+  | 'birthday'
+  | 'promotion'
+  | 'rental_reminder'
+  | 'return_reminder'
+  | 'payment_reminder'
+  | 'fitness_promo'
+  | 'tourist_promo'
+  | 'thank_you'
+  | 'special_offer'
+  | 'holiday_greeting'
+  | 'general'
+  // Legacy aliases
+  | 'rental'
+  | 'reminder'
+  | 'marketing';
 
 export interface MessageTemplate {
   id: string;
@@ -123,3 +154,61 @@ export interface MessageTemplate {
   createdAt?: number;
   updatedAt?: number;
 }
+
+export type MessageHistoryStatus = 
+  | 'scheduled'
+  | 'queued'
+  | 'sending'
+  | 'sent'
+  | 'delivered'
+  | 'read'
+  | 'failed'
+  | 'paused'
+  | 'cancelled';
+
+export interface MessageHistoryEntry {
+  id: string;
+  customerId: string;
+  customerNic?: string;
+  customerName: string;
+  mobileNumber: string;
+  messageTemplateId?: string;
+  templateTitle?: string;
+  actualMessage: string;
+  messageType: 'single' | 'bulk' | 'automated_start' | 'automated_stop' | 'birthday' | 'scheduled';
+  sentAt: number;
+  sentBy: string;
+  campaignName?: string;
+  status: MessageHistoryStatus;
+  deliveryStatus?: string;
+  failureReason?: string;
+}
+
+export interface BulkSendingConfig {
+  messagesPerBatch?: number;         // e.g. 5, 10, 20, Custom
+  delayBetweenMessagesSec?: number;  // e.g. 5, 10, 30, 60, Custom
+  restTimeBetweenBatchesMin?: number;// e.g. 1, 2, 5, 10, Custom
+  batchSize: number;
+  delaySeconds: number;
+  restMinutes: number;
+}
+
+export interface BulkCampaignState {
+  campaignId: string;
+  campaignName: string;
+  templateTitle: string;
+  totalRecipients: number;
+  selectedCount: number;
+  sentCount: number;
+  deliveredCount: number;
+  failedCount: number;
+  pendingCount: number;
+  currentBatch: number;
+  totalBatches: number;
+  status: MessageHistoryStatus;
+  nextBatchRestSecondsRemaining: number;
+  interMessageCountdownSec: number;
+  startedAt: number;
+  lastUpdated: number;
+}
+

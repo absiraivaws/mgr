@@ -1,5 +1,5 @@
 import { getSupabase } from './supabase';
-import { AppSettings, Customer, RentalRecord, Vehicle, VehicleType } from '../types';
+import { AppSettings, Customer, CustomerGroup, CustomerStatus, MessageHistoryEntry, MessageTemplate, RentalRecord, Vehicle, VehicleType } from '../types';
 import { RoleDefinition, UserAccount } from '../utils/auth';
 
 /**
@@ -14,12 +14,13 @@ export async function fetchSupabaseData(): Promise<{
   settings?: AppSettings;
   userAccounts?: UserAccount[];
   roles?: RoleDefinition[];
+  customerGroups?: CustomerGroup[];
 } | null> {
   const supabase = getSupabase();
   if (!supabase) return null;
 
   try {
-    const [typesRes, vehiclesRes, customersRes, rentalsRes, settingsRes, usersRes, rolesRes] = await Promise.all([
+    const [typesRes, vehiclesRes, customersRes, rentalsRes, settingsRes, usersRes, rolesRes, groupsRes] = await Promise.all([
       supabase.from('vehicle_types').select('*'),
       supabase.from('vehicles').select('*'),
       supabase.from('customers').select('*'),
@@ -27,6 +28,7 @@ export async function fetchSupabaseData(): Promise<{
       supabase.from('app_settings').select('*').limit(1),
       supabase.from('user_accounts').select('*'),
       supabase.from('user_roles').select('*'),
+      supabase.from('customer_groups').select('*'),
     ]);
 
     if (rentalsRes.error) {
@@ -42,6 +44,7 @@ export async function fetchSupabaseData(): Promise<{
       settings?: AppSettings;
       userAccounts?: UserAccount[];
       roles?: RoleDefinition[];
+      customerGroups?: CustomerGroup[];
     } = {};
 
     if (typesRes.data && typesRes.data.length > 0) {
@@ -78,6 +81,9 @@ export async function fetchSupabaseData(): Promise<{
         whatsappNumber: row.whatsapp_number || row.phone || '',
         address: row.address || '',
         dob: row.dob || '',
+        status: (row.status as CustomerStatus) || 'active',
+        statusRemark: row.status_remark || undefined,
+        groups: Array.isArray(row.groups) ? row.groups : [],
         notes: row.notes || '',
         totalRentalsCount: row.total_rentals_count ?? 0,
         lastRentalDate: row.last_rental_date ? Number(row.last_rental_date) : undefined,
@@ -170,6 +176,17 @@ export async function fetchSupabaseData(): Promise<{
       }));
     }
 
+    if (groupsRes && groupsRes.data && groupsRes.data.length > 0) {
+      result.customerGroups = groupsRes.data.map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        color: row.color || 'emerald',
+        description: row.description || '',
+        isActive: row.is_active ?? true,
+        createdAt: row.created_at ? Number(row.created_at) : Date.now(),
+      }));
+    }
+
     return result;
   } catch (err) {
     console.warn('Supabase fetch error (fallback to local state):', err);
@@ -255,6 +272,9 @@ export async function syncCustomerToSupabase(customer: Customer) {
       whatsapp_number: customer.whatsappNumber || customer.phone || '',
       address: customer.address || '',
       dob: customer.dob || '',
+      status: customer.status || 'active',
+      status_remark: customer.statusRemark || null,
+      groups: customer.groups || [],
       notes: customer.notes || null,
       total_rentals_count: customer.totalRentalsCount ?? 0,
       last_rental_date: customer.lastRentalDate || null,
@@ -916,5 +936,122 @@ export async function syncAllMessageTemplatesToSupabase(templates: import('../ty
     await supabase.from('message_templates').upsert(payload, { onConflict: 'id' });
   } catch (err) {
     console.error('Failed to batch sync message templates to Supabase:', err);
+  }
+}
+
+/**
+ * Customer Groups sync functions
+ */
+export async function fetchCustomerGroupsFromSupabase(): Promise<CustomerGroup[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase.from('customer_groups').select('*').order('name');
+    if (error || !data) return null;
+
+    return data.map((row) => ({
+      id: row.id,
+      name: row.name,
+      color: row.color || 'emerald',
+      description: row.description || '',
+      isActive: row.is_active ?? true,
+      createdAt: row.created_at ? Number(row.created_at) : Date.now(),
+    }));
+  } catch (err) {
+    console.warn('Failed to fetch customer groups from Supabase:', err);
+    return null;
+  }
+}
+
+export async function syncCustomerGroupToSupabase(group: CustomerGroup) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    const payload = {
+      id: group.id,
+      name: group.name,
+      color: group.color,
+      description: group.description || null,
+      is_active: group.isActive,
+      created_at: group.createdAt || Date.now(),
+    };
+
+    await supabase.from('customer_groups').upsert(payload, { onConflict: 'id' });
+  } catch (err) {
+    console.error('Failed to sync customer group to Supabase:', err);
+  }
+}
+
+export async function deleteCustomerGroupFromSupabase(id: string) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    await supabase.from('customer_groups').delete().eq('id', id);
+  } catch (err) {
+    console.error('Failed to delete customer group from Supabase:', err);
+  }
+}
+
+/**
+ * Message History sync functions
+ */
+export async function fetchMessageHistoryFromSupabase(): Promise<MessageHistoryEntry[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase.from('message_history').select('*').order('sent_at', { ascending: false }).limit(200);
+    if (error || !data) return null;
+
+    return data.map((row) => ({
+      id: row.id,
+      customerId: row.customer_id || '',
+      customerName: row.customer_name,
+      mobileNumber: row.mobile_number,
+      messageTemplateId: row.message_template_id || undefined,
+      templateTitle: row.template_title || undefined,
+      actualMessage: row.actual_message,
+      messageType: row.message_type as any,
+      sentAt: Number(row.sent_at),
+      sentBy: row.sent_by,
+      campaignName: row.campaign_name || undefined,
+      status: row.status as any,
+      deliveryStatus: row.delivery_status || undefined,
+      failureReason: row.failure_reason || undefined,
+    }));
+  } catch (err) {
+    console.warn('Failed to fetch message history from Supabase:', err);
+    return null;
+  }
+}
+
+export async function syncMessageHistoryEntryToSupabase(entry: MessageHistoryEntry) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    const payload = {
+      id: entry.id,
+      customer_id: entry.customerId || null,
+      customer_name: entry.customerName,
+      mobile_number: entry.mobileNumber,
+      message_template_id: entry.messageTemplateId || null,
+      template_title: entry.templateTitle || null,
+      actual_message: entry.actualMessage,
+      message_type: entry.messageType,
+      sent_at: entry.sentAt,
+      sent_by: entry.sentBy,
+      campaign_name: entry.campaignName || null,
+      status: entry.status,
+      delivery_status: entry.deliveryStatus || null,
+      failure_reason: entry.failureReason || null,
+    };
+
+    await supabase.from('message_history').upsert(payload, { onConflict: 'id' });
+  } catch (err) {
+    console.error('Failed to sync message history entry to Supabase:', err);
   }
 }

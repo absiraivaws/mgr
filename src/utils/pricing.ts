@@ -151,3 +151,39 @@ export function playSoundEffect(type: 'start' | 'stop' | 'click' | 'alert') {
     // Ignore audio error if user hasn't interacted yet
   }
 }
+
+/**
+ * Computes the next rental number monotonically by inspecting all existing rental numbers.
+ * Finds the highest integer suffix among all active & completed rentals.
+ * Automatically sanitizes any legacy 'REN-156' (which was meant to be REN-101).
+ * Starts at 101 if no rentals exist.
+ */
+export function getNextRentalNumber(
+  activeRentals: { rentalNumber?: string }[] = [],
+  completedRentals: { rentalNumber?: string }[] = [],
+  prefix: string = 'REN'
+): string {
+  const all = [...(activeRentals || []), ...(completedRentals || [])];
+  let maxNum = 100;
+
+  for (const r of all) {
+    if (!r || !r.rentalNumber) continue;
+    let rn = String(r.rentalNumber).trim();
+    // Sanitize any legacy REN-156
+    if (rn === 'REN-156' || rn === '156') {
+      rn = 'REN-101';
+    }
+
+    const matches = rn.match(/\d+/g);
+    if (matches && matches.length > 0) {
+      const lastDigits = matches[matches.length - 1];
+      const n = parseInt(lastDigits, 10);
+      if (!isNaN(n) && n < 100000 && n > maxNum) {
+        maxNum = n;
+      }
+    }
+  }
+
+  const cleanPrefix = (prefix || 'REN').trim();
+  return `${cleanPrefix}-${maxNum + 1}`;
+}

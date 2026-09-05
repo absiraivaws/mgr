@@ -23,12 +23,13 @@ import {
   Sparkles,
   ChevronUp,
   Users,
+  MessageSquare,
 } from 'lucide-react';
 import { AppSettings, RentalRecord, Vehicle } from '../types';
 import { DEFAULT_USER, UserAccount, getUserPermissions } from '../utils/auth';
 import { ACCENT_COLORS, AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 
-export type NavTabType = 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers';
+export type NavTabType = 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers' | 'messages';
 
 interface NavbarProps {
   activeTab: NavTabType;
@@ -152,6 +153,14 @@ export const Navbar: React.FC<NavbarProps> = ({
       activeClass: 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40',
     },
     {
+      id: 'messages' as const,
+      label: 'Messages',
+      icon: <MessageSquare className="w-4 h-4 shrink-0" />,
+      show: userPerms.accessMessages ?? (userPerms.accessCustomers ?? (userPerms.accessRentals || isAdmin)),
+      badge: null as number | null,
+      activeClass: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
+    },
+    {
       id: 'history' as const,
       label: 'History',
       icon: <History className="w-4 h-4 shrink-0" />,
@@ -197,8 +206,19 @@ export const Navbar: React.FC<NavbarProps> = ({
         className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-6 border-b transition-colors ${t.headerBg}`}
         style={{ height: '4rem' }}
       >
-        {/* Left: Logo */}
-        <div className="flex items-center gap-3">
+        {/* Left: Menu Toggle + Logo */}
+        <div className="flex items-center gap-2.5">
+          <button
+            id="btn-navbar-menu-toggle"
+            type="button"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className={`p-2 rounded-xl border text-xs transition cursor-pointer ${t.inactiveTab} hover:scale-105`}
+            title={sidebarCollapsed ? 'Expand side menu' : 'Collapse side menu'}
+            aria-label={sidebarCollapsed ? 'Expand side menu' : 'Collapse side menu'}
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+
           <div className="flex items-center gap-2.5">
             {settings.companyLogo ? (
               <img
@@ -359,13 +379,18 @@ export const Navbar: React.FC<NavbarProps> = ({
         style={{ top: '4rem', width: sidebarW }}
       >
         {/* Sidebar header */}
-        <div className={`flex items-center justify-center px-3 py-2.5 border-b shrink-0 ${t.divider}`}>
+        <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'} px-3 py-2.5 border-b shrink-0 ${t.divider}`}>
+          {!sidebarCollapsed && (
+            <span className={`text-[11px] font-bold uppercase tracking-wider ${t.textMuted}`}>
+              Menu
+            </span>
+          )}
           <button
             id="btn-sidebar-toggle"
             type="button"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className={`p-1.5 rounded-lg transition cursor-pointer ${inactiveItemClass}`}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={`p-1.5 rounded-lg transition cursor-pointer ${inactiveItemClass} hover:scale-105`}
+            title={sidebarCollapsed ? 'Expand side menu' : 'Collapse side menu'}
           >
             <Menu className="w-4 h-4" />
           </button>

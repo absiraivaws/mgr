@@ -16,7 +16,10 @@ import {
   User,
   Phone,
   IdCard,
-  Sparkles
+  Sparkles,
+  AlertCircle,
+  Edit3,
+  Check
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { AppSettings, PricingBreakdown, RentalRecord } from '../types';
@@ -29,6 +32,7 @@ import {
   formatTime, 
   playSoundEffect 
 } from '../utils/pricing';
+import { cleanWhatsAppPhoneNumber } from '../utils/customer';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 
 interface StopRentalModalProps {
@@ -40,6 +44,23 @@ interface StopRentalModalProps {
   onConfirmStopAndSettle: (completedRecord: RentalRecord) => void;
 }
 
+// Helper to format a timestamp into local YYYY-MM-DDTHH:mm for datetime-local inputs
+function toDateTimeLocalString(timestamp: number): string {
+  const d = new Date(timestamp);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const mins = pad(d.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${mins}`;
+}
+
+function parseDateTimeLocal(str: string): number {
+  const t = new Date(str).getTime();
+  return isNaN(t) ? Date.now() : t;
+}
+
 export const StopRentalModal: React.FC<StopRentalModalProps> = ({
   rental,
   settings,
@@ -48,23 +69,93 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
   onClose,
   onConfirmStopAndSettle,
 }) => {
-  const [stopTimestamp] = useState<number>(Date.now());
+  // Effective start and stop timestamps (saved to record)
+  const [effectiveStartTime, setEffectiveStartTime] = useState<number>(rental.startTime);
+  const [effectiveStopTime, setEffectiveStopTime] = useState<number>(Date.now());
+
+  // Custom time adjustment state
+  const [isCustomTimeOpen, setIsCustomTimeOpen] = useState<boolean>(false);
+  const [customStartInput, setCustomStartInput] = useState<string>(() => toDateTimeLocalString(rental.startTime));
+  const [customStopInput, setCustomStopInput] = useState<string>(() => toDateTimeLocalString(Date.now()));
+  const [timeError, setTimeError] = useState<string | null>(null);
+  const [timeSuccessMsg, setTimeSuccessMsg] = useState<string | null>(null);
+
   const [breakdown, setBreakdown] = useState<PricingBreakdown>(() =>
-    calculateRentalBreakdown(rental.startTime, stopTimestamp, rental.rateSnapshot)
+    calculateRentalBreakdown(rental.startTime, Date.now(), rental.rateSnapshot)
   );
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'qr_transfer'>('cash');
   const [amountReceivedInput, setAmountReceivedInput] = useState<string>('');
   const [damageAmountInput, setDamageAmountInput] = useState<string>('');
   const [discountInput, setDiscountInput] = useState<string>('');
+  const [sendThankYouWhatsApp, setSendThankYouWhatsApp] = useState<boolean>(true);
 
   const t = getThemeClasses(themeMode, accent);
 
+  // Initialize breakdown on mount
   useEffect(() => {
-    // Recalculate based on fixed stopTimestamp
-    const res = calculateRentalBreakdown(rental.startTime, stopTimestamp, rental.rateSnapshot);
+    const res = calculateRentalBreakdown(effectiveStartTime, effectiveStopTime, rental.rateSnapshot);
     setBreakdown(res);
     setAmountReceivedInput(res.totalAmount.toString());
-  }, [rental, stopTimestamp]);
+  }, []);
+
+  // Time Validation & Save Handler
+  const handleSaveCustomTime = () => {
+    setTimeError(null);
+    setTimeSuccessMsg(null);
+
+    const parsedStart = parseDateTimeLocal(customStartInput);
+    const parsedStop = parseDateTimeLocal(customStopInput);
+
+    if (isNaN(parsedStart) || isNaN(parsedStop)) {
+      setTimeError('Please provide valid start and end dates and times.');
+      return;
+    }
+
+    if (parsedStop <= parsedStart) {
+      setTimeError('Invalid time range: End / Return time must be after Start time.');
+      return;
+    }
+
+    const durationMin = Math.ceil((parsedStop - parsedStart) / (1000 * 60));
+    if (durationMin < 1) {
+      setTimeError('Invalid time range: Duration must be at least 1 minute.');
+      return;
+    }
+
+    // Apply effective timestamps
+    setEffectiveStartTime(parsedStart);
+    setEffectiveStopTime(parsedStop);
+
+    // Recalculate breakdown with new validated custom time range
+    const newBreakdown = calculateRentalBreakdown(parsedStart, parsedStop, rental.rateSnapshot);
+    setBreakdown(newBreakdown);
+
+    // Update amount received to match new bill
+    const dmg = parseFloat(damageAmountInput) || 0;
+    const disc = parseFloat(discountInput) || 0;
+    const newTot = Math.max(0, newBreakdown.totalAmount + dmg - disc);
+    setAmountReceivedInput(newTot.toString());
+
+    setTimeSuccessMsg(`✓ Time saved! Duration: ${newBreakdown.durationFormatted} (${durationMin} mins). Total bill recalculated.`);
+    setTimeout(() => setTimeSuccessMsg(null), 4000);
+  };
+
+  const handleResetToLiveTime = () => {
+    const liveStop = Date.now();
+    const liveStart = rental.startTime;
+    setCustomStartInput(toDateTimeLocalString(liveStart));
+    setCustomStopInput(toDateTimeLocalString(liveStop));
+    setEffectiveStartTime(liveStart);
+    setEffectiveStopTime(liveStop);
+    setTimeError(null);
+    const res = calculateRentalBreakdown(liveStart, liveStop, rental.rateSnapshot);
+    setBreakdown(res);
+    const dmg = parseFloat(damageAmountInput) || 0;
+    const disc = parseFloat(discountInput) || 0;
+    setAmountReceivedInput(Math.max(0, res.totalAmount + dmg - disc).toString());
+    setTimeSuccessMsg('Reset to original start time and current live stop time.');
+    setTimeout(() => setTimeSuccessMsg(null), 3000);
+  };
 
   const rentalAmount = breakdown.totalAmount;
   const damageAmount = parseFloat(damageAmountInput) || 0;
@@ -107,7 +198,8 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
 
     const finalRecord: RentalRecord = {
       ...rental,
-      endTime: stopTimestamp,
+      startTime: effectiveStartTime,
+      endTime: effectiveStopTime,
       status: 'completed',
       breakdown: breakdown,
       totalAmount: finalTotalAmount,
@@ -116,8 +208,23 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
       changeAmount: changeDue,
       damageAmount: damageAmount,
       discountAmount: discountAmount,
-      completedAt: stopTimestamp,
+      completedAt: effectiveStopTime,
     };
+
+    // Dispatch automated WhatsApp Return Thank You message if opted-in and customer phone exists
+    if (sendThankYouWhatsApp && rental.customerPhone) {
+      try {
+        const cleanPhone = cleanWhatsAppPhoneNumber(rental.customerPhone);
+        const custName = rental.customerName || 'Valued Customer';
+        const totalStr = formatCurrency(finalTotalAmount, settings.currencySymbol, settings.currencyPosition);
+        const durationStr = breakdown.durationFormatted || 'Rental period';
+        const shop = settings.businessName || 'Cycly Rent';
+        const thankYouMsg = `Dear ${custName}, thank you for choosing ${shop}! 🙏\n\nYour rental for ${rental.vehicleSerialNumber} (${rental.vehicleTypeName}) has successfully ended.\n⏱ Duration: ${durationStr}\n💳 Total Amount: ${totalStr}\n\nWe hope you had a great ride and look forward to seeing you again soon! 🚲`;
+        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(thankYouMsg)}`, '_blank');
+      } catch (err) {
+        console.error('Failed to trigger return WhatsApp:', err);
+      }
+    }
 
     onConfirmStopAndSettle(finalRecord);
   };
@@ -181,28 +288,134 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
             </div>
           )}
 
-          {/* Time & Duration Calculation Card */}
-          <div className={`p-4 rounded-xl border space-y-2.5 ${t.cardSubtleBg}`}>
-            <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-500/20">
-              <span className={`flex items-center gap-1.5 ${t.textMuted}`}>
-                <Calendar className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Start Time:</span>
+          {/* Time & Duration Calculation Card with Custom Time Option */}
+          <div className={`p-4 rounded-xl border space-y-3 ${t.cardSubtleBg}`}>
+            <div className="flex items-center justify-between">
+              <span className={`font-bold text-xs uppercase tracking-wider ${t.textHeading}`}>
+                Rental Timing & Duration
               </span>
-              <span className={`font-mono font-medium ${t.textMain}`}>{formatTime(rental.startTime)} • {formatDate(rental.startTime)}</span>
+              <button
+                type="button"
+                onClick={() => setIsCustomTimeOpen(!isCustomTimeOpen)}
+                className="px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-500/20 transition cursor-pointer"
+                title="Adjust start and end times manually"
+              >
+                <Edit3 className="w-3 h-3 text-indigo-500 dark:text-indigo-400" />
+                <span>{isCustomTimeOpen ? 'Close Time Editor' : 'Custom Time / Adjust'}</span>
+              </button>
             </div>
-            <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-500/20">
-              <span className={`flex items-center gap-1.5 ${t.textMuted}`}>
-                <Clock className="w-3.5 h-3.5 text-rose-500" />
-                <span>End / Stop Time:</span>
-              </span>
-              <span className={`font-mono font-medium text-rose-500`}>{formatTime(stopTimestamp)} (Now)</span>
+
+            {/* Default Display of Times */}
+            <div className="space-y-2">
+              <div className={`flex items-center justify-between text-xs pb-1.5 border-b ${t.divider}`}>
+                <span className={`flex items-center gap-1.5 ${t.textMuted}`}>
+                  <Calendar className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Start Time:</span>
+                </span>
+                <span className={`font-mono font-medium ${t.textMain}`}>
+                  {formatTime(effectiveStartTime)} • {formatDate(effectiveStartTime)}
+                </span>
+              </div>
+              <div className={`flex items-center justify-between text-xs pb-1.5 border-b ${t.divider}`}>
+                <span className={`flex items-center gap-1.5 ${t.textMuted}`}>
+                  <Clock className="w-3.5 h-3.5 text-rose-500" />
+                  <span>Stop / Return Time:</span>
+                </span>
+                <span className={`font-mono font-medium text-rose-500 dark:text-rose-400`}>
+                  {formatTime(effectiveStopTime)} • {formatDate(effectiveStopTime)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm pt-1">
+                <span className={`font-bold ${t.textHeading}`}>Calculated Duration:</span>
+                <span className="font-mono font-extrabold text-emerald-500 text-base">
+                  {breakdown.durationFormatted} ({breakdown.totalMinutes} mins)
+                </span>
+              </div>
             </div>
-            <div className="flex items-center justify-between text-sm pt-1">
-              <span className={`font-bold ${t.textHeading}`}>Total Duration:</span>
-              <span className="font-mono font-extrabold text-emerald-500 text-base">
-                {breakdown.durationFormatted} ({breakdown.totalMinutes} mins)
-              </span>
-            </div>
+
+            {/* Custom Time Modification Panel */}
+            {isCustomTimeOpen && (
+              <div className={`p-3.5 rounded-xl border border-indigo-500/30 ${t.cardBg} space-y-3 mt-2 shadow-sm`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-indigo-600 dark:text-indigo-300 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+                    <span>Adjust Start & Return Times</span>
+                  </span>
+                  <span className={`text-[10px] ${t.textMuted}`}>
+                    Duration updates automatically
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className={`block text-[11px] font-semibold ${t.textHeading} mb-1`}>
+                      Start Date & Time:
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={customStartInput}
+                      onChange={(e) => {
+                        setCustomStartInput(e.target.value);
+                        setTimeError(null);
+                      }}
+                      className={`w-full rounded-xl px-3 py-2 text-xs font-mono ${t.textInput}`}
+                    />
+                  </div>
+
+                  <div>
+                    <label className={`block text-[11px] font-semibold ${t.textHeading} mb-1`}>
+                      End / Return Date & Time:
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={customStopInput}
+                      onChange={(e) => {
+                        setCustomStopInput(e.target.value);
+                        setTimeError(null);
+                      }}
+                      className={`w-full rounded-xl px-3 py-2 text-xs font-mono ${t.textInput}`}
+                    />
+                  </div>
+                </div>
+
+                {/* Validation Error Message */}
+                {timeError && (
+                  <div className="p-2.5 rounded-lg bg-rose-500/15 border border-rose-500/30 flex items-center gap-2 text-rose-600 dark:text-rose-300 text-xs">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                    <span>{timeError}</span>
+                  </div>
+                )}
+
+                {/* Success Feedback Message */}
+                {timeSuccessMsg && (
+                  <div className="p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center gap-2 text-emerald-600 dark:text-emerald-300 text-xs">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+                    <span>{timeSuccessMsg}</span>
+                  </div>
+                )}
+
+                {/* Action Buttons: Save & Recalculate vs Reset */}
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleResetToLiveTime}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${t.cardSubtleBg} ${t.textHeading} ${t.border} hover:border-slate-400 flex items-center gap-1 cursor-pointer transition shadow-xs`}
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset to Live Time</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveCustomTime}
+                    className="px-4 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 cursor-pointer shadow-md transition"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Save & Recalculate Time</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Settle & Return Specified Settlement Format Box */}
@@ -337,6 +550,24 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* WhatsApp Return Thank-you Dispatch Checkbox */}
+          {rental.customerPhone && (
+            <div className="pt-2 px-1">
+              <label className="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={sendThankYouWhatsApp}
+                  onChange={(e) => setSendThankYouWhatsApp(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
+                />
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Send WhatsApp Return Receipt & Thank You message to customer</span>
+                </span>
+              </label>
             </div>
           )}
         </div>

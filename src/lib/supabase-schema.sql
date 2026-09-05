@@ -52,6 +52,9 @@ ALTER TABLE customers ADD COLUMN IF NOT EXISTS full_name TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS whatsapp_number TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS address TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS dob TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS status_remark TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS groups JSONB DEFAULT '[]'::jsonb;
 
 -- 4. RENTALS (ACTIVE & COMPLETED) TABLE
 CREATE TABLE IF NOT EXISTS rentals (
@@ -158,9 +161,41 @@ CREATE TABLE IF NOT EXISTS message_templates (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 10. CUSTOMER GROUPS TABLE
+CREATE TABLE IF NOT EXISTS customer_groups (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT 'emerald',
+  description TEXT,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at BIGINT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 11. MESSAGE HISTORY (AUDIT & CAMPAIGN LOGS) TABLE
+CREATE TABLE IF NOT EXISTS message_history (
+  id TEXT PRIMARY KEY,
+  customer_id TEXT,
+  customer_name TEXT NOT NULL,
+  mobile_number TEXT NOT NULL,
+  message_template_id TEXT,
+  template_title TEXT,
+  actual_message TEXT NOT NULL,
+  message_type TEXT NOT NULL,
+  sent_at BIGINT NOT NULL,
+  sent_by TEXT NOT NULL,
+  campaign_name TEXT,
+  status TEXT NOT NULL DEFAULT 'sent',
+  delivery_status TEXT,
+  failure_reason TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 ALTER TABLE user_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE message_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customer_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE message_history ENABLE ROW LEVEL SECURITY;
 
 -- Allow anon & authenticated users to perform operations on tables
 DO $$
@@ -208,6 +243,16 @@ BEGIN
   -- Message Templates policies
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'message_templates' AND policyname = 'Allow all message_templates') THEN
     CREATE POLICY "Allow all message_templates" ON message_templates FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+
+  -- Customer Groups policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customer_groups' AND policyname = 'Allow all customer_groups') THEN
+    CREATE POLICY "Allow all customer_groups" ON customer_groups FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+
+  -- Message History policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'message_history' AND policyname = 'Allow all message_history') THEN
+    CREATE POLICY "Allow all message_history" ON message_history FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
 

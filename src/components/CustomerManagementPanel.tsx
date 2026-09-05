@@ -32,10 +32,15 @@ import {
   Gift,
   Send,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Tag,
+  SlidersHorizontal,
+  Mail,
+  CheckCircle,
+  Clock
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { AppSettings, Customer, MessageTemplate } from '../types';
+import { AppSettings, Customer, MessageTemplate, CustomerGroup, CustomerStatus, MessageHistoryEntry } from '../types';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { DEFAULT_USER, UserAccount, getUserPermissions } from '../utils/auth';
 import {
@@ -46,8 +51,15 @@ import {
   formatWhatsAppBirthdayMessage,
   formatWhatsAppCustomMessage,
   parseCustomerDob,
-  cleanWhatsAppPhoneNumber
+  cleanWhatsAppPhoneNumber,
+  getCustomerStatusBadge,
+  isCustomerSuspendedOrBlocked,
+  DEFAULT_CUSTOMER_GROUPS,
+  getStoredCustomerGroups,
+  getStoredMessageHistory
 } from '../utils/customer';
+import { CustomerMessagingTab } from './CustomerMessagingTab';
+import { CustomerGroupsModal } from './CustomerGroupsModal';
 
 interface CustomerManagementPanelProps {
   customers: Customer[];
@@ -56,10 +68,15 @@ interface CustomerManagementPanelProps {
   themeMode?: ThemeMode;
   accent?: AccentColor;
   templates?: MessageTemplate[];
+  customerGroups?: CustomerGroup[];
+  messageHistory?: MessageHistoryEntry[];
   completedRentals?: any[];
   onAddCustomer: (customer: Customer) => void;
   onUpdateCustomer: (customer: Customer) => void;
   onDeleteCustomer: (customerId: string, nicPassport: string) => void;
+  onSaveCustomerGroup?: (group: CustomerGroup) => void;
+  onDeleteCustomerGroup?: (groupId: string) => void;
+  onAddMessageHistory?: (entry: MessageHistoryEntry) => void;
 }
 
 type SortField = 'fullName' | 'nicPassport' | 'phone' | 'whatsappNumber' | 'address' | 'dob' | 'totalRentalsCount';
@@ -68,15 +85,20 @@ type SortDirection = 'asc' | 'desc';
 const PAGE_SIZE = 20;
 
 export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = ({
-  customers,
+  customers = [],
   settings,
   currentUser,
   themeMode = 'dark',
   accent = 'emerald',
   templates = [],
+  customerGroups = DEFAULT_CUSTOMER_GROUPS,
+  messageHistory = [],
   onAddCustomer,
   onUpdateCustomer,
   onDeleteCustomer,
+  onSaveCustomerGroup,
+  onDeleteCustomerGroup,
+  onAddMessageHistory,
 }) => {
   const t = getThemeClasses(themeMode, accent);
 
@@ -84,11 +106,17 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
   const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
   const isAdmin = activeUser.role === 'admin' || isRootAdmin;
 
+  // Subtab State: 'directory' | 'messages'
+  const [activeCustomerSubTab, setActiveCustomerSubTab] = useState<'directory' | 'messages'>('directory');
+  const [isGroupsModalOpen, setIsGroupsModalOpen] = useState(false);
+
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<SortField>('fullName');
   const [sortDir, setSortDir] = useState<SortDirection>('asc');
   const [currentPage, setCurrentPage] = useState(1);
+  const [directoryStatusFilter, setDirectoryStatusFilter] = useState<'all' | CustomerStatus>('all');
+  const [directoryGroupFilter, setDirectoryGroupFilter] = useState<string>('all');
 
   // Modal States
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -138,6 +166,9 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
     whatsappNumber: '',
     phone: '',
     notes: '',
+    status: 'active' as CustomerStatus,
+    statusRemark: '',
+    groups: [] as string[],
   });
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -151,6 +182,9 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
       whatsappNumber: '',
       phone: '',
       notes: '',
+      status: 'active' as CustomerStatus,
+      statusRemark: '',
+      groups: [],
     });
     setFormError(null);
   };
@@ -169,6 +203,9 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
       whatsappNumber: customer.whatsappNumber || customer.phone || '',
       phone: customer.phone || '',
       notes: customer.notes || '',
+      status: customer.status || 'active',
+      statusRemark: customer.statusRemark || '',
+      groups: customer.groups || [],
     });
     setFormError(null);
     setEditingCustomer(customer);
@@ -204,6 +241,12 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
       return;
     }
 
+    // Validate mandatory remark for Suspended / Blocked
+    if ((formData.status === 'suspended' || formData.status === 'blocked') && !formData.statusRemark.trim()) {
+      setFormError(`A mandatory remark/reason is required when customer status is ${formData.status.toUpperCase()}.`);
+      return;
+    }
+
     const cleanPhone = formData.phone.trim().replace(/^@+/, '');
     const cleanWa = (formData.whatsappNumber.trim() || formData.phone.trim()).replace(/^@+/, '');
 
@@ -219,6 +262,10 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
         whatsappNumber: cleanWa,
         phone: cleanPhone,
         notes: formData.notes.trim() || undefined,
+        status: formData.status,
+        statusRemark: (formData.status === 'suspended' || formData.status === 'blocked') ? formData.statusRemark.trim() : undefined,
+        statusUpdatedAt: Date.now(),
+        groups: formData.groups,
       };
       onUpdateCustomer(updated);
       setEditingCustomer(null);
@@ -234,6 +281,10 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
         whatsappNumber: cleanWa,
         phone: cleanPhone,
         notes: formData.notes.trim() || undefined,
+        status: formData.status,
+        statusRemark: (formData.status === 'suspended' || formData.status === 'blocked') ? formData.statusRemark.trim() : undefined,
+        statusUpdatedAt: Date.now(),
+        groups: formData.groups,
         createdAt: Date.now(),
         totalRentalsCount: 0,
       };
@@ -262,6 +313,16 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
   const filteredCustomers = useMemo(() => {
     let result = [...customers];
 
+    // Filter by Status
+    if (directoryStatusFilter !== 'all') {
+      result = result.filter((c) => (c.status || 'active') === directoryStatusFilter);
+    }
+
+    // Filter by Group
+    if (directoryGroupFilter !== 'all') {
+      result = result.filter((c) => Array.isArray(c.groups) && c.groups.includes(directoryGroupFilter));
+    }
+
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
       result = result.filter((c) => {
@@ -272,6 +333,8 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
         const addr = (c.address || '').toLowerCase();
         const dob = (c.dob || '').toLowerCase();
         const notes = (c.notes || '').toLowerCase();
+        const groupsStr = Array.isArray(c.groups) ? c.groups.join(' ').toLowerCase() : '';
+        const statusStr = (c.status || 'active').toLowerCase();
         return (
           name.includes(q) ||
           nic.includes(q) ||
@@ -279,7 +342,9 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
           wa.includes(q) ||
           addr.includes(q) ||
           dob.includes(q) ||
-          notes.includes(q)
+          notes.includes(q) ||
+          groupsStr.includes(q) ||
+          statusStr.includes(q)
         );
       });
     }
@@ -330,7 +395,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
     });
 
     return result;
-  }, [customers, searchTerm, sortField, sortDir]);
+  }, [customers, searchTerm, sortField, sortDir, directoryStatusFilter, directoryGroupFilter]);
 
   // Pagination calculations (Max 20 rows per page)
   const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / PAGE_SIZE));
@@ -401,266 +466,409 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
   return (
     <div className="space-y-6">
       
-      {/* Top Banner & Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Total Customers */}
-        <div className={`p-5 rounded-2xl border shadow-lg ${t.cardBg}`}>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-teal-400 text-white flex items-center justify-center shadow-md">
-              <Users className="w-5 h-5" />
-            </div>
-            <div>
-              <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
-                Total Registered
-              </span>
-              <h3 className={`text-2xl font-black ${t.textHeading}`}>
-                {customers.length}
-              </h3>
-            </div>
-          </div>
-          <p className={`text-xs ${t.textMuted}`}>Profiles stored in database</p>
-        </div>
-
-        {/* Regular Renters */}
-        <div className={`p-5 rounded-2xl border shadow-lg ${t.cardBg}`}>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-md">
-              <Bike className="w-5 h-5" />
-            </div>
-            <div>
-              <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
-                Active / Repeat Riders
-              </span>
-              <h3 className={`text-2xl font-black text-emerald-500`}>
-                {customers.filter((c) => (c.totalRentalsCount || 0) > 1).length}
-              </h3>
-            </div>
-          </div>
-          <p className={`text-xs ${t.textMuted}`}>Customers with 2+ completed rentals</p>
-        </div>
-
-        {/* Birthday Action Card (Replaced duplicate register customer) */}
-        <div className={`p-5 rounded-2xl border shadow-lg ${t.cardBg} flex flex-col justify-between relative overflow-hidden`}>
-          <div className="flex items-center justify-between">
-            <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
-              Customer Birthdays
-            </span>
-            {todayBirthdays.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse flex items-center gap-1 shadow-sm">
-                <Cake className="w-3 h-3" />
-                <span>{todayBirthdays.length} Today!</span>
-              </span>
-            )}
-          </div>
-          <div>
-            <h3 className={`text-sm sm:text-base font-bold ${t.textHeading} mt-1`}>
-              {todayBirthdays.length > 0
-                ? `${todayBirthdays.length} Celebrant(s) Today 🎂`
-                : 'Birthday Wishes & WhatsApp'}
-            </h3>
-            <p className={`text-xs ${t.textMuted} mt-0.5`}>
-              Send greetings directly to customers on WhatsApp
-            </p>
-          </div>
+      {/* Subtab Navigation: Directory vs Messages & Campaigns */}
+      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b ${t.divider}`}>
+        <div className="flex items-center gap-2 flex-wrap">
           <button
-            id="btn-customer-birthday-top"
             type="button"
-            onClick={() => setIsBirthdayModalOpen(true)}
-            className="mt-3 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-md bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 hover:opacity-95 text-white"
+            onClick={() => setActiveCustomerSubTab('directory')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shadow-sm ${
+              activeCustomerSubTab === 'directory' ? t.primaryBtn : t.inactiveTab
+            }`}
           >
-            <Cake className="w-4 h-4" />
-            <span>Birthday {todayBirthdays.length > 0 ? `(${todayBirthdays.length} Today 🎂)` : 'Wishes'}</span>
+            <Users className="w-4 h-4" />
+            <span>Customer Directory & Profiles ({customers.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveCustomerSubTab('messages')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shadow-sm ${
+              activeCustomerSubTab === 'messages' ? t.primaryBtn : t.inactiveTab
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>Messages & Bulk Campaigns</span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsGroupsModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-cyan-500/40 bg-cyan-500/10 text-cyan-600 dark:text-cyan-300 hover:bg-cyan-500/20 transition cursor-pointer"
+          >
+            <Tag className="w-3.5 h-3.5" />
+            <span>Manage Customer Groups ({customerGroups.length})</span>
           </button>
         </div>
       </div>
 
-      {/* Main Table Card */}
-      <div className={`${t.cardBg} rounded-2xl border shadow-xl overflow-hidden space-y-4`}>
-        
-        {/* Header & Global Search Bar */}
-        <div className={`p-5 border-b ${t.divider} space-y-4`}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-500 text-white flex items-center justify-center shadow-md">
-                <IdCard className="w-5 h-5" />
+      {activeCustomerSubTab === 'messages' ? (
+        <CustomerMessagingTab
+          customers={customers}
+          templates={templates}
+          customerGroups={customerGroups}
+          messageHistory={messageHistory}
+          currentUser={currentUser}
+          themeMode={themeMode}
+          accent={accent}
+          shopName={settings.businessName || 'Cycly Rent'}
+          onAddMessageHistory={(entry) => {
+            if (onAddMessageHistory) {
+              onAddMessageHistory(entry);
+            }
+          }}
+        />
+      ) : (
+        <>
+          {/* Top Banner & Stat Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Total Customers */}
+            <div className={`p-5 rounded-2xl border shadow-lg ${t.cardBg}`}>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-teal-400 text-white flex items-center justify-center shadow-md">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
+                    Total Registered
+                  </span>
+                  <h3 className={`text-2xl font-black ${t.textHeading}`}>
+                    {customers.length}
+                  </h3>
+                </div>
+              </div>
+              <p className={`text-xs ${t.textMuted}`}>Profiles stored in database</p>
+            </div>
+
+            {/* Regular Renters */}
+            <div className={`p-5 rounded-2xl border shadow-lg ${t.cardBg}`}>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-md">
+                  <Bike className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
+                    Active / Repeat Riders
+                  </span>
+                  <h3 className={`text-2xl font-black text-emerald-500`}>
+                    {customers.filter((c) => (c.totalRentalsCount || 0) > 1).length}
+                  </h3>
+                </div>
+              </div>
+              <p className={`text-xs ${t.textMuted}`}>Customers with 2+ completed rentals</p>
+            </div>
+
+            {/* Birthday Action Card */}
+            <div className={`p-5 rounded-2xl border shadow-lg ${t.cardBg} flex flex-col justify-between relative overflow-hidden`}>
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
+                  Customer Birthdays
+                </span>
+                {todayBirthdays.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse flex items-center gap-1 shadow-sm">
+                    <Cake className="w-3 h-3" />
+                    <span>{todayBirthdays.length} Today!</span>
+                  </span>
+                )}
               </div>
               <div>
-                <h2 className={`text-base sm:text-lg font-bold tracking-tight ${t.textHeading}`}>
-                  Customer Directory & Identity Records
-                </h2>
-                <p className={`text-xs ${t.textMuted}`}>
-                  Showing max 20 customers per page with quick column sorting
+                <h3 className={`text-sm sm:text-base font-bold ${t.textHeading} mt-1`}>
+                  {todayBirthdays.length > 0
+                    ? `${todayBirthdays.length} Celebrant(s) Today 🎂`
+                    : 'Birthday Wishes & WhatsApp'}
+                </h3>
+                <p className={`text-xs ${t.textMuted} mt-0.5`}>
+                  Send greetings directly to customers on WhatsApp
                 </p>
               </div>
-            </div>
-
-            <div className="flex items-center gap-2.5">
               <button
-                id="btn-birthday-shortcut"
+                id="btn-customer-birthday-top"
                 type="button"
                 onClick={() => setIsBirthdayModalOpen(true)}
-                className="py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm bg-gradient-to-r from-rose-500/20 to-pink-500/20 border border-rose-500/30 text-rose-400 hover:bg-rose-500/30"
+                className="mt-3 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-md bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 hover:opacity-95 text-white"
               >
-                <Cake className="w-4 h-4 text-rose-400" />
-                <span>Birthday Wishes {todayBirthdays.length > 0 ? `(${todayBirthdays.length})` : ''}</span>
-              </button>
-              <button
-                id="btn-register-customer-table"
-                type="button"
-                onClick={openAddModal}
-                className={`py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm ${t.primaryBtn}`}
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Customer</span>
+                <Cake className="w-4 h-4" />
+                <span>Birthday {todayBirthdays.length > 0 ? `(${todayBirthdays.length} Today 🎂)` : 'Wishes'}</span>
               </button>
             </div>
           </div>
 
-          {/* Global Search Bar */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-cyan-500 flex items-center gap-1.5">
-                <Search className="w-3.5 h-3.5" />
-                <span>Global Search in Customer Table (Name, NIC, Mobile, WhatsApp, Address, DOB)</span>
-              </label>
-              <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${t.searchBadge}`}>
-                Global Filter
-              </span>
-            </div>
+          {/* Main Table Card */}
+          <div className={`${t.cardBg} rounded-2xl border shadow-xl overflow-hidden space-y-4`}>
+            
+            {/* Header & Global Search Bar */}
+            <div className={`p-5 border-b ${t.divider} space-y-4`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-500 text-white flex items-center justify-center shadow-md">
+                    <IdCard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className={`text-base sm:text-lg font-bold tracking-tight ${t.textHeading}`}>
+                      Customer Directory & Identity Records
+                    </h2>
+                    <p className={`text-xs ${t.textMuted}`}>
+                      Showing max 20 customers per page with quick column sorting
+                    </p>
+                  </div>
+                </div>
 
-            <div className="relative">
-              <input
-                id="input-customer-global-search"
-                type="text"
-                placeholder="Search any customer name, NIC / passport, phone, WhatsApp number, or address..."
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className={`w-full rounded-xl pl-9 pr-10 py-2.5 text-xs sm:text-sm font-medium ${t.searchInput}`}
-              />
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-cyan-500">
-                <Search className="w-4 h-4" />
+                <div className="flex items-center gap-2.5">
+                  <button
+                    id="btn-birthday-shortcut"
+                    type="button"
+                    onClick={() => setIsBirthdayModalOpen(true)}
+                    className="py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm bg-gradient-to-r from-rose-500/20 to-pink-500/20 border border-rose-500/30 text-rose-400 hover:bg-rose-500/30"
+                  >
+                    <Cake className="w-4 h-4 text-rose-400" />
+                    <span>Birthday Wishes {todayBirthdays.length > 0 ? `(${todayBirthdays.length})` : ''}</span>
+                  </button>
+                  <button
+                    id="btn-register-customer-table"
+                    type="button"
+                    onClick={openAddModal}
+                    className={`py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm ${t.primaryBtn}`}
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Customer</span>
+                  </button>
+                </div>
               </div>
-              {searchTerm && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setCurrentPage(1);
-                  }}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-cyan-500 hover:text-cyan-400 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
 
-        {/* Customer Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
-            <thead className={`border-b ${t.divider} ${t.cardSubtleBg} uppercase font-semibold text-slate-400`}>
-              <tr>
-                <th className="px-4 py-3 w-12 text-center">#</th>
-                <SortableTh label="Full Name" field="fullName" />
-                <SortableTh label="NIC Number" field="nicPassport" />
-                <SortableTh label="Mobile Number" field="phone" />
-                <SortableTh label="WhatsApp" field="whatsappNumber" />
-                <SortableTh label="Date of Birth" field="dob" />
-                <SortableTh label="Address" field="address" />
-                <SortableTh label="Trips" field="totalRentalsCount" align="center" />
-                <th className="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
+              {/* Search and Filters Bar */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold uppercase tracking-wider text-cyan-500 flex items-center gap-1.5">
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Search & Filter Customer Directory</span>
+                  </label>
+                  <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${t.searchBadge}`}>
+                    {filteredCustomers.length} Matched
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+                  {/* Global Search Input */}
+                  <div className="md:col-span-6 relative">
+                    <input
+                      id="input-customer-global-search"
+                      type="text"
+                      placeholder="Search name, NIC, phone, address, group..."
+                      value={searchTerm}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className={`w-full rounded-xl pl-9 pr-10 py-2.5 text-xs sm:text-sm font-medium ${t.searchInput}`}
+                    />
+                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-cyan-500">
+                      <Search className="w-4 h-4" />
+                    </div>
+                    {searchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchTerm('');
+                          setCurrentPage(1);
+                        }}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-cyan-500 hover:text-cyan-400 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Filter by Group */}
+                  <div className="md:col-span-3">
+                    <select
+                      value={directoryGroupFilter}
+                      onChange={(e) => {
+                        setDirectoryGroupFilter(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className={`w-full rounded-xl px-3 py-2.5 text-xs ${t.dropdownInput} cursor-pointer`}
+                    >
+                      <option value="all">Filter: All Customer Groups</option>
+                      {customerGroups.map((g) => (
+                        <option key={g.id} value={g.name}>
+                          Group: {g.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Filter by Status */}
+                  <div className="md:col-span-3">
+                    <select
+                      value={directoryStatusFilter}
+                      onChange={(e) => {
+                        setDirectoryStatusFilter(e.target.value as any);
+                        setCurrentPage(1);
+                      }}
+                      className={`w-full rounded-xl px-3 py-2.5 text-xs ${t.dropdownInput} cursor-pointer`}
+                    >
+                      <option value="all">Filter: All Account Statuses</option>
+                      <option value="active">Active Accounts</option>
+                      <option value="suspended">Suspended Accounts ⚠</option>
+                      <option value="blocked">Blocked Accounts ⛔</option>
+                      <option value="inactive">Inactive Accounts</option>
+                      <option value="pending_verification">Pending Verification</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Customer Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className={`border-b ${t.divider} ${t.cardSubtleBg} uppercase font-semibold text-slate-400`}>
+                  <tr>
+                    <th className="px-3.5 py-3 w-10 text-center">#</th>
+                    <SortableTh label="Full Name" field="fullName" />
+                    <SortableTh label="NIC Number" field="nicPassport" />
+                    <SortableTh label="Mobile" field="phone" />
+                    <SortableTh label="WhatsApp" field="whatsappNumber" />
+                    <th className="px-3.5 py-3">Groups</th>
+                    <th className="px-3.5 py-3">Status</th>
+                    <SortableTh label="Date of Birth" field="dob" />
+                    <SortableTh label="Address" field="address" />
+                    <SortableTh label="Trips" field="totalRentalsCount" align="center" />
+                    <th className="px-3.5 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
 
             <tbody className={`divide-y ${t.divider}`}>
               {paginatedCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center">
+                  <td colSpan={11} className="py-12 text-center">
                     <div className="w-12 h-12 rounded-full bg-slate-500/10 flex items-center justify-center mx-auto mb-3 text-slate-400">
                       <Users className="w-6 h-6" />
                     </div>
                     <p className={`text-sm font-semibold ${t.textHeading}`}>No Customers Found</p>
                     <p className={`text-xs ${t.textMuted} mt-1`}>
-                      {searchTerm ? 'No customer matched your search query.' : 'Click "Add Customer" to register your first profile.'}
+                      {searchTerm || directoryStatusFilter !== 'all' || directoryGroupFilter !== 'all' 
+                        ? 'No customer matched your search or active filters.' 
+                        : 'Click "Add Customer" to register your first profile.'}
                     </p>
                   </td>
                 </tr>
               ) : (
-                paginatedCustomers.map((customer, idx) => (
-                  <tr
-                    key={customer.id || customer.nicPassport}
-                    className={`transition-colors hover:${t.cardSubtleBg}`}
-                  >
-                    {/* Index */}
-                    <td className="px-4 py-3 text-center font-mono font-semibold text-slate-400">
-                      {startIndex + idx + 1}
-                    </td>
+                paginatedCustomers.map((customer, idx) => {
+                  const isSuspended = isCustomerSuspendedOrBlocked(customer);
 
-                    {/* Full Name */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-600 to-teal-500 text-white flex items-center justify-center text-[10px] font-bold shrink-0">
-                          {(customer.fullName || customer.name || 'C').charAt(0).toUpperCase()}
+                  return (
+                    <tr
+                      key={customer.id || customer.nicPassport}
+                      className={`transition-colors hover:${t.cardSubtleBg} ${
+                        isSuspended ? 'bg-rose-500/5 hover:bg-rose-500/10' : ''
+                      }`}
+                    >
+                      {/* Index */}
+                      <td className="px-3.5 py-3 text-center font-mono font-semibold text-slate-400">
+                        {startIndex + idx + 1}
+                      </td>
+
+                      {/* Full Name */}
+                      <td className="px-3.5 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                            isSuspended 
+                              ? 'bg-rose-600 text-white' 
+                              : 'bg-gradient-to-tr from-cyan-600 to-teal-500 text-white'
+                          }`}>
+                            {(customer.fullName || customer.name || 'C').charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <span className={`font-bold block ${t.textHeading}`}>
+                              {customer.fullName || customer.name}
+                            </span>
+                            {customer.notes && (
+                              <span className={`text-[10px] ${t.textMuted} truncate block max-w-[130px]`}>
+                                {customer.notes}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <span className={`font-bold block ${t.textHeading}`}>
-                            {customer.fullName || customer.name}
-                          </span>
-                          {customer.notes && (
-                            <span className={`text-[10px] ${t.textMuted} truncate block max-w-[150px]`}>
-                              {customer.notes}
+                      </td>
+
+                      {/* NIC Number */}
+                      <td className="px-3.5 py-3 font-mono font-bold text-cyan-500">
+                        <span className="px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">
+                          {customer.nicPassport}
+                        </span>
+                      </td>
+
+                      {/* Mobile Number */}
+                      <td className="px-3.5 py-3 font-mono">
+                        {customer.phone ? (
+                          <a
+                            href={`tel:${customer.phone}`}
+                            className="flex items-center gap-1 text-slate-300 hover:text-emerald-400 transition"
+                            title="Call Mobile"
+                          >
+                            <Phone className="w-3 h-3 text-emerald-500" />
+                            <span>{customer.phone}</span>
+                          </a>
+                        ) : (
+                          <span className={`italic ${t.textMuted}`}>—</span>
+                        )}
+                      </td>
+
+                      {/* WhatsApp Number */}
+                      <td className="px-3.5 py-3 font-mono">
+                        {customer.whatsappNumber || customer.phone ? (
+                          <a
+                            href={`https://wa.me/${cleanWhatsAppPhoneNumber(customer.whatsappNumber || customer.phone)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-emerald-400 hover:underline"
+                            title="Chat on WhatsApp"
+                          >
+                            <MessageSquare className="w-3 h-3 text-emerald-400" />
+                            <span>{customer.whatsappNumber || customer.phone}</span>
+                          </a>
+                        ) : (
+                          <span className={`italic ${t.textMuted}`}>—</span>
+                        )}
+                      </td>
+
+                      {/* Groups */}
+                      <td className="px-3.5 py-3">
+                        <div className="flex items-center gap-1 flex-wrap max-w-[140px]">
+                          {Array.isArray(customer.groups) && customer.groups.length > 0 ? (
+                            customer.groups.map((g) => (
+                              <span
+                                key={g}
+                                className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 border border-slate-700 text-cyan-300"
+                              >
+                                {g}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-slate-500 text-[10px] italic">—</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-3.5 py-3 whitespace-nowrap">
+                        <div className="space-y-0.5">
+                          {getCustomerStatusBadge(customer.status)}
+                          {customer.statusRemark && (
+                            <span
+                              className="block text-[10px] text-rose-300/80 truncate max-w-[120px]"
+                              title={`Reason: ${customer.statusRemark}`}
+                            >
+                              ⚠ {customer.statusRemark}
                             </span>
                           )}
                         </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* NIC Number */}
-                    <td className="px-4 py-3 font-mono font-bold text-cyan-500">
-                      <span className="px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">
-                        {customer.nicPassport}
-                      </span>
-                    </td>
-
-                    {/* Mobile Number */}
-                    <td className="px-4 py-3 font-mono">
-                      {customer.phone ? (
-                        <a
-                          href={`tel:${customer.phone}`}
-                          className="flex items-center gap-1 text-slate-300 hover:text-emerald-400 transition"
-                          title="Call Mobile"
-                        >
-                          <Phone className="w-3 h-3 text-emerald-500" />
-                          <span>{customer.phone}</span>
-                        </a>
-                      ) : (
-                        <span className={`italic ${t.textMuted}`}>—</span>
-                      )}
-                    </td>
-
-                    {/* WhatsApp Number */}
-                    <td className="px-4 py-3 font-mono">
-                      {customer.whatsappNumber || customer.phone ? (
-                        <a
-                          href={`https://wa.me/${cleanWhatsAppPhoneNumber(customer.whatsappNumber || customer.phone)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-emerald-400 hover:underline"
-                          title="Chat on WhatsApp"
-                        >
-                          <MessageSquare className="w-3 h-3 text-emerald-400" />
-                          <span>{customer.whatsappNumber || customer.phone}</span>
-                        </a>
-                      ) : (
-                        <span className={`italic ${t.textMuted}`}>—</span>
-                      )}
-                    </td>
-
-                    {/* Date of Birth */}
+                      {/* Date of Birth */}
                     <td className={`px-4 py-3 font-mono ${t.textMuted}`}>
                       {customer.dob ? (
                         <div className="flex flex-col gap-0.5">
@@ -783,8 +991,9 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                       </div>
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              })
+            )}
             </tbody>
           </table>
         </div>
@@ -824,6 +1033,8 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
           </div>
         </div>
       </div>
+    </>
+  )}
 
       {/* ================= MODAL: ADD / EDIT CUSTOMER ================= */}
       {(isAddModalOpen || editingCustomer) && (
@@ -965,6 +1176,93 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                       className={`w-full pl-9 pr-3 py-2 text-xs sm:text-sm font-mono rounded-xl ${t.textInput}`}
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* Customer Status & Mandatory Reason */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl border border-slate-700/60 bg-slate-900/30">
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Customer Status <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value as CustomerStatus })}
+                    className={`w-full px-3 py-2 text-xs sm:text-sm font-bold rounded-xl ${t.dropdownInput} cursor-pointer`}
+                  >
+                    <option value="active">Active (Normal Access)</option>
+                    <option value="suspended">Suspended (Blocked from rentals) ⚠</option>
+                    <option value="blocked">Blocked (Banned from rentals) ⛔</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="pending_verification">Pending Verification</option>
+                  </select>
+                </div>
+
+                <div>
+                  {(formData.status === 'suspended' || formData.status === 'blocked') ? (
+                    <div>
+                      <label className="block text-xs font-bold mb-1 text-rose-400">
+                        Reason / Remark (Mandatory) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Unsettled rental damage, safety violation..."
+                        value={formData.statusRemark}
+                        onChange={(e) => setFormData({ ...formData, statusRemark: e.target.value })}
+                        className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-rose-500 bg-rose-950/40 text-rose-200 placeholder-rose-400/60"
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-slate-400 text-xs flex items-center h-full pt-5">
+                      <span>Status governs rental desk eligibility.</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Customer Group Management Multi-Select */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className={`text-xs font-semibold flex items-center gap-1.5 ${t.textHeading}`}>
+                    <Tag className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Assign Customer Groups</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    Click to assign / remove
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap p-2.5 rounded-xl border border-slate-700/60 bg-slate-900/40 min-h-[42px]">
+                  {customerGroups.filter((g) => g.isActive).map((group) => {
+                    const isSelected = formData.groups.includes(group.name);
+                    return (
+                      <button
+                        key={group.id}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setFormData({
+                              ...formData,
+                              groups: formData.groups.filter((g) => g !== group.name),
+                            });
+                          } else {
+                            setFormData({
+                              ...formData,
+                              groups: [...formData.groups, group.name],
+                            });
+                          }
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 border ${
+                          isSelected
+                            ? 'bg-cyan-500 text-white border-cyan-400 shadow-xs'
+                            : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                        }`}
+                      >
+                        <span>{group.name}</span>
+                        {isSelected && <Check className="w-3 h-3" />}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1136,6 +1434,49 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                   <p className={`text-[11px] ${t.textMain}`}>{viewingCustomer.notes}</p>
                 </div>
               )}
+
+              {/* Account Status */}
+              <div className={`p-2.5 rounded-xl border flex items-center justify-between ${t.cardSubtleBg}`}>
+                <span className={`flex items-center gap-1.5 font-semibold ${t.textMuted}`}>
+                  <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                  Account Status
+                </span>
+                <div>
+                  {getCustomerStatusBadge(viewingCustomer.status)}
+                </div>
+              </div>
+
+              {/* Status Remark if Suspended or Blocked */}
+              {viewingCustomer.statusRemark && (
+                <div className="p-2.5 rounded-xl border border-rose-500/40 bg-rose-950/40 text-rose-200">
+                  <span className="block text-[10px] uppercase font-bold text-rose-300 mb-0.5">
+                    Suspension / Block Reason
+                  </span>
+                  <p className="text-xs">{viewingCustomer.statusRemark}</p>
+                </div>
+              )}
+
+              {/* Customer Groups */}
+              <div className={`p-2.5 rounded-xl border space-y-1.5 ${t.cardSubtleBg}`}>
+                <span className={`flex items-center gap-1.5 font-semibold ${t.textMuted}`}>
+                  <Tag className="w-3.5 h-3.5 text-cyan-400" />
+                  Assigned Groups
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {Array.isArray(viewingCustomer.groups) && viewingCustomer.groups.length > 0 ? (
+                    viewingCustomer.groups.map((g) => (
+                      <span
+                        key={g}
+                        className="px-2 py-0.5 rounded-lg text-xs font-bold bg-slate-800 border border-slate-700 text-cyan-300"
+                      >
+                        {g}
+                      </span>
+                    ))
+                  ) : (
+                    <span className={`text-[11px] italic ${t.textMuted}`}>No groups assigned</span>
+                  )}
+                </div>
+              </div>
 
               {/* Trip Count */}
               <div className={`p-2.5 rounded-xl border flex items-center justify-between ${t.cardSubtleBg}`}>
@@ -1634,6 +1975,28 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
 
           </div>
         </div>
+      )}
+
+      {/* Customer Groups Management Modal */}
+      {isGroupsModalOpen && (
+        <CustomerGroupsModal
+          groups={customerGroups}
+          customers={customers}
+          currentUser={currentUser}
+          themeMode={themeMode}
+          accent={accent}
+          onClose={() => setIsGroupsModalOpen(false)}
+          onSaveGroup={(group) => {
+            if (onSaveCustomerGroup) {
+              onSaveCustomerGroup(group);
+            }
+          }}
+          onDeleteGroup={(groupId) => {
+            if (onDeleteCustomerGroup) {
+              onDeleteCustomerGroup(groupId);
+            }
+          }}
+        />
       )}
 
     </div>

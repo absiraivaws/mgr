@@ -137,6 +137,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     accessDashboard: true,
     accessRentals: true,
     accessCustomers: true,
+    accessMessages: true,
     accessHistory: true,
     accessUsers: false,
     accessSettings: false,
@@ -148,7 +149,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
 
   // Definition of all Side Menu Tabs as rows in the matrix
   const SIDE_MENU_TABS: {
-    key: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome'>;
+    key: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessMessages' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome'>;
     label: string;
     icon: React.ReactNode;
     badgeColor: string;
@@ -174,6 +175,13 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       icon: <Users className="w-4 h-4 text-cyan-400" />,
       badgeColor: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30',
       description: 'View customer registry, add & edit customer profiles, WhatsApp link',
+    },
+    {
+      key: 'accessMessages',
+      label: 'Messages',
+      icon: <MessageSquare className="w-4 h-4 text-emerald-400" />,
+      badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+      description: 'Customer WhatsApp broadcast campaigns, automated alerts, templates, and message logs',
     },
     {
       key: 'accessHistory',
@@ -230,7 +238,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   // Toggle Tab Access for a Role Level (Tick box)
   const handleToggleTabPermission = (
     roleId: string, 
-    tabKey: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome'>
+    tabKey: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessMessages' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome'>
   ) => {
     if (!isAdmin) return;
     if (roleId === 'admin') {
@@ -243,6 +251,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
         accessDashboard: true,
         accessRentals: true,
         accessCustomers: true,
+        accessMessages: true,
         accessHistory: true,
         accessUsers: false,
         accessSettings: false,
@@ -484,6 +493,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
         accessDashboard: roleTabAccess.accessDashboard,
         accessRentals: roleTabAccess.accessRentals,
         accessCustomers: roleTabAccess.accessCustomers,
+        accessMessages: roleTabAccess.accessMessages,
         accessHistory: roleTabAccess.accessHistory,
         accessUsers: roleTabAccess.accessUsers,
         accessSettings: roleTabAccess.accessSettings,
@@ -510,6 +520,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
         accessDashboard: true,
         accessRentals: true,
         accessCustomers: true,
+        accessMessages: true,
         accessHistory: true,
         accessUsers: false,
         accessSettings: false,
