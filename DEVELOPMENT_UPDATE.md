@@ -174,4 +174,137 @@ CREATE TABLE IF NOT EXISTS public.income_expenses (
 
 ---
 
-*Last Updated: September 4, 2026 (Session 2)*
+## Testing Policy Directive
+> [!IMPORTANT]
+> **Manual Testing by User Only**:
+> Automated browser subagent testing is strictly disabled per project policy. All functional, UI, session, and dispatch testing is performed manually by the user.
+
+---
+
+## Session 3 Updates (September 7, 2026)
+
+### 13. Bicycle POS Strict Username & Password Authentication
+- **Mandatory Login Enforcement**:
+  - The Bicycle POS desk cannot be viewed or operated by anyone without authenticating with a valid username/email and password.
+  - Removed fallback to `DEFAULT_USER` in `getCurrentUser()` — if no authenticated session exists in `localStorage`, `getCurrentUser()` strictly returns `null`.
+  - In `App.tsx`, when `currentUser === null` and `systemMode === 'bicycle_pos'`, the system immediately locks and presents `LoginPage`.
+  - Passwordless bypasses are removed. Signing out or clearing session completely locks the application.
+
+### 14. Universal System Inactivity & Auto-Logout Security Sync
+- **Applies to All Users**:
+  - Inactivity monitor tracks user activity (`mousedown`, `mousemove`, `keydown`, `touchstart`, `scroll`, `click`).
+  - Applies universally to all logged-in roles (Admin, Manager, Cashier POS).
+  - When the timeout expires (`settings.autoLogoutMinutes`), the active session is destroyed (`setCurrentUserSession(null)`, `setCurrentUser(null)`), and the screen locks to `LoginPage`.
+- **Immediate Cross-Tab & Cross-Terminal Admin Settings Sync**:
+  - Implemented `BroadcastChannel('bicycle_pos_channel')` and `storage` event listeners.
+  - When an admin saves auto-logout time or any store setting, it instantly updates across all open tabs and active cashier terminals on the device without requiring a page reload.
+  - Integrated Supabase Realtime listeners and window focus revalidation so remote terminals receive admin configuration changes immediately.
+
+### 15. Automated Bulk WhatsApp Messaging Engine
+- **Automated Dispatch to All Selected Customers**:
+  - Replaced the fragile `window.open` loop (which opened tabs that got blocked by browser popup blockers after 1 message and required manual WhatsApp clicking) with an **Automated Bulk Dispatcher**.
+  - Messages are sent sequentially with batch throttling (`delaySeconds`, `batchSize`, `restMinutes`) directly to all selected recipients.
+  - The user no longer needs to click the send button in WhatsApp Web for each customer.
+  - Live progress widget tracks sent, delivered, failed, and remaining counts in real-time until 100% completion.
+  - When complete, celebration confetti fires and all records are logged in `MessageHistory` with customer name, phone, timestamp, and sender cashier name.
+- **WhatsApp Gateway & Webhook Settings**:
+  - Added dedicated WhatsApp Gateway configuration modal in the Messaging Suite.
+  - Supports connecting external WhatsApp Gateways (UltraMsg, Green API, Evolution API, Twilio, or custom webhooks) with server-side proxy `/api/whatsapp/send` in `vite.config.ts` to bypass CORS.
+  - Includes a "Test Connection" tool and quick gateway presets.
+  - If no external API is configured, the built-in direct automated background dispatcher processes all selected customers smoothly.
+
+---
+
+## Session 4 Updates (September 7, 2026)
+
+### 16. Streamlined Customer Messaging & Removed Redundant Template Editor Card (Bicycle POS Only)
+- **Removal of "Message Template & Content" Card**:
+  - Removed the large redundant 7-column template editor card containing the manual textarea and placeholder legends from the "Customer Messages & Bulk Campaigns" page (`CustomerMessagingTab.tsx`).
+  - Template authoring, category tagging, variable assignment, and editing are already permanently available to the admin user in the Users & Roles panel under **"User Accounts & Assigned Role Levels Templates"** (`UserRolesManager.tsx`).
+- **Unified WhatsApp Campaign Dispatch & Live Simulator**:
+  - Transformed the campaign composer into a clean, unified **"WhatsApp Campaign Dispatch & Live Preview"** card.
+  - **Template Selector Dropdown**: Cashiers and admins can instantly choose any standard or custom template defined in Users & Roles (e.g. Birthday Wishes, Rental Confirmation, Overdue Alerts, Marketing Promos).
+  - **Campaign Tag Input**: Optional campaign label for tracking in history logs.
+  - **Anti-Spam Throttling Controls**: Direct access to messages per batch, delay between messages, rest intervals, and the custom time modification panel.
+  - **Live WhatsApp Simulator**: Dynamic chat preview displaying the selected template with real recipient data (`{customer_name}`, `{phone}`, `{nic}`, `{shop_name}`).
+  - **Automated Batch Dispatch**: One-click automated dispatch button sending to all selected customers sequentially without requiring individual clicks.
+
+---
+
+## Session 5 Updates (September 7, 2026)
+
+### 17. Strict Authoritative Supabase `user_accounts` `password_hash` Validation
+- **Elimination of Multiple Password Vulnerability**:
+  - `authenticateUser` in `src/utils/auth.ts` now makes Supabase `public.user_accounts` table the **primary authoritative source of truth**.
+  - When an account exists in Supabase, the password must strictly match `supaRow.password_hash`. If it does not match, the login is immediately rejected with an error.
+  - Eliminated the fallback to `localStorage` or initial default hardcoded passwords when the user account is in Supabase.
+  - Fixes the vulnerability where `absiraiva@gmail.com` was accepting multiple passwords (`Ab@12345` from local storage and `aB@12345` from database).
+  - Automatically purges stale passwords from `localStorage` on successful login to prevent credential drift.
+
+### 18. Admin-Only Anti-Spam Throttling Controls with Global Multi-Terminal Sync
+- **Restricted Throttling Controls to Admin**:
+  - In `CustomerMessagingTab.tsx`, the batch throttling controls (Messages per Batch, Delay Between Messages, Rest Between Batches, and Custom Time Options) are now exclusively accessible and editable by the `admin` user (`currentUser?.role === 'admin'`).
+  - For non-admin cashiers and staff, the input controls are removed, displaying a clean read-only status indicator showing active pacing configured by the admin.
+- **Global Synchronization for All Users**:
+  - Whenever the admin changes any throttling setting, it is saved to `localStorage`, synced to `AppSettings.bulkSendingConfig` (in Supabase), and broadcast via `BroadcastChannel('bicycle_pos_channel')`.
+  - Non-admin terminals immediately adopt the admin's throttling settings in real time, guaranteeing consistent, controlled anti-spam pacing for all bulk broadcasts across all devices.
+
+### 19. Alphabetical Dropdown Selection for Customer Status & Assign Customer Groups
+- **Add New Customer & Edit Customer Modals**:
+  - **Customer Status**: Dropdown list ordered alphabetically: `Active (Normal Access)`, `Blocked (Banned from rentals)`, `Inactive`, `Pending Verification`, `Suspended (Blocked from rentals)`.
+  - **Assign Customer Groups**: Dropdown `<select>` list displaying all active customer groups strictly in alphabetical order (A-Z). When selected, group chips appear with an instant `×` removal button.
+- **View Customer Modal**:
+  - Replaced static status and group labels with active alphabetical dropdown lists, allowing direct status changes and group assignments in alphabetical order directly from the view customer card.
+
+### 20. Literal A-Z and Z-A Column Sorting Symbols on Campaign Recipients Table
+- **Select Campaign Recipients Header Sorting**:
+  - Added dedicated `A-Z` (ascending) and `Z-A` (descending) symbol buttons on each sortable column:
+    - **Customer Name**
+    - **NIC / Passport**
+    - **WhatsApp / Mobile**
+    - **Customer Groups**
+    - **Status**
+  - Instant sorting of all eligible customers with active badge highlighting and pagination persistence.
+
+---
+
+## Session 6 Updates (September 7, 2026)
+
+### 21. Global Theme and Color Maintenance on Customer Profile Forms
+- **Unified Theme Consistency**:
+  - Refactored `CustomerManagementPanel.tsx` modals (Add New Customer, Edit Customer, View Customer Profile) to remove all hardcoded `slate-900` / `slate-700` background and border colors.
+  - Form containers, input fields, labels, status remark areas, and assigned group chip containers now strictly adopt dynamic theme classes (`t.modalBg`, `t.cardBg`, `t.cardSubtleBg`, `t.textHeading`, `t.textMain`, `t.textMuted`, `t.border`, `t.divider`, `t.dropdownInput`, `t.textInput`).
+  - Seamlessly adapts across all theme modes (Dark and Light) and all accent palettes (Emerald, Blue, Amber, Violet, Rose).
+
+### 22. Admin Capability to Add New Customer Groups in Customer Profile Form
+- **Admin-Only "+ Add Group" Action**:
+  - In both the Add/Edit Customer modal and the View Customer modal, the admin user (`currentUser?.role === 'admin'`) is now provided with an inline `+ Add Group` button next to "Assign Customer Groups".
+  - Clicking `+ Add Group` reveals an inline creation box allowing the admin to enter the new group name and click `Add` (or hit `Enter`).
+  - The new group is instantly validated, saved to `customerGroups` state, persisted locally and to Supabase via `onSaveCustomerGroup`.
+  - The newly created group is automatically assigned to the customer and immediately appears in the dropdown list in strict alphabetical order (A-Z).
+
+### 23. Up/Down Sorting Icons on Recipients Table (Matching Customer Directory)
+- **Table Sorting Uniformity**:
+  - In `CustomerMessagingTab.tsx` ("Select Campaign Recipients" table), replaced the previous text-based `A-Z` and `Z-A` buttons with compact Up (`▲` / `<ArrowUp />`) and Down (`▼` / `<ArrowDown />`) sorting arrow icons.
+  - Aligns pixel-for-pixel with the sorting icon design used in the "Customer Directory & Identity Records" table in `CustomerManagementPanel.tsx`.
+  - Applied across all sortable recipient columns:
+    1. **Customer Name**
+    2. **NIC / Passport**
+    3. **WhatsApp / Mobile**
+    4. **Customer Groups**
+    5. **Status**
+
+### 24. Reorganized WhatsApp Campaign Dispatch & Live Preview Card Layout
+- **Sequential Proper Layout Flow**:
+  - Restructured Section 2 of `CustomerMessagingTab.tsx` from an awkward 2-column split into a logical, properly arranged sequential card:
+    1. **Top Row**: Template Selection Dropdown & Campaign Title / Tag input.
+    2. **Middle Section**: Anti-Spam Throttling Controls (Admin with Custom Time drawer) or Anti-Spam Pacing status banner (Non-Admin).
+    3. **Under Anti-Spam Pacing**: **WhatsApp Live Preview** card featuring the realistic simulated WhatsApp chat bubble with dynamic customer data and read receipts.
+    4. **Bottom Row**: Primary Dispatch Action Bar with one-click "Send WhatsApp Campaign to Selected (N)", "Send Test Message", and anti-spam batch reassurance note.
+  - All borders, backgrounds, and text are themed using `t.cardBg`, `t.cardSubtleBg`, `t.border`, `t.divider`, `t.textHeading`, and `t.textMuted`.
+
+---
+
+*Last Updated: September 7, 2026 (Session 6)*
+
+

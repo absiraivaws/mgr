@@ -176,6 +176,90 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
   });
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Admin add new group state
+  const [isAddingNewGroup, setIsAddingNewGroup] = useState(false);
+  const [newGroupNameInput, setNewGroupNameInput] = useState('');
+  const [newGroupError, setNewGroupError] = useState<string | null>(null);
+
+  // Active customer groups sorted in strict alphabetical order (A-Z)
+  const sortedActiveGroups = useMemo(() => {
+    return [...customerGroups]
+      .filter((g) => g && g.isActive)
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+  }, [customerGroups]);
+
+  const handleCreateNewGroup = (assignToCustomer = true) => {
+    const trimmed = newGroupNameInput.trim();
+    if (!trimmed) {
+      setNewGroupError('Please enter a group name.');
+      return;
+    }
+    const exists = customerGroups.some(
+      (g) => g.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (exists) {
+      setNewGroupError(`Group "${trimmed}" already exists.`);
+      return;
+    }
+    const newGroup: CustomerGroup = {
+      id: `group-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: trimmed,
+      description: `Custom group added by ${activeUser.name || 'Admin'}`,
+      color: 'cyan',
+      isActive: true,
+      createdAt: Date.now(),
+    };
+    if (onSaveCustomerGroup) {
+      onSaveCustomerGroup(newGroup);
+    }
+    if (assignToCustomer) {
+      if (!formData.groups.includes(trimmed)) {
+        setFormData((prev) => ({
+          ...prev,
+          groups: [...prev.groups, trimmed],
+        }));
+      }
+    }
+    setNewGroupNameInput('');
+    setNewGroupError(null);
+    setIsAddingNewGroup(false);
+  };
+
+  const handleCreateNewGroupForViewingCustomer = () => {
+    const trimmed = newGroupNameInput.trim();
+    if (!trimmed || !viewingCustomer) return;
+    const exists = customerGroups.some(
+      (g) => g.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (exists) {
+      setNewGroupError(`Group "${trimmed}" already exists.`);
+      return;
+    }
+    const newGroup: CustomerGroup = {
+      id: `group-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: trimmed,
+      description: `Custom group added by ${activeUser.name || 'Admin'}`,
+      color: 'cyan',
+      isActive: true,
+      createdAt: Date.now(),
+    };
+    if (onSaveCustomerGroup) {
+      onSaveCustomerGroup(newGroup);
+    }
+    const curGroups = Array.isArray(viewingCustomer.groups) ? viewingCustomer.groups : [];
+    if (!curGroups.includes(trimmed)) {
+      const updated: Customer = {
+        ...viewingCustomer,
+        groups: [...curGroups, trimmed],
+      };
+      setViewingCustomer(updated);
+      onUpdateCustomer(updated);
+    }
+    setNewGroupNameInput('');
+    setNewGroupError(null);
+    setIsAddingNewGroup(false);
+  };
+
   // Reset Form
   const resetForm = () => {
     setFormData({
@@ -191,6 +275,9 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
       groups: [],
     });
     setFormError(null);
+    setIsAddingNewGroup(false);
+    setNewGroupNameInput('');
+    setNewGroupError(null);
   };
 
   const openAddModal = () => {
@@ -1042,7 +1129,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                   Full Name <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <div className={`absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none ${t.textMuted}`}>
                     <User className="w-4 h-4" />
                   </div>
                   <input
@@ -1136,7 +1223,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
               </div>
 
               {/* Customer Status & Mandatory Reason */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl border border-slate-700/60 bg-slate-900/30">
+              <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl border ${t.border} ${t.cardSubtleBg}`}>
                 <div>
                   <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
                     Customer Status <span className="text-rose-500">*</span>
@@ -1147,10 +1234,10 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                     className={`w-full px-3 py-2 text-xs sm:text-sm font-bold rounded-xl ${t.dropdownInput} cursor-pointer`}
                   >
                     <option value="active">Active (Normal Access)</option>
-                    <option value="suspended">Suspended (Blocked from rentals) ⚠</option>
                     <option value="blocked">Blocked (Banned from rentals) ⛔</option>
                     <option value="inactive">Inactive</option>
                     <option value="pending_verification">Pending Verification</option>
+                    <option value="suspended">Suspended (Blocked from rentals) ⚠</option>
                   </select>
                 </div>
 
@@ -1166,59 +1253,155 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                         placeholder="e.g. Unsettled rental damage, safety violation..."
                         value={formData.statusRemark}
                         onChange={(e) => setFormData({ ...formData, statusRemark: e.target.value })}
-                        className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-rose-500 bg-rose-950/40 text-rose-200 placeholder-rose-400/60"
+                        className={`w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-rose-500 ${
+                          themeMode === 'dark'
+                            ? 'bg-rose-950/40 text-rose-200 placeholder-rose-400/60'
+                            : 'bg-rose-50 text-rose-950 placeholder-rose-400'
+                        }`}
                       />
                     </div>
                   ) : (
-                    <div className="text-slate-400 text-xs flex items-center h-full pt-5">
+                    <div className={`${t.textMuted} text-xs flex items-center h-full pt-5`}>
                       <span>Status governs rental desk eligibility.</span>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Customer Group Management Multi-Select */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
+              {/* Customer Group Management Dropdown Selection (Alphabetical Order) & Admin Group Creation */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
                   <label className={`text-xs font-semibold flex items-center gap-1.5 ${t.textHeading}`}>
                     <Tag className="w-3.5 h-3.5 text-cyan-400" />
                     <span>Assign Customer Groups</span>
                   </label>
-                  <span className="text-[10px] text-slate-400">
-                    Click to assign / remove
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 flex-wrap p-2.5 rounded-xl border border-slate-700/60 bg-slate-900/40 min-h-[42px]">
-                  {customerGroups.filter((g) => g.isActive).map((group) => {
-                    const isSelected = formData.groups.includes(group.name);
-                    return (
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] ${t.textMuted}`}>
+                      Alphabetical A-Z Dropdown
+                    </span>
+                    {isAdmin && (
                       <button
-                        key={group.id}
                         type="button"
                         onClick={() => {
-                          if (isSelected) {
-                            setFormData({
-                              ...formData,
-                              groups: formData.groups.filter((g) => g !== group.name),
-                            });
-                          } else {
-                            setFormData({
-                              ...formData,
-                              groups: [...formData.groups, group.name],
-                            });
+                          setIsAddingNewGroup(!isAddingNewGroup);
+                          setNewGroupError(null);
+                          setNewGroupNameInput('');
+                        }}
+                        className={`text-[11px] px-2 py-0.5 rounded-lg border font-semibold flex items-center gap-1 transition cursor-pointer ${
+                          isAddingNewGroup
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                            : `${t.cardBg} ${t.textHeading} ${t.border} hover:border-cyan-500`
+                        }`}
+                        title="Add a new customer group"
+                      >
+                        <Plus className="w-3 h-3 text-cyan-400" />
+                        <span>{isAddingNewGroup ? 'Cancel' : '+ Add Group'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Admin Add Group Mini-Form */}
+                {isAdmin && isAddingNewGroup && (
+                  <div className={`p-2.5 rounded-xl border ${t.border} ${t.cardSubtleBg} space-y-2 animate-fade-in`}>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={newGroupNameInput}
+                        onChange={(e) => {
+                          setNewGroupNameInput(e.target.value);
+                          setNewGroupError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleCreateNewGroup(true);
                           }
                         }}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 border ${
-                          isSelected
-                            ? 'bg-cyan-500 text-white border-cyan-400 shadow-xs'
-                            : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                        }`}
+                        placeholder="Enter new group name (e.g. VIP Tourists)..."
+                        className={`flex-1 px-3 py-1.5 text-xs rounded-xl ${t.textInput}`}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleCreateNewGroup(true)}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white flex items-center gap-1 cursor-pointer transition shadow-xs"
                       >
-                        <span>{group.name}</span>
-                        {isSelected && <Check className="w-3 h-3" />}
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Add</span>
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingNewGroup(false);
+                          setNewGroupError(null);
+                          setNewGroupNameInput('');
+                        }}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs ${t.inactiveTab} cursor-pointer`}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {newGroupError && (
+                      <p className="text-[11px] text-rose-400 font-medium">{newGroupError}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Dropdown list in alphabetical order */}
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val && !formData.groups.includes(val)) {
+                      setFormData({
+                        ...formData,
+                        groups: [...formData.groups, val],
+                      });
+                    }
+                  }}
+                  className={`w-full px-3 py-2 text-xs sm:text-sm rounded-xl ${t.dropdownInput} cursor-pointer font-medium`}
+                >
+                  <option value="">-- Select Customer Group to Assign (A-Z) --</option>
+                  {sortedActiveGroups.map((group) => {
+                    const isAssigned = formData.groups.includes(group.name);
+                    return (
+                      <option key={group.id} value={group.name} disabled={isAssigned}>
+                        {group.name} {isAssigned ? '✓ (Assigned)' : ''}
+                      </option>
                     );
                   })}
+                </select>
+
+                {/* Assigned groups chips with remove × button */}
+                <div className={`flex items-center gap-1.5 flex-wrap p-2.5 rounded-xl border ${t.border} ${t.cardSubtleBg} min-h-[42px]`}>
+                  {formData.groups.length === 0 ? (
+                    <span className={`text-xs italic ${t.textMuted}`}>
+                      No groups assigned yet. Select a group from the alphabetical dropdown above.
+                    </span>
+                  ) : (
+                    formData.groups.map((groupName) => (
+                      <span
+                        key={groupName}
+                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1.5 shadow-xs"
+                      >
+                        <span>{groupName}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormData({
+                              ...formData,
+                              groups: formData.groups.filter((g) => g !== groupName),
+                            });
+                          }}
+                          className="hover:text-white transition cursor-pointer text-cyan-400 hover:bg-cyan-500/40 rounded-full w-4 h-4 flex items-center justify-center font-bold"
+                          title={`Remove ${groupName}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -1391,45 +1574,210 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                 </div>
               )}
 
-              {/* Account Status */}
-              <div className={`p-2.5 rounded-xl border flex items-center justify-between ${t.cardSubtleBg}`}>
-                <span className={`flex items-center gap-1.5 font-semibold ${t.textMuted}`}>
-                  <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-                  Account Status
-                </span>
-                <div>
-                  {getCustomerStatusBadge(viewingCustomer.status)}
+              {/* Account Status with Alphabetical Dropdown Selection */}
+              <div className={`p-3 rounded-xl border space-y-2.5 ${t.cardSubtleBg}`}>
+                <div className="flex items-center justify-between">
+                  <span className={`flex items-center gap-1.5 font-semibold text-xs ${t.textHeading}`}>
+                    <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Customer Status</span>
+                  </span>
+                  <div>
+                    {getCustomerStatusBadge(viewingCustomer.status)}
+                  </div>
                 </div>
+
+                {/* Dropdown list in alphabetical order */}
+                <div>
+                  <label className={`block text-[10px] uppercase font-bold ${t.textMuted} mb-1`}>
+                    Change Status (A-Z Dropdown)
+                  </label>
+                  <select
+                    value={viewingCustomer.status || 'active'}
+                    onChange={(e) => {
+                      const nextStatus = e.target.value as CustomerStatus;
+                      const updated: Customer = {
+                        ...viewingCustomer,
+                        status: nextStatus,
+                        statusUpdatedAt: Date.now(),
+                      };
+                      setViewingCustomer(updated);
+                      onUpdateCustomer(updated);
+                    }}
+                    className={`w-full px-3 py-2 text-xs font-bold rounded-xl ${t.dropdownInput} cursor-pointer`}
+                  >
+                    <option value="active">Active (Normal Access)</option>
+                    <option value="blocked">Blocked (Banned from rentals) ⛔</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="pending_verification">Pending Verification</option>
+                    <option value="suspended">Suspended (Blocked from rentals) ⚠</option>
+                  </select>
+                </div>
+
+                {/* Status Remark if Suspended or Blocked */}
+                {(viewingCustomer.status === 'suspended' || viewingCustomer.status === 'blocked' || viewingCustomer.statusRemark) && (
+                  <div className="p-2.5 rounded-xl border border-rose-500/40 bg-rose-950/40 text-rose-200 space-y-1">
+                    <span className="block text-[10px] uppercase font-bold text-rose-300">
+                      Suspension / Block Reason
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Enter reason for suspension or block..."
+                      value={viewingCustomer.statusRemark || ''}
+                      onChange={(e) => {
+                        const nextRemark = e.target.value;
+                        const updated: Customer = {
+                          ...viewingCustomer,
+                          statusRemark: nextRemark,
+                        };
+                        setViewingCustomer(updated);
+                        onUpdateCustomer(updated);
+                      }}
+                      className={`w-full px-2.5 py-1 text-xs rounded-lg border border-rose-500/50 ${
+                        themeMode === 'dark' ? 'bg-slate-900 text-rose-200' : 'bg-rose-50 text-rose-950'
+                      }`}
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Status Remark if Suspended or Blocked */}
-              {viewingCustomer.statusRemark && (
-                <div className="p-2.5 rounded-xl border border-rose-500/40 bg-rose-950/40 text-rose-200">
-                  <span className="block text-[10px] uppercase font-bold text-rose-300 mb-0.5">
-                    Suspension / Block Reason
+              {/* Assign Customer Groups with Alphabetical Dropdown Selection & Admin Group Creation */}
+              <div className={`p-3 rounded-xl border space-y-2.5 ${t.cardSubtleBg}`}>
+                <div className="flex items-center justify-between">
+                  <span className={`flex items-center gap-1.5 font-semibold text-xs ${t.textHeading}`}>
+                    <Tag className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Assign Customer Groups</span>
                   </span>
-                  <p className="text-xs">{viewingCustomer.statusRemark}</p>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] ${t.textMuted}`}>
+                      A-Z Dropdown List
+                    </span>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingNewGroup(!isAddingNewGroup);
+                          setNewGroupError(null);
+                          setNewGroupNameInput('');
+                        }}
+                        className={`text-[11px] px-2 py-0.5 rounded-lg border font-semibold flex items-center gap-1 transition cursor-pointer ${
+                          isAddingNewGroup
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                            : `${t.cardBg} ${t.textHeading} ${t.border} hover:border-cyan-500`
+                        }`}
+                        title="Add a new customer group"
+                      >
+                        <Plus className="w-3 h-3 text-cyan-400" />
+                        <span>{isAddingNewGroup ? 'Cancel' : '+ Add Group'}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-              )}
 
-              {/* Customer Groups */}
-              <div className={`p-2.5 rounded-xl border space-y-1.5 ${t.cardSubtleBg}`}>
-                <span className={`flex items-center gap-1.5 font-semibold ${t.textMuted}`}>
-                  <Tag className="w-3.5 h-3.5 text-cyan-400" />
-                  Assigned Groups
-                </span>
-                <div className="flex items-center gap-1.5 flex-wrap">
+                {/* Admin Add Group Mini-Form */}
+                {isAdmin && isAddingNewGroup && (
+                  <div className={`p-2.5 rounded-xl border ${t.border} ${t.cardSubtleBg} space-y-2 animate-fade-in`}>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={newGroupNameInput}
+                        onChange={(e) => {
+                          setNewGroupNameInput(e.target.value);
+                          setNewGroupError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleCreateNewGroupForViewingCustomer();
+                          }
+                        }}
+                        placeholder="Enter new group name (e.g. VIP Tourists)..."
+                        className={`flex-1 px-3 py-1.5 text-xs rounded-xl ${t.textInput}`}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCreateNewGroupForViewingCustomer}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white flex items-center gap-1 cursor-pointer transition shadow-xs"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Add</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingNewGroup(false);
+                          setNewGroupError(null);
+                          setNewGroupNameInput('');
+                        }}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs ${t.inactiveTab} cursor-pointer`}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {newGroupError && (
+                      <p className="text-[11px] text-rose-400 font-medium">{newGroupError}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Dropdown list in alphabetical order */}
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const curGroups = Array.isArray(viewingCustomer.groups) ? viewingCustomer.groups : [];
+                    if (val && !curGroups.includes(val)) {
+                      const updated: Customer = {
+                        ...viewingCustomer,
+                        groups: [...curGroups, val],
+                      };
+                      setViewingCustomer(updated);
+                      onUpdateCustomer(updated);
+                    }
+                  }}
+                  className={`w-full px-3 py-2 text-xs rounded-xl ${t.dropdownInput} cursor-pointer font-medium`}
+                >
+                  <option value="">-- Select Customer Group to Assign (A-Z) --</option>
+                  {sortedActiveGroups.map((group) => {
+                    const curGroups = Array.isArray(viewingCustomer.groups) ? viewingCustomer.groups : [];
+                    const isAssigned = curGroups.includes(group.name);
+                    return (
+                      <option key={group.id} value={group.name} disabled={isAssigned}>
+                        {group.name} {isAssigned ? '✓ (Assigned)' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+
+                {/* Assigned Groups Badges with Remove × button */}
+                <div className={`flex items-center gap-1.5 flex-wrap p-2 rounded-xl border ${t.border} ${t.cardSubtleBg} min-h-[36px]`}>
                   {Array.isArray(viewingCustomer.groups) && viewingCustomer.groups.length > 0 ? (
                     viewingCustomer.groups.map((g) => (
                       <span
                         key={g}
-                        className="px-2 py-0.5 rounded-lg text-xs font-bold bg-slate-800 border border-slate-700 text-cyan-300"
+                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1.5 shadow-xs"
                       >
-                        {g}
+                        <span>{g}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const curGroups = Array.isArray(viewingCustomer.groups) ? viewingCustomer.groups : [];
+                            const updated: Customer = {
+                              ...viewingCustomer,
+                              groups: curGroups.filter((item) => item !== g),
+                            };
+                            setViewingCustomer(updated);
+                            onUpdateCustomer(updated);
+                          }}
+                          className="hover:text-white transition cursor-pointer text-cyan-400 hover:bg-cyan-500/40 rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold"
+                          title={`Remove ${g}`}
+                        >
+                          ×
+                        </button>
                       </span>
                     ))
                   ) : (
-                    <span className={`text-[11px] italic ${t.textMuted}`}>No groups assigned</span>
+                    <span className={`text-[11px] italic ${t.textMuted}`}>No groups assigned yet. Choose from dropdown above.</span>
                   )}
                 </div>
               </div>

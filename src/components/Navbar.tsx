@@ -24,10 +24,15 @@ import {
   ChevronUp,
   Users,
   MessageSquare,
+  Car,
+  Compass,
+  FileText,
+  Search,
 } from 'lucide-react';
 import { AppSettings, RentalRecord, Vehicle } from '../types';
-import { DEFAULT_USER, UserAccount, getUserPermissions } from '../utils/auth';
+import { DEFAULT_USER, UserAccount, getUserPermissions, getMGRPersona } from '../utils/auth';
 import { ACCENT_COLORS, AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
+import { MGRTabType } from '../types/mgrBooking';
 
 export type NavTabType = 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers' | 'messages';
 
@@ -50,6 +55,10 @@ interface NavbarProps {
   onSelectAccent?: (accent: AccentColor) => void;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (v: boolean) => void;
+  systemMode?: 'bicycle_pos' | 'mgr_booking';
+  onToggleSystemMode?: (mode: 'bicycle_pos' | 'mgr_booking') => void;
+  mgrActiveTab?: MGRTabType;
+  onSelectMGRTab?: (tab: MGRTabType) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -70,6 +79,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectAccent,
   sidebarCollapsed,
   setSidebarCollapsed,
+  systemMode = 'bicycle_pos',
+  onToggleSystemMode,
+  mgrActiveTab = 'mgr-search',
+  onSelectMGRTab,
 }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -81,6 +94,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const activeUser: UserAccount = currentUser && currentUser.email ? currentUser : DEFAULT_USER;
   const isAdmin = activeUser.role === 'admin' || activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+  const persona = getMGRPersona(activeUser);
+  const isPassenger = persona === 'passenger';
+  const isOwner = persona === 'owner';
+  const isAdminUser = persona === 'admin' || isAdmin;
   const userPerms = getUserPermissions(activeUser);
   const handleOpenAuth = onOpenAuthModal || onOpenCashierModal || (() => {});
   const handleAccentChange = onSelectAccent || onChangeAccent || (() => {});
@@ -194,16 +211,85 @@ export const Navbar: React.FC<NavbarProps> = ({
     },
   ];
 
-  const sidebarBg = themeMode === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200';
-  const inactiveItemClass = themeMode === 'dark'
-    ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
-    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900';
+  // MGR Transport Marketplace Dedicated Side Menu Items with Role-Based Access Control
+  const mgrNavItems = [
+    {
+      id: 'mgr-search' as const,
+      label: 'Find Transport',
+      icon: <Search className="w-4 h-4 shrink-0" />,
+      badge: null as number | null,
+      show: true,
+      activeClass: 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold shadow-xs',
+    },
+    {
+      id: 'mgr-bookings' as const,
+      label: isPassenger ? 'My Bookings' : 'Bookings & Seats',
+      icon: <Calendar className="w-4 h-4 shrink-0" />,
+      badge: null as number | null,
+      show: true,
+      activeClass: 'bg-cyan-50 text-cyan-800 border border-cyan-300 font-bold shadow-xs',
+    },
+    {
+      id: 'mgr-fleet' as const,
+      label: 'Fleet & Boats',
+      icon: <Car className="w-4 h-4 shrink-0" />,
+      badge: null as number | null,
+      show: !isPassenger, // Blocked for Passenger (Passenger no need Fleet/Boats)
+      activeClass: 'bg-teal-50 text-teal-800 border border-teal-300 font-bold shadow-xs',
+    },
+    {
+      id: 'mgr-routes' as const,
+      label: 'Routes & Fares',
+      icon: <Compass className="w-4 h-4 shrink-0" />,
+      badge: null as number | null,
+      show: isAdminUser, // Blocked for Passenger & Owner (Admin only)
+      activeClass: 'bg-blue-50 text-blue-800 border border-blue-300 font-bold shadow-xs',
+    },
+    {
+      id: 'mgr-owners' as const,
+      label: isOwner ? 'Captains & Drivers' : 'Owners & Drivers',
+      icon: <Users className="w-4 h-4 shrink-0" />,
+      badge: null as number | null,
+      show: !isPassenger, // Blocked for Passenger (Passenger no need Owners/Drivers)
+      activeClass: 'bg-purple-50 text-purple-800 border border-purple-300 font-bold shadow-xs',
+    },
+    {
+      id: 'mgr-requests' as const,
+      label: isPassenger ? 'My Trip Requests' : (isOwner ? 'Trip Bidding Board' : 'Vehicle Requests'),
+      icon: <FileText className="w-4 h-4 shrink-0" />,
+      badge: null as number | null,
+      show: true,
+      activeClass: 'bg-amber-50 text-amber-800 border border-amber-300 font-bold shadow-xs',
+    },
+    {
+      id: 'mgr-admin' as const,
+      label: 'Marketplace Admin',
+      icon: <ShieldCheck className="w-4 h-4 shrink-0" />,
+      badge: null as number | null,
+      show: isAdminUser, // Blocked for Passenger & Owner (Admin only)
+      activeClass: 'bg-rose-50 text-rose-800 border border-rose-300 font-bold shadow-xs',
+    },
+  ];
+
+  const sidebarBg = systemMode === 'mgr_booking'
+    ? 'bg-white border-slate-200'
+    : (themeMode === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200');
+
+  const inactiveItemClass = systemMode === 'mgr_booking'
+    ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+    : (themeMode === 'dark'
+        ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900');
 
   return (
     <>
       {/* TOP NAVBAR */}
       <header
-        className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-6 border-b transition-colors ${t.headerBg}`}
+        className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-6 border-b transition-colors ${
+          systemMode === 'mgr_booking'
+            ? 'bg-white/95 backdrop-blur-md border-slate-200 text-slate-900'
+            : t.headerBg
+        }`}
         style={{ height: '4rem' }}
       >
         {/* Left: Menu Toggle + Logo */}
@@ -212,7 +298,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             id="btn-navbar-menu-toggle"
             type="button"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className={`p-2 rounded-xl border text-xs transition cursor-pointer ${t.inactiveTab} hover:scale-105`}
+            className={`p-2 rounded-xl border text-xs transition cursor-pointer ${
+              systemMode === 'mgr_booking' ? 'border-slate-200 text-slate-700 bg-white hover:bg-slate-50' : t.inactiveTab
+            } hover:scale-105`}
             title={sidebarCollapsed ? 'Expand side menu' : 'Collapse side menu'}
             aria-label={sidebarCollapsed ? 'Expand side menu' : 'Collapse side menu'}
           >
@@ -234,11 +322,55 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Bike className="w-4 h-4" />
               </div>
             )}
-            <span className={`font-bold text-base sm:text-lg tracking-tight ${t.textHeading}`}>
+            <span className={`font-bold text-base sm:text-lg tracking-tight ${systemMode === 'mgr_booking' ? 'text-slate-900' : t.textHeading}`}>
               {settings.businessName || (settings as any).shopName || 'Cycly Rent'}
             </span>
           </div>
         </div>
+
+        {/* Center: Module Switcher (Bicycle POS <-> MGR Transport Booking) */}
+        {onToggleSystemMode && (
+          !isPassenger && !isOwner ? (
+            <div className={`flex items-center p-1 rounded-xl shadow-inner border ${
+              systemMode === 'mgr_booking'
+                ? 'bg-slate-100 border-slate-300'
+                : 'bg-slate-800/80 border-slate-700/80'
+            }`}>
+              <button
+                type="button"
+                onClick={() => onToggleSystemMode('bicycle_pos')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  systemMode === 'bicycle_pos'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                    : (systemMode === 'mgr_booking' ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
+                }`}
+              >
+                <Bike className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Bicycle POS</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleSystemMode('mgr_booking')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  systemMode === 'mgr_booking'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Car className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">MGR Transport</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 shadow-xs">
+              <Car className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="text-xs font-bold tracking-tight">MGR Transport</span>
+              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-emerald-200/80 text-emerald-900 border border-emerald-300 uppercase tracking-wide">
+                {isPassenger ? 'Passenger' : 'Owner'}
+              </span>
+            </div>
+          )
+        )}
 
         {/* Right: Controls + Profile */}
         <div className="flex items-center gap-2 sm:gap-3">
@@ -379,10 +511,16 @@ export const Navbar: React.FC<NavbarProps> = ({
         style={{ top: '4rem', width: sidebarW }}
       >
         {/* Sidebar header */}
-        <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'} px-3 py-2.5 border-b shrink-0 ${t.divider}`}>
+        <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'} px-3 py-2.5 border-b shrink-0 ${
+          systemMode === 'mgr_booking' ? 'border-slate-200' : t.divider
+        }`}>
           {!sidebarCollapsed && (
-            <span className={`text-[11px] font-bold uppercase tracking-wider ${t.textMuted}`}>
-              Menu
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+              systemMode === 'mgr_booking'
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+            }`}>
+              {systemMode === 'mgr_booking' ? 'MGR Transport' : 'Bicycle Rental POS'}
             </span>
           )}
           <button
@@ -415,35 +553,61 @@ export const Navbar: React.FC<NavbarProps> = ({
           style={{ scrollbarWidth: 'none' }}
         >
           <div className={`flex flex-col gap-1 ${sidebarCollapsed ? 'px-1.5' : 'px-2'}`}>
-            {navItems.filter(item => item.show).map(item => {
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  id={`tab-${item.id}`}
-                  type="button"
-                  onClick={() => setActiveTab(item.id)}
-                  title={sidebarCollapsed ? item.label : undefined}
-                  className={`
-                    relative flex items-center gap-2.5 rounded-xl transition-all cursor-pointer
-                    ${sidebarCollapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5'}
-                    ${isActive ? item.activeClass : inactiveItemClass}
-                    text-xs sm:text-sm font-semibold whitespace-nowrap
-                  `}
-                >
-                  {item.icon}
-                  {!sidebarCollapsed && <span>{item.label}</span>}
-                  {!sidebarCollapsed && item.badge && (
-                    <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full font-bold ${t.badge}`}>
-                      {item.badge}
-                    </span>
-                  )}
-                  {sidebarCollapsed && item.badge && (
-                    <span className="absolute top-1 right-1 w-2 h-2 bg-emerald-500 rounded-full" />
-                  )}
-                </button>
-              );
-            })}
+            {systemMode === 'mgr_booking' ? (
+              /* MGR Transport Marketplace Nav Items */
+              mgrNavItems.filter(item => item.show).map(item => {
+                const isActive = mgrActiveTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    id={`tab-${item.id}`}
+                    type="button"
+                    onClick={() => onSelectMGRTab && onSelectMGRTab(item.id)}
+                    title={sidebarCollapsed ? item.label : undefined}
+                    className={`
+                      relative flex items-center gap-2.5 rounded-xl transition-all cursor-pointer
+                      ${sidebarCollapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5'}
+                      ${isActive ? item.activeClass : inactiveItemClass}
+                      text-xs sm:text-sm font-semibold whitespace-nowrap
+                    `}
+                  >
+                    {item.icon}
+                    {!sidebarCollapsed && <span>{item.label}</span>}
+                  </button>
+                );
+              })
+            ) : (
+              /* Bicycle Rental POS Nav Items (Existing untouched items) */
+              navItems.filter(item => item.show).map(item => {
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    id={`tab-${item.id}`}
+                    type="button"
+                    onClick={() => setActiveTab(item.id)}
+                    title={sidebarCollapsed ? item.label : undefined}
+                    className={`
+                      relative flex items-center gap-2.5 rounded-xl transition-all cursor-pointer
+                      ${sidebarCollapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5'}
+                      ${isActive ? item.activeClass : inactiveItemClass}
+                      text-xs sm:text-sm font-semibold whitespace-nowrap
+                    `}
+                  >
+                    {item.icon}
+                    {!sidebarCollapsed && <span>{item.label}</span>}
+                    {!sidebarCollapsed && item.badge && (
+                      <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full font-bold ${t.badge}`}>
+                        {item.badge}
+                      </span>
+                    )}
+                    {sidebarCollapsed && item.badge && (
+                      <span className="absolute top-1 right-1 w-2 h-2 bg-emerald-500 rounded-full" />
+                    )}
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
 

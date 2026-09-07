@@ -85,6 +85,8 @@ import {
 import { getStoredMessageTemplates, saveStoredMessageTemplates, getStoredCustomerGroups, saveStoredCustomerGroups, getStoredMessageHistory, saveStoredMessageHistory } from './utils/customer';
 import { getNextRentalNumber } from './utils/pricing';
 import { isSupabaseConfigured } from './lib/supabase';
+import { MGRBookingHub } from './components/mgr-booking/MGRBookingHub';
+import { MGRTabType } from './types/mgrBooking';
 import { 
   AccentColor, 
   ThemeMode, 
@@ -102,12 +104,75 @@ import {
   getStoredUsers,
   getStoredRoles,
   saveStoredUsers,
-  saveStoredRoles
+  saveStoredRoles,
+  getMGRPersona
 } from './utils/auth';
 
 export default function App() {
-  // Navigation tabs: 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers'
-  const [activeTab, setActiveTab] = useState<NavTabType>('rentals');
+  // Navigation State
+  const [activeTab, setActiveTab] = useState<NavTabType>(() => {
+    try {
+      const saved = localStorage.getItem('v_rental_active_tab');
+      return (saved as NavTabType) || 'rentals';
+    } catch {
+      return 'rentals';
+    }
+  });
+
+  // System Mode (Bicycle Rental POS vs MGR Transport Booking Marketplace)
+  const [systemMode, setSystemMode] = useState<'bicycle_pos' | 'mgr_booking'>(() => {
+    try {
+      const saved = localStorage.getItem('mgr_system_mode');
+      return (saved as any) || 'bicycle_pos';
+    } catch {
+      return 'bicycle_pos';
+    }
+  });
+  const [mgrActiveTab, setMgrActiveTab] = useState<MGRTabType>('mgr-search');
+
+  // Authenticated User Session
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => getCurrentUser());
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isFullLoginPage, setIsFullLoginPage] = useState<boolean>(() => {
+    try {
+      const savedUser = localStorage.getItem('v_rental_current_user');
+      const savedMode = localStorage.getItem('mgr_system_mode') || 'bicycle_pos';
+      return !savedUser && savedMode === 'bicycle_pos';
+    } catch {
+      return true;
+    }
+  });
+
+  const activeUser = currentUser || DEFAULT_USER;
+  const userPersona = getMGRPersona(activeUser);
+  const isPassenger = userPersona === 'passenger';
+  const isOwner = userPersona === 'owner';
+
+  const handleToggleSystemMode = (mode: 'bicycle_pos' | 'mgr_booking') => {
+    if ((isPassenger || isOwner) && mode === 'bicycle_pos') {
+      return; // Block access to Bicycle POS for Passenger and Owner
+    }
+    setSystemMode(mode);
+    try {
+      localStorage.setItem('mgr_system_mode', mode);
+    } catch {}
+  };
+
+  // Route protection for Passenger and Owner roles
+  useEffect(() => {
+    if (isPassenger || isOwner) {
+      if (systemMode !== 'mgr_booking') {
+        setSystemMode('mgr_booking');
+      }
+      if (isPassenger && ['mgr-fleet', 'mgr-routes', 'mgr-owners', 'mgr-admin'].includes(mgrActiveTab)) {
+        setMgrActiveTab('mgr-search');
+      }
+      if (isOwner && ['mgr-routes', 'mgr-admin'].includes(mgrActiveTab)) {
+        setMgrActiveTab('mgr-fleet');
+      }
+    }
+  }, [currentUser, isPassenger, isOwner, systemMode, mgrActiveTab]);
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   // Income & Expenses entries
@@ -123,11 +188,6 @@ export default function App() {
   // Theme & Accent State
   const [themeMode, setThemeMode] = useState<ThemeMode>(getSavedTheme);
   const [accent, setAccent] = useState<AccentColor>(getSavedAccent);
-
-  // Authenticated User Session
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => getCurrentUser());
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isFullLoginPage, setIsFullLoginPage] = useState(false);
 
   const t = getThemeClasses(themeMode, accent);
 
@@ -356,7 +416,10 @@ export default function App() {
           );
           setCompletedRentals(sanitized);
         }
-        if (cloudData.settings) setSettings(cloudData.settings);
+        if (cloudData.settings) {
+          setSettings(cloudData.settings);
+          localStorage.setItem('v_rental_settings', JSON.stringify(cloudData.settings));
+        }
 
         if (cloudData.userAccounts && cloudData.userAccounts.length > 0) {
           saveStoredUsers(cloudData.userAccounts);
@@ -419,18 +482,81 @@ export default function App() {
       loadData();
     });
 
+    // Window focus / visibility change recheck so changes from other devices apply promptly
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        loadData();
+      }
+    };
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
     return () => {
       unsubscribe();
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
     };
   }, []);
 
-  // Handlers for Settings, Vehicles, and Types with real-time Supabase sync
+  // Multi-tab / multi-window immediate broadcast sync
+  useEffect(() => {
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('bicycle_pos_channel');
+      bc.onmessage = (event) => {
+        const { type, settings: newSettings, types, vehicles: newVehicles } = event.data || {};
+        if (type === 'SETTINGS_UPDATED' && newSettings) {
+          setSettings(newSettings);
+        } else if (type === 'TYPES_UPDATED' && types) {
+          setVehicleTypes(types);
+        } else if (type === 'VEHICLES_UPDATED' && newVehicles) {
+          setVehicles(newVehicles);
+        } else if (type === 'LOGOUT') {
+          setCurrentUser(null);
+          setIsFullLoginPage(true);
+        }
+      };
+    } catch {}
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'v_rental_settings' && e.newValue) {
+        try {
+          setSettings(JSON.parse(e.newValue));
+        } catch {}
+      } else if (e.key === 'v_rental_types' && e.newValue) {
+        try {
+          setVehicleTypes(JSON.parse(e.newValue));
+        } catch {}
+      } else if (e.key === 'v_rental_vehicles' && e.newValue) {
+        try {
+          setVehicles(JSON.parse(e.newValue));
+        } catch {}
+      } else if (e.key === 'v_rental_current_user' && !e.newValue) {
+        setCurrentUser(null);
+        setIsFullLoginPage(true);
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      bc?.close();
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
+  // Handlers for Settings, Vehicles, and Types with real-time Supabase sync & broadcast
   const handleUpdateSettings = (newSettings: AppSettings) => {
     setSettings(newSettings);
     localStorage.setItem('v_rental_settings', JSON.stringify(newSettings));
     if (isSupabaseConfigured()) {
       syncSettingsToSupabase(newSettings);
     }
+    try {
+      const bc = new BroadcastChannel('bicycle_pos_channel');
+      bc.postMessage({ type: 'SETTINGS_UPDATED', settings: newSettings });
+      bc.close();
+    } catch {}
   };
 
   const handleUpdateVehicleTypes = (newTypes: VehicleType[]) => {
@@ -444,6 +570,11 @@ export default function App() {
       newTypes.forEach(t => syncVehicleTypeToSupabase(t));
       deleted.forEach(t => deleteVehicleTypeFromSupabase(t.id));
     }
+    try {
+      const bc = new BroadcastChannel('bicycle_pos_channel');
+      bc.postMessage({ type: 'TYPES_UPDATED', types: newTypes });
+      bc.close();
+    } catch {}
   };
 
   const handleUpdateVehicles = (newVehicles: Vehicle[]) => {
@@ -457,6 +588,11 @@ export default function App() {
       newVehicles.forEach(v => syncVehicleToSupabase(v));
       deleted.forEach(v => deleteVehicleFromSupabase(v.id));
     }
+    try {
+      const bc = new BroadcastChannel('bicycle_pos_channel');
+      bc.postMessage({ type: 'VEHICLES_UPDATED', vehicles: newVehicles });
+      bc.close();
+    } catch {}
   };
 
   // Handler: Start New Rental
@@ -726,14 +862,19 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUserSession(null);
-    setCurrentUser(DEFAULT_USER);
+    setCurrentUser(null);
     setIsFullLoginPage(true);
+    try {
+      const bc = new BroadcastChannel('bicycle_pos_channel');
+      bc.postMessage({ type: 'LOGOUT' });
+      bc.close();
+    } catch {}
   };
 
   // Auto-logout inactivity monitor based on settings.autoLogoutMinutes
   useEffect(() => {
     const timeoutMinutes = settings.autoLogoutMinutes ?? 15;
-    if (timeoutMinutes <= 0 || isFullLoginPage) return;
+    if (timeoutMinutes <= 0 || isFullLoginPage || !currentUser) return;
 
     const timeoutMs = timeoutMinutes * 60 * 1000;
     let timer: ReturnType<typeof setTimeout>;
@@ -746,7 +887,7 @@ export default function App() {
       }, timeoutMs);
     };
 
-    const events = ['mousedown', 'mousemove', 'keydown', 'touchstart', 'scroll'];
+    const events = ['mousedown', 'mousemove', 'keydown', 'touchstart', 'scroll', 'click'];
     events.forEach((evt) => window.addEventListener(evt, resetTimer, { passive: true }));
     resetTimer();
 
@@ -754,14 +895,15 @@ export default function App() {
       clearTimeout(timer);
       events.forEach((evt) => window.removeEventListener(evt, resetTimer));
     };
-  }, [settings.autoLogoutMinutes, isFullLoginPage]);
+  }, [settings.autoLogoutMinutes, isFullLoginPage, currentUser]);
 
-  // If user explicitly navigated to full login page
-  if (isFullLoginPage) {
+  // If user explicitly navigated to full login page or no active session in bicycle_pos
+  if (isFullLoginPage || (systemMode === 'bicycle_pos' && !currentUser)) {
     return (
       <LoginPage
         onLoginSuccess={(user) => {
           setCurrentUser(user);
+          setCurrentUserSession(user);
           setIsFullLoginPage(false);
           setSidebarCollapsed(true);
           setSettings((prev) => ({ ...prev, cashierName: user.name }));
@@ -776,10 +918,8 @@ export default function App() {
     );
   }
 
-  const activeUser = currentUser || DEFAULT_USER;
-
   return (
-    <div className={`flex flex-col min-h-screen ${t.appBg} w-full overflow-auto font-sans transition-colors duration-300`}>
+    <div className={`flex flex-col min-h-screen ${systemMode === 'mgr_booking' ? 'bg-slate-50 text-slate-900' : t.appBg} w-full overflow-auto font-sans transition-colors duration-300`}>
       {/* Top Navigation Bar with Theme Toggles, Palette Picker, Inactive Bordered Tabs & User Login */}
       <Navbar
         activeTab={activeTab}
@@ -800,6 +940,10 @@ export default function App() {
         onChangeAccent={handleChangeAccent}
         sidebarCollapsed={sidebarCollapsed}
         setSidebarCollapsed={setSidebarCollapsed}
+        systemMode={systemMode}
+        onToggleSystemMode={handleToggleSystemMode}
+        mgrActiveTab={mgrActiveTab}
+        onSelectMGRTab={setMgrActiveTab}
       />
 
       {/* Main Container */}
@@ -813,7 +957,17 @@ export default function App() {
       >
         <div className="px-4 sm:px-6 lg:px-8 pt-6">
 
-          {/* Tab 1: Rental Counter Desk */}
+          {/* MGR Transport Marketplace Hub */}
+          {systemMode === 'mgr_booking' ? (
+            <MGRBookingHub
+              activeTab={mgrActiveTab}
+              setActiveTab={setMgrActiveTab}
+              themeMode="light"
+              currentUser={activeUser}
+            />
+          ) : (
+            <>
+              {/* Tab 1: Rental Counter Desk */}
           {activeTab === 'rentals' && (
             <div className="space-y-6">
               <StartRentalCard
@@ -918,6 +1072,8 @@ export default function App() {
                 themeMode={themeMode}
                 accent={accent}
                 shopName={settings.businessName || 'Cycly Rent'}
+                settings={settings}
+                onUpdateSettings={handleUpdateSettings}
                 onAddMessageHistory={(entry) => {
                   setMessageHistory((prev) => {
                     const next = [entry, ...prev].slice(0, 1000); // keep last 1000
@@ -1048,6 +1204,8 @@ export default function App() {
               themeMode={themeMode}
               accent={accent}
             />
+          )}
+            </>
           )}
 
         </div>{/* end inner px wrapper */}

@@ -86,6 +86,10 @@ export interface AppSettings {
   rentalNumberPrefix: string;
   companyLogo?: string; // base64 data URL of the company logo image
   autoLogoutMinutes?: number; // Inactivity timeout in minutes (e.g. 5, 15, 30, 60, 0 for never)
+  whatsappApiUrl?: string; // WhatsApp API / Webhook URL for automated bulk sending
+  whatsappApiKey?: string; // Optional API key or auth token for WhatsApp gateway
+  whatsappGatewayMode?: 'automated_api' | 'automated_direct' | 'wa_link'; // Dispatch mode
+  bulkSendingConfig?: BulkSendingConfig; // Anti-spam throttling settings configured by admin
 }
 
 export type CustomerStatus = 'active' | 'suspended' | 'blocked' | 'inactive' | 'pending_verification';

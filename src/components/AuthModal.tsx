@@ -282,6 +282,48 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             </div>
 
+            {/* Quick Demo Test Accounts */}
+            <div className="pt-2 border-t border-slate-500/20">
+              <span className={`text-[10px] font-bold uppercase tracking-wider block mb-1.5 ${t.textMuted}`}>
+                Quick Demo Login (MGR Transport):
+              </span>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginEmail('passenger@mannargreenride.lk');
+                    setLoginPassword('passenger123');
+                    clearMessages();
+                  }}
+                  className="px-2 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition cursor-pointer text-center"
+                >
+                  👤 Passenger
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginEmail('owner@mannargreenride.lk');
+                    setLoginPassword('owner123');
+                    clearMessages();
+                  }}
+                  className="px-2 py-1.5 rounded-lg text-[11px] font-bold bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/25 transition cursor-pointer text-center"
+                >
+                  🚐 Fleet Owner
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginEmail('admin@mannargreenride.lk');
+                    setLoginPassword('admin123');
+                    clearMessages();
+                  }}
+                  className="px-2 py-1.5 rounded-lg text-[11px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 transition cursor-pointer text-center"
+                >
+                  🛡️ Admin
+                </button>
+              </div>
+            </div>
+
             {/* Action Buttons */}
             <div className="flex items-center justify-between pt-2">
               <button
