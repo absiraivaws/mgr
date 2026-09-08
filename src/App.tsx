@@ -158,16 +158,16 @@ export default function App() {
     } catch {}
   };
 
-  // Route protection for Passenger and Owner roles
+  // Route protection for Passenger and Owner roles - Dashboard removed for passenger and driver
   useEffect(() => {
     if (isPassenger || isOwner) {
       if (systemMode !== 'mgr_booking') {
         setSystemMode('mgr_booking');
       }
-      if (isPassenger && ['mgr-fleet', 'mgr-routes', 'mgr-owners', 'mgr-admin'].includes(mgrActiveTab)) {
+      if (isPassenger && ['mgr-dashboard', 'mgr-fleet', 'mgr-routes', 'mgr-owners', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
         setMgrActiveTab('mgr-search');
       }
-      if (isOwner && ['mgr-routes', 'mgr-admin'].includes(mgrActiveTab)) {
+      if (isOwner && ['mgr-dashboard', 'mgr-search', 'mgr-routes', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
         setMgrActiveTab('mgr-fleet');
       }
     }
@@ -422,7 +422,15 @@ export default function App() {
         }
 
         if (cloudData.userAccounts && cloudData.userAccounts.length > 0) {
-          saveStoredUsers(cloudData.userAccounts);
+          const localUsers = getStoredUsers();
+          const mergedMap = new Map<string, UserAccount>();
+          for (const u of localUsers) {
+            if (u && u.email) mergedMap.set(u.email.toLowerCase(), u);
+          }
+          for (const u of cloudData.userAccounts) {
+            if (u && u.email) mergedMap.set(u.email.toLowerCase(), u);
+          }
+          saveStoredUsers(Array.from(mergedMap.values()));
         } else {
           syncAllUsersToSupabase(getStoredUsers());
         }

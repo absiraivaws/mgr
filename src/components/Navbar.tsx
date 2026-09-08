@@ -214,12 +214,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   // MGR Transport Marketplace Dedicated Side Menu Items with Role-Based Access Control
   const mgrNavItems = [
     {
+      id: 'mgr-dashboard' as const,
+      label: 'Dashboard',
+      icon: <Sparkles className="w-4 h-4 shrink-0" />,
+      badge: null as number | null,
+      show: isAdminUser, // Removed for passenger and driver, Admin only
+      activeClass: 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold shadow-xs',
+    },
+    {
       id: 'mgr-search' as const,
       label: 'Find Transport',
       icon: <Search className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: true,
-      activeClass: 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold shadow-xs',
+      show: !isOwner, // Removed for Owner
+      activeClass: 'bg-cyan-50 text-cyan-800 border border-cyan-300 font-bold shadow-xs',
     },
     {
       id: 'mgr-bookings' as const,
@@ -227,46 +235,30 @@ export const Navbar: React.FC<NavbarProps> = ({
       icon: <Calendar className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
       show: true,
-      activeClass: 'bg-cyan-50 text-cyan-800 border border-cyan-300 font-bold shadow-xs',
-    },
-    {
-      id: 'mgr-fleet' as const,
-      label: 'Fleet & Boats',
-      icon: <Car className="w-4 h-4 shrink-0" />,
-      badge: null as number | null,
-      show: !isPassenger, // Blocked for Passenger (Passenger no need Fleet/Boats)
       activeClass: 'bg-teal-50 text-teal-800 border border-teal-300 font-bold shadow-xs',
     },
     {
-      id: 'mgr-routes' as const,
-      label: 'Routes & Fares',
-      icon: <Compass className="w-4 h-4 shrink-0" />,
+      id: 'mgr-fleet' as const,
+      label: 'Fleet & Listings',
+      icon: <Car className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: isAdminUser, // Blocked for Passenger & Owner (Admin only)
-      activeClass: 'bg-blue-50 text-blue-800 border border-blue-300 font-bold shadow-xs',
+      show: !isPassenger, // Blocked for Passenger
+      activeClass: 'bg-indigo-50 text-indigo-800 border border-indigo-300 font-bold shadow-xs',
     },
     {
       id: 'mgr-owners' as const,
-      label: isOwner ? 'Captains & Drivers' : 'Owners & Drivers',
+      label: 'Driver',
       icon: <Users className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: !isPassenger, // Blocked for Passenger (Passenger no need Owners/Drivers)
+      show: !isPassenger, // Blocked for Passenger
       activeClass: 'bg-purple-50 text-purple-800 border border-purple-300 font-bold shadow-xs',
     },
     {
-      id: 'mgr-requests' as const,
-      label: isPassenger ? 'My Trip Requests' : (isOwner ? 'Trip Bidding Board' : 'Vehicle Requests'),
-      icon: <FileText className="w-4 h-4 shrink-0" />,
+      id: 'mgr-settings' as const,
+      label: 'Settings & SQL',
+      icon: <SettingsIcon className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: true,
-      activeClass: 'bg-amber-50 text-amber-800 border border-amber-300 font-bold shadow-xs',
-    },
-    {
-      id: 'mgr-admin' as const,
-      label: 'Marketplace Admin',
-      icon: <ShieldCheck className="w-4 h-4 shrink-0" />,
-      badge: null as number | null,
-      show: isAdminUser, // Blocked for Passenger & Owner (Admin only)
+      show: isAdminUser, // Admin only
       activeClass: 'bg-rose-50 text-rose-800 border border-rose-300 font-bold shadow-xs',
     },
   ];
@@ -292,21 +284,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         }`}
         style={{ height: '4rem' }}
       >
-        {/* Left: Menu Toggle + Logo */}
+        {/* Left: Company Logo (Toggle button removed) */}
         <div className="flex items-center gap-2.5">
-          <button
-            id="btn-navbar-menu-toggle"
-            type="button"
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className={`p-2 rounded-xl border text-xs transition cursor-pointer ${
-              systemMode === 'mgr_booking' ? 'border-slate-200 text-slate-700 bg-white hover:bg-slate-50' : t.inactiveTab
-            } hover:scale-105`}
-            title={sidebarCollapsed ? 'Expand side menu' : 'Collapse side menu'}
-            aria-label={sidebarCollapsed ? 'Expand side menu' : 'Collapse side menu'}
-          >
-            <Menu className="w-4 h-4" />
-          </button>
-
           <div className="flex items-center gap-2.5">
             {settings.companyLogo ? (
               <img
@@ -385,50 +364,52 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           </div>
 
-          {/* Accent Picker */}
-          <div className="relative">
-            <button
-              id="btn-theme-palette"
-              type="button"
-              onClick={() => setShowColorPicker(!showColorPicker)}
-              className={`p-2 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${t.inactiveTab}`}
-              title="Change Global Color Theme Accent"
-            >
-              <Palette className="w-4 h-4" />
-              <span
-                className="w-2.5 h-2.5 rounded-full"
-                style={{ backgroundColor: ACCENT_COLORS.find(c => c.id === accent)?.hex || '#10b981' }}
-              />
-            </button>
-            {showColorPicker && (
-              <div
-                className={`absolute right-0 mt-2 w-48 p-2 rounded-xl shadow-xl z-50 border ${t.modalBg}`}
-                onMouseLeave={() => setShowColorPicker(false)}
+          {/* Accent Picker (Admin Only) */}
+          {isAdminUser && (
+            <div className="relative">
+              <button
+                id="btn-theme-palette"
+                type="button"
+                onClick={() => setShowColorPicker(!showColorPicker)}
+                className={`p-2 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${t.inactiveTab}`}
+                title="Change Global Color Theme Accent (Admin Only)"
               >
-                <div className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 ${t.textMuted}`}>
-                  Global Accent Color
+                <Palette className="w-4 h-4" />
+                <span
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: ACCENT_COLORS.find(c => c.id === accent)?.hex || '#10b981' }}
+                />
+              </button>
+              {showColorPicker && (
+                <div
+                  className={`absolute right-0 mt-2 w-48 p-2 rounded-xl shadow-xl z-50 border ${t.modalBg}`}
+                  onMouseLeave={() => setShowColorPicker(false)}
+                >
+                  <div className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 ${t.textMuted}`}>
+                    Global Accent Color
+                  </div>
+                  <div className="space-y-1 mt-1">
+                    {ACCENT_COLORS.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => { handleAccentChange(c.id); setShowColorPicker(false); }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition ${
+                          accent === c.id ? `${t.badge} font-bold` : `hover:bg-slate-500/10 ${t.textMain}`
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.hex }} />
+                          <span>{c.name}</span>
+                        </div>
+                        {accent === c.id && <span className="text-[10px]">✓</span>}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-1 mt-1">
-                  {ACCENT_COLORS.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => { handleAccentChange(c.id); setShowColorPicker(false); }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition ${
-                        accent === c.id ? `${t.badge} font-bold` : `hover:bg-slate-500/10 ${t.textMain}`
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.hex }} />
-                        <span>{c.name}</span>
-                      </div>
-                      {accent === c.id && <span className="text-[10px]">✓</span>}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
 
 
@@ -622,7 +603,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             <ChevronDown className="w-4 h-4" />
           </button>
         )}
-
 
       </aside>
     </>

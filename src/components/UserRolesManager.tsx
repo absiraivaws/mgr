@@ -96,6 +96,19 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   const [users, setUsers] = useState<UserAccount[]>(() => getStoredUsers());
   const [roles, setRoles] = useState<RoleDefinition[]>(() => getStoredRoles());
   
+  // Filter only staff users for User Accounts & Assigned Role Levels (excluding self-onboarded passengers and owners)
+  const staffUsers = useMemo(() => {
+    return users.filter(u => {
+      const role = (u.role || '').toLowerCase();
+      return role !== 'passenger' && role !== 'owner';
+    });
+  }, [users]);
+
+  // Roles available for staff assignment (excluding customer/passenger and external fleet owner roles)
+  const staffRoles = useMemo(() => {
+    return roles.filter(r => r.id !== 'passenger' && r.id !== 'owner');
+  }, [roles]);
+  
   // User to Role assignment state
   const [selectedRoles, setSelectedRoles] = useState<Record<string, UserRole>>(() => {
     const initial: Record<string, UserRole> = {};
@@ -1236,7 +1249,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
             <thead className={`${t.cardSubtleBg} uppercase font-semibold border-b ${t.divider} ${t.textMuted}`}>
               <tr>
                 <th className="px-4 py-3.5">User & Credentials</th>
-                {roles.map((role) => (
+                {staffRoles.map((role) => (
                   <th key={role.id} className="px-3.5 py-3.5 text-center">
                     <span>{role.name}</span>
                   </th>
@@ -1245,7 +1258,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
               </tr>
             </thead>
             <tbody className={`divide-y ${t.divider}`}>
-              {users.map((user) => {
+              {staffUsers.map((user) => {
                 const assignedRole = selectedRoles[user.id] || user.role;
                 const hasChanged = assignedRole !== user.role;
                 const isSaved = savedUserIds[user.id];
@@ -1286,7 +1299,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                     </td>
 
                     {/* Role Level Tick Boxes */}
-                    {roles.map((role) => {
+                    {staffRoles.map((role) => {
                       const isChecked = assignedRole === role.id;
                       const isDisabled = !isAdmin || (isDefaultAdmin && role.id !== 'admin');
                       const badgeClasses = getRoleBadgeClasses(role.color);
@@ -1328,20 +1341,22 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
                               hasChanged
                                 ? `${t.primaryBtn} shadow-md ring-2 ring-emerald-500/30`
-                                : `${t.inactiveTab} opacity-60 disabled:opacity-30 disabled:cursor-not-allowed`
+                                : `${t.inactiveTab} opacity-40 cursor-not-allowed`
                             }`}
+                            title={hasChanged ? 'Save role changes for this user' : 'No changes to save'}
                           >
                             <Save className="w-3.5 h-3.5" />
                             <span>Save</span>
                           </button>
                         )}
 
-                        {!isDefaultAdmin && isAdmin && (
+                        {isAdmin && !isDefaultAdmin && (
                           <button
+                            id={`btn-delete-user-${user.id}`}
                             type="button"
                             onClick={() => handleDeleteUser(user)}
-                            className="p-1.5 rounded-xl text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition cursor-pointer"
-                            title={`Delete user account for ${user.name}`}
+                            className={`p-1.5 rounded-lg border transition text-rose-400 hover:bg-rose-500/10 border-rose-500/20 cursor-pointer`}
+                            title={`Delete user account ${user.name}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1366,7 +1381,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
               </div>
               <div>
                 <h2 className={`text-base sm:text-lg font-bold tracking-tight ${t.textHeading}`}>
-                  User Accounts & Assigned Role Levels Templates
+                  Automated Message Templates (WhatsApp & SMS)
                 </h2>
                 <p className={`text-xs ${t.textMuted} mt-0.5`}>
                   Create, customize and manage WhatsApp & notification message templates for birthdays, rental starts, returns, and promos.

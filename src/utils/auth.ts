@@ -597,11 +597,20 @@ export async function authenticateUser(email: string, password: string): Promise
     const supa = getSupabase();
     if (supa) {
       try {
-        const { data: supaRow, error } = await supa
+        let { data: supaRow } = await supa
           .from('user_accounts')
           .select('*')
           .ilike('email', normalizedEmail)
           .maybeSingle();
+
+        if (!supaRow) {
+          const { data: altRow } = await supa
+            .from('user_accounts')
+            .select('*')
+            .or(`name.ilike.${normalizedEmail},phone.eq.${normalizedEmail}`)
+            .maybeSingle();
+          supaRow = altRow;
+        }
 
         if (supaRow) {
           const expectedHash = (supaRow.password_hash || '').trim();
@@ -629,7 +638,7 @@ export async function authenticateUser(email: string, password: string): Promise
           // Synchronize localStorage stored users so stale passwords are eliminated
           const users = getStoredUsers();
           const cleanUsers = users.filter(
-            (u) => u && u.id !== syncedUser.id && u.email?.toLowerCase() !== normalizedEmail
+            (u) => u && u.id !== syncedUser.id && u.email?.toLowerCase() !== (syncedUser.email || '').toLowerCase()
           );
           saveStoredUsers([syncedUser, ...cleanUsers]);
           setCurrentUserSession(syncedUser);
@@ -643,11 +652,20 @@ export async function authenticateUser(email: string, password: string): Promise
 
   // 2. OFFLINE / FALLBACK: Only if Supabase user_accounts was unreachable or account not found
   const users = getStoredUsers();
-  let found = users.find((u) => u && u.email && u.email.toLowerCase() === normalizedEmail);
+  let found = users.find(
+    (u) =>
+      u &&
+      ((u.email && u.email.toLowerCase() === normalizedEmail) ||
+       (u.name && u.name.toLowerCase() === normalizedEmail) ||
+       (u.phone && u.phone.trim() === normalizedEmail))
+  );
 
   if (!found) {
     found = MGR_INITIAL_ACCOUNTS.find(
-      (u) => u.email && u.email.toLowerCase() === normalizedEmail
+      (u) =>
+        u &&
+        ((u.email && u.email.toLowerCase() === normalizedEmail) ||
+         (u.name && u.name.toLowerCase() === normalizedEmail))
     );
   }
 

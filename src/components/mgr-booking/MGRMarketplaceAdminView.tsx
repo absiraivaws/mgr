@@ -46,6 +46,7 @@ export const MGRMarketplaceAdminView: React.FC<MGRMarketplaceAdminViewProps> = (
   themeMode = 'light',
 }) => {
   const [commissionRate, setCommissionRate] = useState(settings.commissionPercentage || 5);
+  const [convenienceFeeRate, setConvenienceFeeRate] = useState(settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5);
   const [instantBooking, setInstantBooking] = useState(settings.instantBookingEnabled ?? true);
   const [whatsappNumber, setWhatsappNumber] = useState(settings.contactWhatsAppNumber || '+94 77 987 6543');
   const [supportEmail, setSupportEmail] = useState(settings.supportEmail || 'booking@mannargreenride.lk');
@@ -62,6 +63,7 @@ export const MGRMarketplaceAdminView: React.FC<MGRMarketplaceAdminViewProps> = (
     e.preventDefault();
     onUpdateSettings({
       commissionPercentage: Number(commissionRate),
+      convenienceFeePercentage: Number(convenienceFeeRate),
       instantBookingEnabled: instantBooking,
       allowCashOnBoard: true,
       contactWhatsAppNumber: whatsappNumber,
@@ -222,6 +224,29 @@ export const MGRMarketplaceAdminView: React.FC<MGRMarketplaceAdminViewProps> = (
               </div>
               <p className="text-[10px] text-slate-500 mt-1">
                 Deducted automatically from whole vehicle and seat booking amounts before operator payout.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-slate-700 font-semibold mb-1">
+                Transport Booking Convenience Fee Rate (%)
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={15}
+                  step={0.5}
+                  value={convenienceFeeRate}
+                  onChange={e => setConvenienceFeeRate(Number(e.target.value))}
+                  className="flex-1 accent-emerald-600"
+                />
+                <span className="font-mono font-bold text-emerald-700 text-sm w-12 text-right">
+                  {convenienceFeeRate}%
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Added automatically to owner travel charge during request acceptance. Configured dynamically by MGR Admin.
               </p>
             </div>
 

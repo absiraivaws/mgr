@@ -3,11 +3,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type TransportType = 'car' | 'van' | 'bus' | 'boat';
+export type TransportType = 'car' | 'van' | 'bus' | 'bus_trip' | 'route_bus' | 'safari' | 'boat';
 
 export type DriverOption = 'with_driver' | 'without_driver' | 'both';
 
 export type VerificationStatus = 'pending' | 'under_review' | 'verified' | 'rejected' | 'suspended';
+
+export interface VehicleBid {
+  id: string;
+  vehicleId: string;
+  vehicleName: string;
+  passengerName: string;
+  passengerPhone: string;
+  passengerWhatsApp: string;
+  travelDate: string;
+  travelTime?: string;
+  bidAmount: number;
+  originalPrice: number;
+  notes?: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  createdAt: number;
+}
 
 export type BookingStatus =
   | 'pending'
@@ -67,8 +83,11 @@ export interface TransportVehicle {
   status: 'active' | 'pending' | 'suspended' | 'maintenance';
   // Pricing
   basePrice: number;
+  oneDayPrice?: number;
   pricingMethod: PricingMethod;
   pricePerSeat?: number;
+  // Bidding
+  bids?: VehicleBid[];
   // Boat Specifics
   boatDetails?: {
     boatName?: string;
@@ -211,6 +230,7 @@ export interface TransportQuote {
 // Marketplace General Settings
 export interface MarketplaceSettings {
   commissionPercentage: number;
+  convenienceFeePercentage?: number;
   instantBookingEnabled: boolean;
   allowCashOnBoard: boolean;
   contactWhatsAppNumber: string;
@@ -219,10 +239,12 @@ export interface MarketplaceSettings {
 }
 
 export type MGRTabType =
+  | 'mgr-dashboard'
   | 'mgr-search'
   | 'mgr-bookings'
   | 'mgr-fleet'
-  | 'mgr-routes'
   | 'mgr-owners'
+  | 'mgr-settings'
+  | 'mgr-routes'
   | 'mgr-requests'
   | 'mgr-admin';

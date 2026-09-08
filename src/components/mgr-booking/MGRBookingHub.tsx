@@ -16,6 +16,7 @@ import {
   MarketplaceSettings,
   BookingStatus,
   VerificationStatus,
+  VehicleBid,
 } from '../../types/mgrBooking';
 import {
   INITIAL_OWNERS,
@@ -31,15 +32,18 @@ import { PassengerTransportSearch, SearchCriteria } from './PassengerTransportSe
 import { TransportListingCards } from './TransportListingCards';
 import { SeatMapModal } from './SeatMapModal';
 import { BookingModal } from './BookingModal';
+import { VehicleBidModal } from './VehicleBidModal';
+import { MGRHotelStyleBooking } from './MGRHotelStyleBooking';
 import { MGRBookingsView } from './MGRBookingsView';
 import { MGRFleetView } from './MGRFleetView';
 import { MGROwnersDriversView } from './MGROwnersDriversView';
 import { MGRRoutesView } from './MGRRoutesView';
 import { MGRVehicleRequestsView } from './MGRVehicleRequestsView';
 import { MGRMarketplaceAdminView } from './MGRMarketplaceAdminView';
-import { MGRCredentialsBanner } from './MGRCredentialsBanner';
+import { MGRDashboardView } from './MGRDashboardView';
+import { MGRSettingsView } from './MGRSettingsView';
 import { UserAccount, getMGRPersona } from '../../utils/auth';
-import { Search, Calendar, CheckCircle2, DollarSign, Car, Bus, Ship, ShieldCheck } from 'lucide-react';
+import { Search, Calendar, CheckCircle2, DollarSign, Car, Bus, Ship, ShieldCheck, LayoutGrid } from 'lucide-react';
 
 interface MGRBookingHubProps {
   activeTab: MGRTabType;
@@ -58,6 +62,10 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
   const isPassenger = persona === 'passenger';
   const isOwner = persona === 'owner';
   const isAdminUser = persona === 'admin';
+
+  // Dynamic Grid Columns Selector State (1, 2, 3, 4)
+  const [columnsCount, setColumnsCount] = useState<number>(3);
+
   // State Initialization with LocalStorage Persistence
   const [owners, setOwners] = useState<TransportOwner[]>(() => {
     const saved = localStorage.getItem('mgr_transport_owners');
@@ -65,8 +73,21 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
   });
 
   const [vehicles, setVehicles] = useState<TransportVehicle[]>(() => {
-    const saved = localStorage.getItem('mgr_transport_vehicles');
-    return saved ? JSON.parse(saved) : INITIAL_VEHICLES;
+    try {
+      const saved = localStorage.getItem('mgr_transport_vehicles');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length >= 50) {
+          return parsed;
+        }
+        const existingIds = new Set(parsed.map((v: any) => v.id));
+        const combined = [...parsed, ...INITIAL_VEHICLES.filter((v) => !existingIds.has(v.id))];
+        localStorage.setItem('mgr_transport_vehicles', JSON.stringify(combined));
+        return combined;
+      }
+    } catch {}
+    localStorage.setItem('mgr_transport_vehicles', JSON.stringify(INITIAL_VEHICLES));
+    return INITIAL_VEHICLES;
   });
 
   const [drivers, setDrivers] = useState<TransportDriver[]>(() => {
@@ -145,6 +166,10 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
   const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
   const [totalSeatPrice, setTotalSeatPrice] = useState<number | undefined>(undefined);
 
+  // Bid Modal state
+  const [bidModalVehicle, setBidModalVehicle] = useState<TransportVehicle | null>(null);
+  const [bidModalMode, setBidModalMode] = useState<'create' | 'review'>('create');
+
   // Filter available vehicles based on search criteria
   const filteredVehicles = vehicles.filter(v => {
     if (v.status !== 'active') return false;
@@ -188,6 +213,59 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
     setTotalSeatPrice(undefined);
   };
 
+  const handleOpenCreateBid = (vehicle: TransportVehicle) => {
+    setBidModalVehicle(vehicle);
+    setBidModalMode('create');
+  };
+
+  const handleOpenReviewBids = (vehicle: TransportVehicle) => {
+    setBidModalVehicle(vehicle);
+    setBidModalMode('review');
+  };
+
+  // Passenger creates a price bid
+  const handleCreateBid = (vehicleId: string, bidData: Omit<VehicleBid, 'id' | 'createdAt' | 'status'>) => {
+    const newBid: VehicleBid = {
+      ...bidData,
+      id: `BID-${Math.floor(1000 + Math.random() * 9000)}`,
+      status: 'pending',
+      createdAt: Date.now(),
+    };
+    setVehicles(prev =>
+      prev.map(v => (v.id === vehicleId ? { ...v, bids: [newBid, ...(v.bids || [])] } : v))
+    );
+  };
+
+  // Driver/Owner accepts passenger bid
+  const handleAcceptBid = (vehicleId: string, bidId: string) => {
+    setVehicles(prev =>
+      prev.map(v => {
+        if (v.id === vehicleId) {
+          const updatedBids = (v.bids || []).map(b =>
+            b.id === bidId ? { ...b, status: 'accepted' as const } : b
+          );
+          return { ...v, bids: updatedBids };
+        }
+        return v;
+      })
+    );
+  };
+
+  // Driver/Owner rejects passenger bid
+  const handleRejectBid = (vehicleId: string, bidId: string) => {
+    setVehicles(prev =>
+      prev.map(v => {
+        if (v.id === vehicleId) {
+          const updatedBids = (v.bids || []).map(b =>
+            b.id === bidId ? { ...b, status: 'rejected' as const } : b
+          );
+          return { ...v, bids: updatedBids };
+        }
+        return v;
+      })
+    );
+  };
+
   // Handlers for data mutations
   const handleConfirmBooking = (newBooking: TransportBooking) => {
     setBookings(prev => [newBooking, ...prev]);
@@ -195,6 +273,14 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
 
   const handleUpdateBookingStatus = (bookingId: string, newStatus: BookingStatus) => {
     setBookings(prev => prev.map(b => (b.id === bookingId ? { ...b, status: newStatus } : b)));
+  };
+
+  const handleEditBooking = (updated: TransportBooking) => {
+    setBookings(prev => prev.map(b => (b.id === updated.id ? updated : b)));
+  };
+
+  const handleDeleteBooking = (id: string) => {
+    setBookings(prev => prev.filter(b => b.id !== id));
   };
 
   const handleAddVehicle = (newVehicle: TransportVehicle) => {
@@ -205,6 +291,14 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
     setVehicles(prev => prev.map(v => (v.id === vehicleId ? { ...v, status } : v)));
   };
 
+  const handleEditVehicle = (updated: TransportVehicle) => {
+    setVehicles(prev => prev.map(v => (v.id === updated.id ? updated : v)));
+  };
+
+  const handleDeleteVehicle = (id: string) => {
+    setVehicles(prev => prev.filter(v => v.id !== id));
+  };
+
   const handleAddOwner = (newOwner: TransportOwner) => {
     setOwners(prev => [newOwner, ...prev]);
   };
@@ -213,12 +307,44 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
     setOwners(prev => prev.map(o => (o.id === ownerId ? { ...o, status } : o)));
   };
 
+  const handleEditOwner = (updated: TransportOwner) => {
+    setOwners(prev => prev.map(o => (o.id === updated.id ? updated : o)));
+  };
+
+  const handleDeleteOwner = (id: string) => {
+    setOwners(prev => prev.filter(o => o.id !== id));
+  };
+
   const handleAddDriver = (newDriver: TransportDriver) => {
     setDrivers(prev => [newDriver, ...prev]);
   };
 
+  const handleUpdateDriverStatus = (driverId: string, status: TransportDriver['status']) => {
+    setDrivers(prev => prev.map(d => (d.id === driverId ? { ...d, status } : d)));
+  };
+
+  const handleEditDriver = (updated: TransportDriver) => {
+    setDrivers(prev => prev.map(d => (d.id === updated.id ? updated : d)));
+  };
+
+  const handleDeleteDriver = (id: string) => {
+    setDrivers(prev => prev.filter(d => d.id !== id));
+  };
+
   const handleAddRoute = (newRoute: TransportRoute) => {
     setRoutes(prev => [newRoute, ...prev]);
+  };
+
+  const handleUpdateRouteStatus = (routeId: string, status: TransportRoute['status']) => {
+    setRoutes(prev => prev.map(r => (r.id === routeId ? { ...r, status } : r)));
+  };
+
+  const handleEditRoute = (updated: TransportRoute) => {
+    setRoutes(prev => prev.map(r => (r.id === updated.id ? updated : r)));
+  };
+
+  const handleDeleteRoute = (id: string) => {
+    setRoutes(prev => prev.filter(r => r.id !== id));
   };
 
   const handleAddSchedule = (newSchedule: TransportSchedule) => {
@@ -227,6 +353,18 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
 
   const handleAddRequest = (newReq: TransportRequest) => {
     setRequests(prev => [newReq, ...prev]);
+  };
+
+  const handleUpdateRequestStatus = (requestId: string, status: TransportRequest['status']) => {
+    setRequests(prev => prev.map(r => (r.id === requestId ? { ...r, status } : r)));
+  };
+
+  const handleEditRequest = (updated: TransportRequest) => {
+    setRequests(prev => prev.map(r => (r.id === updated.id ? updated : r)));
+  };
+
+  const handleDeleteRequest = (id: string) => {
+    setRequests(prev => prev.filter(r => r.id !== id));
   };
 
   const handleAddQuote = (requestId: string, newQuote: any) => {
@@ -268,58 +406,37 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
 
   return (
     <div className="space-y-6 animate-fade-in text-slate-900">
-      {/* Passenger, Owner, and Admin Credentials Banner */}
-      <MGRCredentialsBanner />
-
       {/* Sub-Tab Content Rendering */}
+      {activeTab === 'mgr-dashboard' && (
+        <MGRDashboardView
+          vehicles={vehicles}
+          owners={owners}
+          drivers={drivers}
+          bookings={bookings}
+          settings={settings}
+          onNavigate={(tab) => setActiveTab(tab)}
+          currentUser={currentUser}
+          themeMode={themeMode}
+        />
+      )}
+
       {activeTab === 'mgr-search' && (
-        <div className="space-y-6">
-          <PassengerTransportSearch
-            criteria={searchCriteria}
-            onChangeCriteria={setSearchCriteria}
-            onSearch={() => {}}
-            onReset={() =>
-              setSearchCriteria({
-                fromLocation: '',
-                toLocation: '',
-                travelDate: new Date().toISOString().split('T')[0],
-                travelTime: '08:00',
-                vehicleType: 'all',
-                driverOption: 'all',
-                passengersCount: 1,
-              })
-            }
-            availableRoutes={availableRoutePairs}
-            themeMode="light"
-          />
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">
-                Available Transport Services ({filteredVehicles.length})
-              </h3>
-              <span className="text-xs text-slate-500">
-                Sorted by verified operators & instant availability
-              </span>
-            </div>
-
-            <TransportListingCards
-              vehicles={filteredVehicles}
-              activeRoute={routes[0]}
-              schedules={schedules}
-              onOpenSeatMap={handleOpenSeatMap}
-              onOpenWholeVehicleBooking={handleOpenWholeVehicleBooking}
-              themeMode="light"
-            />
-          </div>
-        </div>
+        <MGRHotelStyleBooking
+          view="search"
+          vehicles={vehicles}
+          owners={owners}
+          currentUser={currentUser}
+          convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
+        />
       )}
 
       {activeTab === 'mgr-bookings' && (
-        <MGRBookingsView
-          bookings={bookings}
-          onUpdateStatus={handleUpdateBookingStatus}
-          themeMode="light"
+        <MGRHotelStyleBooking
+          view="requests"
+          vehicles={vehicles}
+          owners={owners}
+          currentUser={currentUser}
+          convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
         />
       )}
 
@@ -342,13 +459,29 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
             </button>
           </div>
         ) : (
-          <MGRFleetView
-            vehicles={vehicles}
-            owners={owners}
-            onAddVehicle={handleAddVehicle}
-            onUpdateStatus={handleUpdateVehicleStatus}
-            themeMode="light"
-          />
+          <div className="space-y-6">
+            <MGRFleetView
+              vehicles={vehicles}
+              owners={owners}
+              currentUser={currentUser}
+              onAddVehicle={handleAddVehicle}
+              onUpdateStatus={handleUpdateVehicleStatus}
+              onEditVehicle={handleEditVehicle}
+              onDeleteVehicle={handleDeleteVehicle}
+              onAcceptBid={handleAcceptBid}
+              onRejectBid={handleRejectBid}
+              isAdmin={isAdminUser}
+              themeMode="light"
+            />
+
+            <MGRHotelStyleBooking
+              view="owner-listings"
+              vehicles={vehicles}
+              owners={owners}
+              currentUser={currentUser}
+              convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
+            />
+          </div>
         )
       )}
 
@@ -375,7 +508,11 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
             routes={routes}
             schedules={schedules}
             onAddRoute={handleAddRoute}
+            onUpdateRouteStatus={handleUpdateRouteStatus}
+            onEditRoute={handleEditRoute}
+            onDeleteRoute={handleDeleteRoute}
             onAddSchedule={handleAddSchedule}
+            isAdmin={isAdminUser}
             themeMode="light"
           />
         )
@@ -403,23 +540,58 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
           <MGROwnersDriversView
             owners={owners}
             drivers={drivers}
+            vehicles={vehicles}
+            currentUser={currentUser}
             onAddOwner={handleAddOwner}
             onUpdateOwnerStatus={handleUpdateOwnerStatus}
+            onEditOwner={handleEditOwner}
+            onDeleteOwner={handleDeleteOwner}
             onAddDriver={handleAddDriver}
+            onUpdateDriverStatus={handleUpdateDriverStatus}
+            onEditDriver={handleEditDriver}
+            onDeleteDriver={handleDeleteDriver}
+            isAdmin={isAdminUser}
             themeMode="light"
           />
         )
       )}
 
       {activeTab === 'mgr-requests' && (
-        <MGRVehicleRequestsView
-          requests={requests}
+        <MGRHotelStyleBooking
+          view="requests"
+          vehicles={vehicles}
           owners={owners}
-          onAddRequest={handleAddRequest}
-          onAddQuote={handleAddQuote}
-          onAcceptQuote={handleAcceptQuote}
-          themeMode="light"
+          currentUser={currentUser}
+          convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
         />
+      )}
+
+      {activeTab === 'mgr-settings' && (
+        !isAdminUser ? (
+          <div className="p-8 rounded-2xl bg-white border border-slate-200 text-center space-y-3 shadow-xs">
+            <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900">Administrator Access Required</h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Global marketplace settings, convenience fee rate, and SQL Query Console are restricted to MGR System Administrators.
+            </p>
+            <button
+              type="button"
+              onClick={() => setActiveTab(isOwner ? 'mgr-fleet' : 'mgr-search')}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white shadow-xs hover:bg-emerald-700 cursor-pointer"
+            >
+              Return to Allowed Tabs
+            </button>
+          </div>
+        ) : (
+          <MGRSettingsView
+            settings={settings}
+            onUpdateSettings={setSettings}
+            isAdmin={isAdminUser}
+            themeMode={themeMode}
+          />
+        )
       )}
 
       {activeTab === 'mgr-admin' && (
@@ -477,6 +649,20 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
           onClose={() => setBookingModalVehicle(null)}
           onConfirmBooking={handleConfirmBooking}
           themeMode="light"
+        />
+      )}
+
+      {/* Passenger / Driver Bidding Modal */}
+      {bidModalVehicle && (
+        <VehicleBidModal
+          vehicle={bidModalVehicle}
+          mode={bidModalMode}
+          isOpen={true}
+          onClose={() => setBidModalVehicle(null)}
+          onCreateBid={handleCreateBid}
+          onAcceptBid={handleAcceptBid}
+          onRejectBid={handleRejectBid}
+          isAdmin={isAdminUser}
         />
       )}
     </div>
