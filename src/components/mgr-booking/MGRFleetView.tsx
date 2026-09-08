@@ -31,7 +31,6 @@ import {
 } from 'lucide-react';
 import { TransportVehicle, TransportType, DriverOption, TransportOwner } from '../../types/mgrBooking';
 import { UserAccount } from '../../utils/auth';
-import { VehicleBidModal } from './VehicleBidModal';
 
 interface MGRFleetViewProps {
   vehicles: TransportVehicle[];
@@ -41,8 +40,6 @@ interface MGRFleetViewProps {
   onUpdateStatus: (vehicleId: string, status: TransportVehicle['status']) => void;
   onEditVehicle?: (vehicle: TransportVehicle) => void;
   onDeleteVehicle?: (vehicleId: string) => void;
-  onAcceptBid?: (vehicleId: string, bidId: string) => void;
-  onRejectBid?: (vehicleId: string, bidId: string) => void;
   isAdmin?: boolean;
   themeMode?: 'dark' | 'light';
 }
@@ -55,8 +52,6 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
   onUpdateStatus,
   onEditVehicle,
   onDeleteVehicle,
-  onAcceptBid,
-  onRejectBid,
   isAdmin = false,
   themeMode = 'light',
 }) => {
@@ -69,9 +64,6 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
 
   // Edit modal state (Admin only)
   const [editingVehicle, setEditingVehicle] = useState<TransportVehicle | null>(null);
-
-  // Bids review modal state
-  const [bidsVehicle, setBidsVehicle] = useState<TransportVehicle | null>(null);
 
   // New vehicle form state
   const [newType, setNewType] = useState<TransportType>('van');
@@ -487,7 +479,6 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                 const revAlert = checkExpiryWarning(vehicle.revenueLicenceExpiry);
                 const typeInfo = getTypeLabel(vehicle.type);
                 const oneDayRate = vehicle.oneDayPrice || vehicle.basePrice || 25000;
-                const pendingBids = (vehicle.bids || []).filter(b => b.status === 'pending').length;
 
                 return (
                   <tr key={vehicle.id} className="hover:bg-slate-50/80 transition-colors">
@@ -599,25 +590,6 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                           className="p-1.5 rounded-lg text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 transition cursor-pointer"
                         >
                           <Eye className="w-4 h-4" />
-                        </button>
-
-                        {/* Bids Review Button */}
-                        <button
-                          type="button"
-                          onClick={() => setBidsVehicle(vehicle)}
-                          title="Review Passenger Bids"
-                          className={`relative p-1.5 rounded-lg transition cursor-pointer ${
-                            pendingBids > 0
-                              ? 'text-amber-700 bg-amber-100 hover:bg-amber-200 animate-pulse'
-                              : 'text-slate-500 hover:text-amber-700 hover:bg-amber-50'
-                          }`}
-                        >
-                          <DollarSign className="w-4 h-4" />
-                          {pendingBids > 0 && (
-                            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center">
-                              {pendingBids}
-                            </span>
-                          )}
                         </button>
 
                         {/* Edit Button (Admin Only) */}
@@ -905,24 +877,6 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
         </div>
       )}
 
-      {/* BIDS REVIEW MODAL */}
-      {bidsVehicle && (
-        <VehicleBidModal
-          vehicle={bidsVehicle}
-          mode="review"
-          isOpen={true}
-          onClose={() => setBidsVehicle(null)}
-          onAcceptBid={(vId, bId) => {
-            if (onAcceptBid) onAcceptBid(vId, bId);
-            setBidsVehicle(null);
-          }}
-          onRejectBid={(vId, bId) => {
-            if (onRejectBid) onRejectBid(vId, bId);
-            setBidsVehicle(null);
-          }}
-          isAdmin={isAdmin}
-        />
-      )}
 
       {/* REGISTER / ADD VEHICLE MODAL */}
       {isAddingVehicle && (

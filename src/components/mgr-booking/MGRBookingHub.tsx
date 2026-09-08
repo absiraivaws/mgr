@@ -32,7 +32,6 @@ import { PassengerTransportSearch, SearchCriteria } from './PassengerTransportSe
 import { TransportListingCards } from './TransportListingCards';
 import { SeatMapModal } from './SeatMapModal';
 import { BookingModal } from './BookingModal';
-import { VehicleBidModal } from './VehicleBidModal';
 import { MGRTransportBooking } from './MGRTransportBooking';
 import { MGRBookingsView } from './MGRBookingsView';
 import { MGRFleetView } from './MGRFleetView';
@@ -166,10 +165,6 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
   const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
   const [totalSeatPrice, setTotalSeatPrice] = useState<number | undefined>(undefined);
 
-  // Bid Modal state
-  const [bidModalVehicle, setBidModalVehicle] = useState<TransportVehicle | null>(null);
-  const [bidModalMode, setBidModalMode] = useState<'create' | 'review'>('create');
-
   // Filter available vehicles based on search criteria
   const filteredVehicles = vehicles.filter(v => {
     if (v.status !== 'active') return false;
@@ -213,58 +208,7 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
     setTotalSeatPrice(undefined);
   };
 
-  const handleOpenCreateBid = (vehicle: TransportVehicle) => {
-    setBidModalVehicle(vehicle);
-    setBidModalMode('create');
-  };
 
-  const handleOpenReviewBids = (vehicle: TransportVehicle) => {
-    setBidModalVehicle(vehicle);
-    setBidModalMode('review');
-  };
-
-  // Passenger creates a price bid
-  const handleCreateBid = (vehicleId: string, bidData: Omit<VehicleBid, 'id' | 'createdAt' | 'status'>) => {
-    const newBid: VehicleBid = {
-      ...bidData,
-      id: `BID-${Math.floor(1000 + Math.random() * 9000)}`,
-      status: 'pending',
-      createdAt: Date.now(),
-    };
-    setVehicles(prev =>
-      prev.map(v => (v.id === vehicleId ? { ...v, bids: [newBid, ...(v.bids || [])] } : v))
-    );
-  };
-
-  // Driver/Owner accepts passenger bid
-  const handleAcceptBid = (vehicleId: string, bidId: string) => {
-    setVehicles(prev =>
-      prev.map(v => {
-        if (v.id === vehicleId) {
-          const updatedBids = (v.bids || []).map(b =>
-            b.id === bidId ? { ...b, status: 'accepted' as const } : b
-          );
-          return { ...v, bids: updatedBids };
-        }
-        return v;
-      })
-    );
-  };
-
-  // Driver/Owner rejects passenger bid
-  const handleRejectBid = (vehicleId: string, bidId: string) => {
-    setVehicles(prev =>
-      prev.map(v => {
-        if (v.id === vehicleId) {
-          const updatedBids = (v.bids || []).map(b =>
-            b.id === bidId ? { ...b, status: 'rejected' as const } : b
-          );
-          return { ...v, bids: updatedBids };
-        }
-        return v;
-      })
-    );
-  };
 
   // Handlers for data mutations
   const handleConfirmBooking = (newBooking: TransportBooking) => {
@@ -468,8 +412,6 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
               onUpdateStatus={handleUpdateVehicleStatus}
               onEditVehicle={handleEditVehicle}
               onDeleteVehicle={handleDeleteVehicle}
-              onAcceptBid={handleAcceptBid}
-              onRejectBid={handleRejectBid}
               isAdmin={isAdminUser}
               themeMode="light"
             />
@@ -649,20 +591,6 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
           onClose={() => setBookingModalVehicle(null)}
           onConfirmBooking={handleConfirmBooking}
           themeMode="light"
-        />
-      )}
-
-      {/* Passenger / Driver Bidding Modal */}
-      {bidModalVehicle && (
-        <VehicleBidModal
-          vehicle={bidModalVehicle}
-          mode={bidModalMode}
-          isOpen={true}
-          onClose={() => setBidModalVehicle(null)}
-          onCreateBid={handleCreateBid}
-          onAcceptBid={handleAcceptBid}
-          onRejectBid={handleRejectBid}
-          isAdmin={isAdminUser}
         />
       )}
     </div>
