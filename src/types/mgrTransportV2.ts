@@ -5,7 +5,7 @@
 
 import { TransportType, DriverOption } from './mgrBooking';
 
-export type TransportListingMode = 'availability_only' | 'planned_trip';
+export type TransportListingMode = 'trip' | 'schedule' | 'availability_only' | 'planned_trip';
 
 export type TransportRequestStatus =
   | 'pending_owner'

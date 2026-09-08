@@ -60,6 +60,23 @@ export interface TransportOwner {
   createdAt: number;
 }
 
+export type VehicleBookingType = 'trip' | 'schedule';
+
+export interface VehicleScheduleItem {
+  id: string;
+  date: string; // YYYY-MM-DD
+  fromLocation: string;
+  from?: string;
+  startTime: string; // e.g. 06:00 AM or 06:00
+  toLocation: string;
+  to?: string;
+  endTime: string; // e.g. 09:30 AM or 09:30
+  totalSeats: number;
+  availableSeats: number;
+  pricePerSeat: number; // Rs.
+  createdAt?: number;
+}
+
 // Vehicle & Boat
 export interface TransportVehicle {
   id: string; // e.g. MGR-CAR-00001, MGR-BOAT-00001
@@ -81,6 +98,10 @@ export interface TransportVehicle {
   insuranceExpiry: string; // YYYY-MM-DD
   revenueLicenceExpiry: string; // YYYY-MM-DD
   status: 'active' | 'pending' | 'suspended' | 'maintenance';
+  // Booking Type & Availability (Requirement 3, 4, 5)
+  bookingType?: VehicleBookingType; // 'trip' | 'schedule'
+  availableDates?: string[]; // For Trip vehicles: array of YYYY-MM-DD
+  schedules?: VehicleScheduleItem[]; // For Schedule vehicles
   // Pricing
   basePrice: number;
   oneDayPrice?: number;

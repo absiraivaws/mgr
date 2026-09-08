@@ -6,29 +6,18 @@
 import React, { useState, useEffect } from 'react';
 import {
   Car,
-  Bus,
-  Ship,
   Calendar,
   Clock,
   MapPin,
   Users,
   CheckCircle2,
-  XCircle,
   AlertCircle,
-  Clock3,
-  DollarSign,
   MessageSquare,
   Search,
-  Plus,
-  Compass,
-  ArrowRight,
-  ShieldCheck,
   CreditCard,
   Eye,
   Trash2,
   X,
-  Send,
-  Sparkles,
   ChevronsUpDown,
   ChevronUp,
   ChevronDown,
@@ -37,15 +26,17 @@ import {
   LayoutGrid,
   List,
   Save,
-  RotateCcw,
   Lock,
+  Pencil,
+  AlertTriangle,
 } from 'lucide-react';
-import { TransportVehicle, TransportOwner, TransportType, DriverOption } from '../../types/mgrBooking';
+import { TransportVehicle, TransportOwner, DriverOption } from '../../types/mgrBooking';
 import {
   TransportV2Listing,
   TransportV2Request,
   TransportListingMode,
   TransportRequestStatus,
+  TransportPaymentStatus,
 } from '../../types/mgrTransportV2';
 import { triggerLifecycleNotifications, getWhatsAppUrl } from '../../utils/mgrTransportNotifications';
 import { UserAccount, getMGRPersona } from '../../utils/auth';
@@ -57,139 +48,6 @@ export interface MGRTransportBookingProps {
   currentUser?: UserAccount;
   convenienceFeePercentage?: number; // default 5%
 }
-
-// Initial Seed Listings
-const INITIAL_V2_LISTINGS: TransportV2Listing[] = [
-  {
-    id: 'LST-MGR-001',
-    vehicleId: 'MGR-VAN-00001',
-    vehicleName: 'Toyota HiAce KDH High Roof',
-    vehicleType: 'van',
-    registrationNumber: 'WP ND-4512',
-    ownerId: 'OWN-MGR-00001',
-    ownerName: 'Anthony Fernando',
-    ownerPhone: '+94 77 123 4567',
-    ownerWhatsApp: '+94 77 123 4567',
-    listingMode: 'availability_only',
-    totalSeats: 12,
-    driverOption: 'with_driver',
-    availableDates: ['2026-09-10', '2026-09-11', '2026-09-15', '2026-09-20'],
-    photos: ['https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=600&q=80'],
-    status: 'active',
-    createdAt: Date.now() - 3600000 * 24,
-    updatedAt: Date.now(),
-  },
-  {
-    id: 'LST-MGR-002',
-    vehicleId: 'MGR-BUS-00002',
-    vehicleName: 'Ashok Leyland Intercity Route Coach',
-    vehicleType: 'route_bus',
-    registrationNumber: 'NP NA-8832',
-    ownerId: 'OWN-MGR-00002',
-    ownerName: 'M. Selvakumar',
-    ownerPhone: '+94 77 234 5678',
-    ownerWhatsApp: '+94 77 234 5678',
-    listingMode: 'planned_trip',
-    totalSeats: 40,
-    driverOption: 'with_driver',
-    plannedTripDate: '2026-09-15',
-    plannedFrom: 'Mannar Town',
-    plannedTo: 'Jaffna City',
-    departureTime: '08:00',
-    availableSeats: 16,
-    seatFare: 1200,
-    photos: ['https://images.unsplash.com/photo-1570125909232-eb263c188f7e?auto=format&fit=crop&w=600&q=80'],
-    status: 'active',
-    createdAt: Date.now() - 3600000 * 48,
-    updatedAt: Date.now(),
-  },
-  {
-    id: 'LST-MGR-003',
-    vehicleId: 'MGR-SAFARI-00001',
-    vehicleName: 'Toyota Land Cruiser 4x4 Safari Jeep',
-    vehicleType: 'safari',
-    registrationNumber: 'SP JEP-4091',
-    ownerId: 'OWN-MGR-00001',
-    ownerName: 'Anthony Fernando',
-    ownerPhone: '+94 77 123 4567',
-    ownerWhatsApp: '+94 77 123 4567',
-    listingMode: 'availability_only',
-    totalSeats: 6,
-    driverOption: 'with_driver',
-    availableDates: ['2026-09-12', '2026-09-14', '2026-09-18'],
-    photos: ['https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=600&q=80'],
-    status: 'active',
-    createdAt: Date.now() - 3600000 * 12,
-    updatedAt: Date.now(),
-  },
-];
-
-// Initial Seed Requests
-const INITIAL_V2_REQUESTS: TransportV2Request[] = [
-  {
-    id: 'REQ-V2-001',
-    requestNumber: 'MGR-REQ-1001',
-    listingId: 'LST-MGR-001',
-    vehicleId: 'MGR-VAN-00001',
-    vehicleName: 'Toyota HiAce KDH High Roof',
-    vehicleType: 'van',
-    registrationNumber: 'WP ND-4512',
-    ownerId: 'OWN-MGR-00001',
-    ownerName: 'Anthony Fernando',
-    ownerPhone: '+94 77 123 4567',
-    ownerWhatsApp: '+94 77 123 4567',
-    passenger: {
-      name: 'Rohan Jayawardena',
-      phone: '+94 77 345 6789',
-      whatsapp: '+94 77 345 6789',
-      email: 'rohan@gmail.com',
-    },
-    listingMode: 'availability_only',
-    travelDate: '2026-09-11',
-    travelTime: '08:30',
-    routeFrom: 'Mannar Town',
-    routeTo: 'Colombo Fort',
-    seatCount: 1,
-    specialNotes: 'Family holiday tour, need air conditioning throughout.',
-    ownerTravelCharge: 28000,
-    convenienceFee: 1400,
-    convenienceFeePercentage: 5,
-    finalAmount: 29400,
-    requestStatus: 'awaiting_payment',
-    paymentStatus: 'pending',
-    createdAt: Date.now() - 3600000 * 5,
-    updatedAt: Date.now() - 3600000 * 2,
-  },
-  {
-    id: 'REQ-V2-002',
-    requestNumber: 'MGR-REQ-1002',
-    listingId: 'LST-MGR-002',
-    vehicleId: 'MGR-BUS-00002',
-    vehicleName: 'Ashok Leyland Intercity Route Coach',
-    vehicleType: 'route_bus',
-    registrationNumber: 'NP NA-8832',
-    ownerId: 'OWN-MGR-00002',
-    ownerName: 'M. Selvakumar',
-    ownerPhone: '+94 77 234 5678',
-    ownerWhatsApp: '+94 77 234 5678',
-    passenger: {
-      name: 'K. Sangeetha',
-      phone: '+94 71 889 0012',
-      whatsapp: '+94 71 889 0012',
-    },
-    listingMode: 'planned_trip',
-    travelDate: '2026-09-15',
-    travelTime: '08:00',
-    routeFrom: 'Mannar Town',
-    routeTo: 'Jaffna City',
-    seatCount: 3,
-    specialNotes: '3 passenger seats together please.',
-    requestStatus: 'pending_owner',
-    paymentStatus: 'pending',
-    createdAt: Date.now() - 3600000 * 1,
-    updatedAt: Date.now() - 3600000 * 1,
-  },
-];
 
 // Helper to generate next 60 days
 const generateAvailableDates = (): string[] => {
@@ -203,35 +61,116 @@ const generateAvailableDates = (): string[] => {
   return dates;
 };
 
-// Helper to convert vehicle to listing
-const createListingFromVehicle = (v: TransportVehicle): TransportV2Listing => {
-  const isBus = v.type === 'bus' || v.type === 'route_bus' || v.type === 'bus_trip';
-  const vehicleName = `${v.make} ${v.model}`;
-  return {
-    id: `LST-${v.id}`,
-    vehicleId: v.id,
-    vehicleName: vehicleName,
-    vehicleType: v.type,
-    registrationNumber: v.registrationNumber,
-    ownerId: v.ownerId,
-    ownerName: v.ownerName || 'Anthony Fernando',
-    ownerPhone: '+94 77 123 4567',
-    ownerWhatsApp: '+94 77 123 4567',
-    listingMode: isBus ? 'planned_trip' : 'availability_only',
-    totalSeats: v.totalSeats || 4,
-    driverOption: v.driverOption || 'both',
-    availableDates: isBus ? undefined : generateAvailableDates(),
-    plannedTripDate: isBus ? new Date().toISOString().split('T')[0] : undefined,
-    plannedFrom: isBus ? (v.boatDetails?.departurePoint || 'Mannar Town') : undefined,
-    plannedTo: isBus ? (v.boatDetails?.destination || 'Jaffna City') : undefined,
-    departureTime: isBus ? '08:30' : undefined,
-    availableSeats: isBus ? v.totalSeats : undefined,
-    seatFare: isBus ? (v.pricePerSeat || 1200) : undefined,
-    photos: v.photos && v.photos.length > 0 ? v.photos : ['https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=600&q=80'],
-    status: v.status === 'active' ? 'active' : 'cancelled',
-    createdAt: v.createdAt || Date.now(),
-    updatedAt: Date.now(),
-  };
+// Helper: Convert actual fleet vehicles into active listings dynamically (Requirement 9)
+const createListingsFromVehicles = (
+  vehiclesList: TransportVehicle[],
+  ownersList: TransportOwner[]
+): TransportV2Listing[] => {
+  const listings: TransportV2Listing[] = [];
+
+  for (const v of vehiclesList) {
+    if (v.status !== 'active') continue;
+
+    const matchedOwner = ownersList.find(o => o.id === v.ownerId);
+    const ownerName = matchedOwner?.fullName || v.ownerName || 'MGR Transport Operator';
+    const ownerPhone = matchedOwner?.mobileNumber || '+94 77 123 4567';
+    const ownerWhatsApp = matchedOwner?.whatsappNumber || matchedOwner?.mobileNumber || '+94 77 123 4567';
+    const vehicleName = `${v.make} ${v.model}`;
+    const photos =
+      v.photos && v.photos.length > 0
+        ? v.photos
+        : ['https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=600&q=80'];
+
+    // Determine booking type: 'trip' vs 'schedule'
+    const isSchedule =
+      v.bookingType === 'schedule' ||
+      (!v.bookingType && (v.type === 'bus' || v.type === 'route_bus' || v.type === 'bus_trip'));
+
+    if (isSchedule) {
+      // Schedule Booking Type: If defined schedules exist, create one listing per schedule item
+      if (v.schedules && v.schedules.length > 0) {
+        for (const s of v.schedules) {
+          listings.push({
+            id: `LST-${v.id}-${s.id}`,
+            vehicleId: v.id,
+            vehicleName,
+            vehicleType: v.type,
+            registrationNumber: v.registrationNumber,
+            ownerId: v.ownerId,
+            ownerName,
+            ownerPhone,
+            ownerWhatsApp,
+            listingMode: 'schedule',
+            totalSeats: s.totalSeats || v.totalSeats || 30,
+            availableSeats: s.availableSeats !== undefined ? s.availableSeats : (s.totalSeats || v.totalSeats || 30),
+            driverOption: v.driverOption || 'with_driver',
+            plannedTripDate: s.date,
+            plannedFrom: s.fromLocation || s.from || 'Mannar Town',
+            plannedTo: s.toLocation || s.to || 'Jaffna City',
+            departureTime: s.startTime,
+            seatFare: s.pricePerSeat || v.pricePerSeat || 1200,
+            photos,
+            status: 'active',
+            createdAt: v.createdAt || Date.now(),
+            updatedAt: Date.now(),
+          });
+        }
+      } else {
+        // Default single schedule entry for today
+        const todayStr = new Date().toISOString().split('T')[0];
+        listings.push({
+          id: `LST-${v.id}-DEFAULT`,
+          vehicleId: v.id,
+          vehicleName,
+          vehicleType: v.type,
+          registrationNumber: v.registrationNumber,
+          ownerId: v.ownerId,
+          ownerName,
+          ownerPhone,
+          ownerWhatsApp,
+          listingMode: 'schedule',
+          totalSeats: v.totalSeats || 30,
+          availableSeats: v.totalSeats || 30,
+          driverOption: v.driverOption || 'with_driver',
+          plannedTripDate: todayStr,
+          plannedFrom: v.boatDetails?.departurePoint || 'Mannar Town',
+          plannedTo: v.boatDetails?.destination || 'Jaffna City',
+          departureTime: '08:00',
+          seatFare: v.pricePerSeat || 1200,
+          photos,
+          status: 'active',
+          createdAt: v.createdAt || Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+    } else {
+      // Trip Booking Type
+      const dates =
+        v.availableDates && v.availableDates.length > 0 ? v.availableDates : generateAvailableDates();
+
+      listings.push({
+        id: `LST-${v.id}`,
+        vehicleId: v.id,
+        vehicleName,
+        vehicleType: v.type,
+        registrationNumber: v.registrationNumber,
+        ownerId: v.ownerId,
+        ownerName,
+        ownerPhone,
+        ownerWhatsApp,
+        listingMode: 'trip',
+        totalSeats: v.totalSeats || 4,
+        driverOption: v.driverOption || 'both',
+        availableDates: dates,
+        photos,
+        status: 'active',
+        createdAt: v.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      });
+    }
+  }
+
+  return listings;
 };
 
 export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
@@ -243,54 +182,62 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 }) => {
   const persona = getMGRPersona(currentUser);
   const isOwnerOrAdmin = persona === 'owner' || persona === 'admin';
+  const isAppAdmin = persona === 'admin';
+  const isPassengerUser = persona === 'passenger';
+  const isOwnerUser = persona === 'owner';
 
-  // Persistence State
+  const currentUserEmail = (currentUser?.email || '').toLowerCase();
+  const currentUserName = (currentUser?.name || currentUser?.username || '').toLowerCase();
+  const currentUserPhone = (currentUser?.phone || '').trim();
+
+  // Scoped logged-in owner info
+  const myOwnerRecord = owners.find(
+    o =>
+      (o.email && o.email.toLowerCase() === currentUserEmail) ||
+      (o.fullName && o.fullName.toLowerCase() === currentUserName) ||
+      (currentUserPhone && (o.mobileNumber === currentUserPhone || o.whatsappNumber === currentUserPhone))
+  );
+  const myOwnerId = myOwnerRecord ? myOwnerRecord.id : currentUser?.id || null;
+
+  const myVehicleIds = new Set(
+    (vehicles || [])
+      .filter(
+        v =>
+          (myOwnerId && v.ownerId === myOwnerId) ||
+          (v.ownerName && v.ownerName.toLowerCase() === currentUserName) ||
+          (v.ownerId && currentUser?.id && v.ownerId === currentUser.id)
+      )
+      .map(v => v.id)
+  );
+
+  // ─── DYNAMIC LISTINGS FROM ACTUAL VEHICLES (Requirement 9) ─────────
   const [listings, setListings] = useState<TransportV2Listing[]>(() => {
-    try {
-      const saved = localStorage.getItem('mgr_transport_v2_listings');
-      const parsed: TransportV2Listing[] = saved ? JSON.parse(saved) : INITIAL_V2_LISTINGS;
-      const existingVehicleIds = new Set(parsed.map(p => p.vehicleId));
-      const additions: TransportV2Listing[] = (vehicles || [])
-        .filter(v => v.status === 'active' && !existingVehicleIds.has(v.id))
-        .map(createListingFromVehicle);
-      return [...parsed, ...additions];
-    } catch {
-      return (vehicles || []).map(createListingFromVehicle);
-    }
+    return createListingsFromVehicles(vehicles || [], owners || []);
   });
 
+  // Keep listings in sync when vehicles/availability/schedules change
   useEffect(() => {
-    if (!vehicles || vehicles.length === 0) return;
-    setListings(prev => {
-      const existingIds = new Set(prev.map(p => p.vehicleId));
-      const missing = vehicles
-        .filter(v => v.status === 'active' && !existingIds.has(v.id))
-        .map(createListingFromVehicle);
-      if (missing.length === 0) return prev;
-      return [...prev, ...missing];
-    });
-  }, [vehicles]);
+    setListings(createListingsFromVehicles(vehicles || [], owners || []));
+  }, [vehicles, owners]);
 
+  // ─── REQUESTS PERSISTENCE (Clean storage without hardcoded demo arrays)
   const [requests, setRequests] = useState<TransportV2Request[]>(() => {
     try {
       const saved = localStorage.getItem('mgr_transport_v2_requests');
-      return saved ? JSON.parse(saved) : INITIAL_V2_REQUESTS;
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return INITIAL_V2_REQUESTS;
+      return [];
     }
   });
-
-  useEffect(() => {
-    localStorage.setItem('mgr_transport_v2_listings', JSON.stringify(listings));
-  }, [listings]);
 
   useEffect(() => {
     localStorage.setItem('mgr_transport_v2_requests', JSON.stringify(requests));
   }, [requests]);
 
-  // Search View State
+  // ─── SEARCH VIEW STATE ─────────────────────────────────────────────
   const [globalSearch, setGlobalSearch] = useState<string>('');
-  const [listingTypeFilter, setListingTypeFilter] = useState<'all' | 'planned_trip' | 'availability_only'>('all');
+  // Filter options strictly: 'all' | 'trip' | 'schedule' (Requirement 1)
+  const [listingTypeFilter, setListingTypeFilter] = useState<'all' | 'trip' | 'schedule'>('all');
   const [searchType, setSearchType] = useState<string>('all');
   const [searchDate, setSearchDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [searchFrom, setSearchFrom] = useState<string>('');
@@ -309,26 +256,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   const [reqSortField, setReqSortField] = useState<string>('createdAt');
   const [reqSortDir, setReqSortDir] = useState<'asc' | 'desc'>('desc');
   const [reqPage, setReqPage] = useState<number>(1);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  // Owner listings table sort & pagination
-  const [lstSortField, setLstSortField] = useState<string>('createdAt');
-  const [lstSortDir, setLstSortDir] = useState<'asc' | 'desc'>('desc');
-  const [lstPage, setLstPage] = useState<number>(1);
-
-  // Owner Availability Calendar State
-  const [selectedCalendarVehicleId, setSelectedCalendarVehicleId] = useState<string>(() => {
-    return vehicles[0]?.id || '';
-  });
-  const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
-  const [selectedBrush, setSelectedBrush] = useState<'available' | 'tentative' | 'booked' | 'planned' | 'off'>('available');
-
-  // Owner Availability Calendar Staged State (Requirement 3: Explicit Save)
-  const [draftDateAvailabilityMap, setDraftDateAvailabilityMap] = useState<Record<string, 'available' | 'tentative' | 'booked' | 'planned' | 'off'>>({});
-  const [hasUnsavedCalendarChanges, setHasUnsavedCalendarChanges] = useState<boolean>(false);
-  const [calendarSaveFeedback, setCalendarSaveFeedback] = useState<string | null>(null);
-
-
-  // Request Modals
+  // ─── MODAL STATES ──────────────────────────────────────────────────
+  // 1. Passenger Booking Modal (Trip or Schedule Direct)
   const [requestingListing, setRequestingListing] = useState<TransportV2Listing | null>(null);
   const [reqPassengerName, setReqPassengerName] = useState('');
   const [reqPassengerPhone, setReqPassengerPhone] = useState('');
@@ -338,67 +269,66 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   const [reqTravelTime, setReqTravelTime] = useState('08:00');
   const [reqSeats, setReqSeats] = useState(1);
   const [reqNotes, setReqNotes] = useState('');
-  const [requestSuccessNumber, setRequestSuccessNumber] = useState<string | null>(null);
+  const [bookingSuccessModal, setBookingSuccessModal] = useState<{
+    requestNumber: string;
+    isSchedule: boolean;
+    totalAmount?: number;
+    seats?: number;
+  } | null>(null);
 
-  // Owner Review Modal State
+  // 2. Owner Review Modal State (for Trip bookings only)
   const [reviewingRequest, setReviewingRequest] = useState<TransportV2Request | null>(null);
   const [ownerChargeInput, setOwnerChargeInput] = useState<number>(20000);
   const [rejectionReasonInput, setRejectionReasonInput] = useState<string>('');
 
-  // Payment Confirmation Modal State
+  // 3. Passenger Payment Modal (for Trip bookings awaiting payment)
   const [payingRequest, setPayingRequest] = useState<TransportV2Request | null>(null);
 
-  // View Request Details Modal
+  // 4. View Details Modal
   const [viewingRequest, setViewingRequest] = useState<TransportV2Request | null>(null);
 
-  // Requests Tab Filter
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  // 5. Edit Request Modal (Requirements 10 & 11)
+  const [editingRequest, setEditingRequest] = useState<TransportV2Request | null>(null);
+  const [editFrom, setEditFrom] = useState('');
+  const [editTo, setEditTo] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [editSeats, setEditSeats] = useState(1);
+  const [editNotes, setEditNotes] = useState('');
+  const [editCharge, setEditCharge] = useState<number>(0);
+  const [editStatus, setEditStatus] = useState<TransportRequestStatus>('pending_owner');
+  const [editPaymentStatus, setEditPaymentStatus] = useState<TransportPaymentStatus>('pending');
+  const [editPassengerPhone, setEditPassengerPhone] = useState('');
+  const [editSuccessFeedback, setEditSuccessFeedback] = useState<string | null>(null);
 
-  // New Listing Modals (Owner Listings View)
-  const [isAddingListing, setIsAddingListing] = useState<'availability_only' | 'planned_trip' | null>(null);
-  const [newListVehicleId, setNewListVehicleId] = useState(vehicles[0]?.id || '');
-  const [newListDates, setNewListDates] = useState('');
-  const [newPlannedDate, setNewPlannedDate] = useState('2026-09-20');
-  const [newPlannedFrom, setNewPlannedFrom] = useState('Mannar Town');
-  const [newPlannedTo, setNewPlannedTo] = useState('Jaffna City');
-  const [newPlannedTime, setNewPlannedTime] = useState('08:00');
-  const [newPlannedSeats, setNewPlannedSeats] = useState(25);
+  // 6. Delete Confirmation Modal (Requirement 11, Admin Only)
+  const [deletingRequest, setDeletingRequest] = useState<TransportV2Request | null>(null);
 
-  // ─── FIFO SEAT CAPACITY CALCULATION (Section 3 & 9) ──────────────────
-  // Formula: Remaining Seats = Total Seats - Confirmed Booked Seats - Active FIFO Holds
+  // ─── FIFO SEAT CAPACITY CALCULATION ────────────────────────────────
   const getRemainingSeatsForListing = (listing: TransportV2Listing): number => {
-    if (listing.listingMode !== 'planned_trip') return listing.totalSeats || 4;
-    
-    // Confirmed booked seats
+    const isSchedule = listing.listingMode === 'schedule' || listing.listingMode === 'planned_trip';
+    if (!isSchedule) return listing.totalSeats || 4;
+
     const confirmedSeats = requests
-      .filter(r => r.listingId === listing.id && (r.paymentStatus === 'paid' || r.requestStatus === 'accepted'))
+      .filter(r => r.listingId === listing.id && (r.paymentStatus === 'paid' || r.requestStatus === 'confirmed'))
       .reduce((acc, r) => acc + (r.seatCount || 1), 0);
 
-    // Active FIFO holds (pending requests within hold period)
-    const now = Date.now();
-    const activeHolds = requests
-      .filter(r => 
-        r.listingId === listing.id && 
-        r.requestStatus === 'pending_owner' && 
-        (!r.holdExpiresAt || r.holdExpiresAt > now)
-      )
-      .reduce((acc, r) => acc + (r.seatCount || 1), 0);
-
-    const baseSeats = listing.availableSeats !== undefined ? listing.availableSeats : (listing.totalSeats || 4);
-    const remaining = baseSeats - confirmedSeats - activeHolds;
-    return Math.max(0, remaining);
+    const baseSeats = listing.availableSeats !== undefined ? listing.availableSeats : listing.totalSeats || 4;
+    return Math.max(0, baseSeats - confirmedSeats);
   };
 
-  // Filter listings for search
+  // ─── FILTER LISTINGS FOR SEARCH ────────────────────────────────────
   const filteredListings = listings.filter(item => {
     if (item.status !== 'active') return false;
 
-    // Dropdown filter: All / Planned Trip / Vehicle Available
-    if (listingTypeFilter !== 'all' && item.listingMode !== listingTypeFilter) {
-      return false;
-    }
+    const isScheduleMode = item.listingMode === 'schedule' || item.listingMode === 'planned_trip';
+    const isTripMode = item.listingMode === 'trip' || item.listingMode === 'availability_only';
 
-    // Global search across all vehicle and trip fields
+    // Terminology filter: 'all' | 'trip' | 'schedule' (Requirement 1)
+    if (listingTypeFilter === 'trip' && !isTripMode) return false;
+    if (listingTypeFilter === 'schedule' && !isScheduleMode) return false;
+
+    // Global search
     if (globalSearch.trim()) {
       const q = globalSearch.toLowerCase().trim();
       const matchVehicle = (item.vehicleName || '').toLowerCase().includes(q);
@@ -408,13 +338,15 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       const matchDriver = (item.driverOption || '').toLowerCase().replace('_', ' ').includes(q);
       const matchFrom = (item.plannedFrom || '').toLowerCase().includes(q);
       const matchTo = (item.plannedTo || '').toLowerCase().includes(q);
-      const matchArea = (item.serviceArea || '').toLowerCase().includes(q);
-      const matchDates = (item.availableDates || []).some(d => d.includes(q)) || (item.plannedTripDate || '').includes(q);
-      if (!matchVehicle && !matchReg && !matchOwner && !matchType && !matchDriver && !matchFrom && !matchTo && !matchArea && !matchDates) {
+      const matchDates =
+        (item.availableDates || []).some(d => d.includes(q)) || (item.plannedTripDate || '').includes(q);
+
+      if (!matchVehicle && !matchReg && !matchOwner && !matchType && !matchDriver && !matchFrom && !matchTo && !matchDates) {
         return false;
       }
     }
 
+    // Vehicle Category filter
     if (searchType !== 'all') {
       if (searchType === 'bus') {
         if (item.vehicleType !== 'bus' && item.vehicleType !== 'bus_trip' && item.vehicleType !== 'route_bus') {
@@ -425,21 +357,20 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       }
     }
 
+    // Driver Option filter
     if (searchDriverOption !== 'all') {
       if (searchDriverOption === 'with_driver' && item.driverOption === 'without_driver') return false;
       if (searchDriverOption === 'without_driver' && item.driverOption === 'with_driver') return false;
     }
 
-    if (item.listingMode === 'availability_only') {
-      // If user provided a date and listing has specific dates, verify inclusion
+    // Trip vs Schedule search checks
+    if (isTripMode) {
       if (searchDate && item.availableDates && item.availableDates.length > 0) {
         if (!item.availableDates.includes(searchDate)) return false;
       }
       if (item.totalSeats < searchPassengers) return false;
     } else {
-      // Planned trip checks: Section 3 & 9 FIFO Remaining Seat Validation
       const remainingSeats = getRemainingSeatsForListing(item);
-      // When Remaining Seats = 0, trip must not display in Find Transport for that date
       if (remainingSeats <= 0) return false;
       if (searchDate && item.plannedTripDate && item.plannedTripDate !== searchDate) return false;
       if (searchFrom && item.plannedFrom && !item.plannedFrom.toLowerCase().includes(searchFrom.toLowerCase())) return false;
@@ -450,34 +381,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     return true;
   });
 
-  const currentUserEmail = (currentUser?.email || '').toLowerCase();
-  const currentUserName = (currentUser?.name || '').toLowerCase();
-  const currentUserPhone = (currentUser?.phone || '').trim();
-  const isAppAdmin = persona === 'admin';
-  const isPassengerUser = persona === 'passenger';
-  const isOwnerUser = persona === 'owner';
-
-  // Find owner record for currentUser if they are an owner
-  const myOwnerRecord = owners.find(
-    o => (o.email && o.email.toLowerCase() === currentUserEmail) ||
-         (o.fullName && o.fullName.toLowerCase() === currentUserName) ||
-         (currentUserPhone && (o.mobileNumber === currentUserPhone || o.whatsappNumber === currentUserPhone))
-  );
-  const myOwnerId = myOwnerRecord ? myOwnerRecord.id : (currentUser?.id || null);
-
-  // Vehicles owned by current user
-  const myVehicleIds = new Set(
-    (vehicles || [])
-      .filter(v => (myOwnerId && v.ownerId === myOwnerId) ||
-                   (v.ownerName && v.ownerName.toLowerCase() === currentUserName) ||
-                   (v.ownerId && currentUser?.id && v.ownerId === currentUser.id))
-      .map(v => v.id)
-  );
-
-  // Vehicles strictly scoped to logged-in owner
-  const myOwnerVehicles = isAppAdmin ? (vehicles || []) : (vehicles || []).filter(v => myVehicleIds.has(v.id));
-
-  // Filter requests: Scoped to current user (Passengers see their bookings, Owners see their fleet requests, Admin sees all)
+  // ─── FILTER REQUESTS (User Data Scoping, Requirement 12) ───────────
   const filteredRequests = requests.filter(req => {
     if (!isAppAdmin) {
       if (isPassengerUser) {
@@ -490,7 +394,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
           (currentUserPhone && passPhone === currentUserPhone);
         if (!matchesMe) return false;
       } else if (isOwnerUser) {
-        if (!myVehicleIds.has(req.vehicleId)) return false;
+        if (!myVehicleIds.has(req.vehicleId) && req.ownerId !== myOwnerId) return false;
       }
     }
 
@@ -543,7 +447,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     </th>
   );
 
-  // Search Results sorting & pagination
+  // Sorting and pagination for search
   const sortedListings = [...filteredListings].sort((a, b) => {
     let valA: any = (a as any)[searchSortField] ?? '';
     let valB: any = (b as any)[searchSortField] ?? '';
@@ -557,7 +461,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   const searchTotalPages = Math.max(1, Math.ceil(sortedListings.length / pageSize));
   const paginatedListings = sortedListings.slice((searchPage - 1) * pageSize, searchPage * pageSize);
 
-  // Requests sorting & pagination
+  // Sorting and pagination for requests
   const sortedRequests = [...filteredRequests].sort((a, b) => {
     let valA: any = (a as any)[reqSortField] ?? '';
     let valB: any = (b as any)[reqSortField] ?? '';
@@ -571,165 +475,106 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   const reqTotalPages = Math.max(1, Math.ceil(sortedRequests.length / pageSize));
   const paginatedRequests = sortedRequests.slice((reqPage - 1) * pageSize, reqPage * pageSize);
 
-  // Owner listings sorting & pagination (Scoped: Owners only see their own fleet listings)
-  const ownerScopedListings = listings.filter(item => {
-    if (isAppAdmin) return true;
-    if (isOwnerUser) return myVehicleIds.has(item.vehicleId);
-    return false;
-  });
+  // ─── BOOKING HANDLERS ──────────────────────────────────────────────
 
-  const sortedOwnerListings = [...ownerScopedListings].sort((a, b) => {
-    let valA: any = (a as any)[lstSortField] ?? '';
-    let valB: any = (b as any)[lstSortField] ?? '';
-    if (typeof valA === 'string') valA = valA.toLowerCase();
-    if (typeof valB === 'string') valB = valB.toLowerCase();
-    if (valA < valB) return lstSortDir === 'asc' ? -1 : 1;
-    if (valA > valB) return lstSortDir === 'asc' ? 1 : -1;
-    return 0;
-  });
-
-  const availableOwnerListings = sortedOwnerListings.filter(l => l.listingMode === 'availability_only');
-  const plannedOwnerListings = sortedOwnerListings.filter(l => l.listingMode === 'planned_trip');
-
-  const lstTotalPages = Math.max(1, Math.ceil(sortedOwnerListings.length / pageSize));
-  const paginatedOwnerListings = sortedOwnerListings.slice((lstPage - 1) * pageSize, lstPage * pageSize);
-
-  // Active vehicle and listing for calendar editing
-  const activeCalendarVehicleId = selectedCalendarVehicleId || myOwnerVehicles[0]?.id || '';
-  const activeCalendarListing = listings.find(l => l.vehicleId === activeCalendarVehicleId && l.listingMode === 'availability_only') || listings.find(l => l.vehicleId === activeCalendarVehicleId);
-
-  // Sync draft availability map when vehicle or listing changes
-  useEffect(() => {
-    if (activeCalendarListing?.dateAvailabilityMap) {
-      setDraftDateAvailabilityMap({ ...activeCalendarListing.dateAvailabilityMap });
-    } else {
-      setDraftDateAvailabilityMap({});
-    }
-    setHasUnsavedCalendarChanges(false);
-  }, [activeCalendarVehicleId, activeCalendarListing?.id]);
-
-  // Handle painting a single date with the selected brush
-  const handlePaintDate = (dateStr: string) => {
-    setDraftDateAvailabilityMap(prev => ({
-      ...prev,
-      [dateStr]: selectedBrush,
-    }));
-    setHasUnsavedCalendarChanges(true);
-  };
-
-  // Quick batch mark or clear entire current month
-  const handleBatchMarkMonth = (status: 'available' | 'off') => {
-    const daysInM = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
-    setDraftDateAvailabilityMap(prev => {
-      const nextMap = { ...prev };
-      for (let d = 1; d <= daysInM; d++) {
-        const dStr = `${calendarMonth.getFullYear()}-${String(calendarMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        nextMap[dStr] = status;
-      }
-      return nextMap;
-    });
-    setHasUnsavedCalendarChanges(true);
-  };
-
-  // Explicit Save Action for Calendar Availability (Requirement 3 & Section 6 Conflict Prevention)
-  const handleSaveCalendarAvailability = () => {
-    if (!activeCalendarVehicleId) return;
-
-    const matchedVehicle = vehicles.find(v => v.id === activeCalendarVehicleId);
-    const existingListing = listings.find(l => l.vehicleId === activeCalendarVehicleId && l.listingMode === 'availability_only');
-
-    const newAvailableDates = Object.entries(draftDateAvailabilityMap)
-      .filter(([_, status]) => status === 'available')
-      .map(([d]) => d)
-      .sort();
-
-    // Section 6 Validation: Prevent Same Vehicle and Date in Both Listing Types
-    const plannedTripsForVehicle = listings.filter(l => l.listingMode === 'planned_trip' && l.vehicleId === activeCalendarVehicleId);
-    for (const d of newAvailableDates) {
-      const conflict = plannedTripsForVehicle.find(t => t.plannedTripDate === d);
-      if (conflict) {
-        alert(`This vehicle is already listed as a Planned Trip (${conflict.plannedFrom} ➔ ${conflict.plannedTo}) for ${d}.\n\nPlease remove or reschedule the planned trip before marking this vehicle available for ${d}.`);
-        return;
-      }
-    }
-
-    if (existingListing) {
-      setListings(prev => prev.map(l => l.id === existingListing.id ? {
-        ...l,
-        dateAvailabilityMap: { ...draftDateAvailabilityMap },
-        availableDates: newAvailableDates,
-        updatedAt: Date.now(),
-      } : l));
-    } else if (matchedVehicle) {
-      const newLst: TransportV2Listing = {
-        id: `LST-V2-${Date.now()}`,
-        vehicleId: matchedVehicle.id,
-        vehicleName: matchedVehicle.name,
-        vehicleType: matchedVehicle.type,
-        registrationNumber: matchedVehicle.registrationNumber,
-        ownerId: matchedVehicle.ownerId,
-        ownerName: matchedVehicle.ownerName || 'Owner',
-        ownerPhone: matchedVehicle.contactNumber || '',
-        ownerWhatsApp: matchedVehicle.contactNumber || '',
-        listingMode: 'availability_only',
-        dateAvailabilityMap: { ...draftDateAvailabilityMap },
-        availableDates: newAvailableDates,
-        totalSeats: matchedVehicle.seats || 4,
-        driverOption: 'with_driver',
-        status: 'active',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      setListings(prev => [newLst, ...prev]);
-    }
-
-    setHasUnsavedCalendarChanges(false);
-    setCalendarSaveFeedback('Availability saved successfully!');
-    setTimeout(() => setCalendarSaveFeedback(null), 3500);
-  };
-
-  // Discard staged calendar changes
-  const handleDiscardCalendarAvailability = () => {
-    if (activeCalendarListing?.dateAvailabilityMap) {
-      setDraftDateAvailabilityMap({ ...activeCalendarListing.dateAvailabilityMap });
-    } else {
-      setDraftDateAvailabilityMap({});
-    }
-    setHasUnsavedCalendarChanges(false);
-  };
-
-  // 30-Day Window Date computations for Requirement 6
-  const todayDateObj = new Date();
-  const todayYMD = `${todayDateObj.getFullYear()}-${String(todayDateObj.getMonth() + 1).padStart(2, '0')}-${String(todayDateObj.getDate()).padStart(2, '0')}`;
-  const max30DateObj = new Date(todayDateObj.getTime() + 30 * 24 * 60 * 60 * 1000);
-  const max30YMD = `${max30DateObj.getFullYear()}-${String(max30DateObj.getMonth() + 1).padStart(2, '0')}-${String(max30DateObj.getDate()).padStart(2, '0')}`;
-
-
-  // Handler: Passenger Submits Booking Request (with Section 3, 4, 5 FIFO Seat & Pricing Calculation)
-  const handleSendBookingRequest = async (e: React.FormEvent) => {
+  // 1. SCHEDULE: DIRECT SEAT BOOKING (Requirement 2)
+  // Passenger enters seats, pickup, drop-off, views seat & admin amounts, makes payment and directly confirms seats.
+  const handleScheduleDirectBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!requestingListing) return;
+
     const finalPassengerName = reqPassengerName || currentUser?.name || currentUser?.username || 'Passenger';
     const finalPassengerPhone = reqPassengerPhone || currentUser?.phone || '+94 77 123 4567';
-    if (!requestingListing || !finalPassengerName) return;
 
-    const isPlanned = requestingListing.listingMode === 'planned_trip';
-    if (isPlanned) {
-      const freshRemaining = getRemainingSeatsForListing(requestingListing);
-      const requested = Number(reqSeats);
-      if (requested > freshRemaining) {
-        alert(`Only ${freshRemaining} seats are currently available. Please reduce your requested seat count to continue.`);
-        return;
-      }
-      if (requested < 1) {
-        alert('Please enter at least 1 seat.');
-        return;
-      }
+    const freshRemaining = getRemainingSeatsForListing(requestingListing);
+    const requestedSeats = Number(reqSeats);
+    if (requestedSeats > freshRemaining) {
+      alert(`Only ${freshRemaining} seats are currently available. Please adjust your seat count.`);
+      return;
+    }
+    if (requestedSeats < 1) {
+      alert('Please enter at least 1 seat.');
+      return;
     }
 
     const seatFare = requestingListing.seatFare || 1200;
-    const seatSubtotal = isPlanned ? Number(reqSeats) * seatFare : undefined;
-    const adminFee = isPlanned && seatSubtotal ? Math.round(seatSubtotal * (convenienceFeePercentage / 100)) : undefined;
-    const totalAmount = isPlanned && seatSubtotal !== undefined && adminFee !== undefined ? (seatSubtotal + adminFee) : undefined;
+    const seatSubtotal = requestedSeats * seatFare;
+    const adminCharge = Math.round(seatSubtotal * (convenienceFeePercentage / 100));
+    const totalAmount = seatSubtotal + adminCharge;
+
+    const reqNum = `MGR-REQ-${Math.floor(1000 + Math.random() * 9000)}`;
+    const payRef = `PAY-MGR-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const newRequest: TransportV2Request = {
+      id: `REQ-V2-${Date.now()}`,
+      requestNumber: reqNum,
+      listingId: requestingListing.id,
+      vehicleId: requestingListing.vehicleId,
+      vehicleName: requestingListing.vehicleName,
+      vehicleType: requestingListing.vehicleType,
+      registrationNumber: requestingListing.registrationNumber,
+      ownerId: requestingListing.ownerId,
+      ownerName: requestingListing.ownerName,
+      ownerPhone: requestingListing.ownerPhone,
+      ownerWhatsApp: requestingListing.ownerWhatsApp,
+      passenger: {
+        name: finalPassengerName,
+        phone: finalPassengerPhone,
+        whatsapp: finalPassengerPhone,
+        email: currentUser?.email,
+      },
+      listingMode: 'schedule',
+      travelDate: requestingListing.plannedTripDate || reqTravelDate,
+      travelTime: requestingListing.departureTime || '08:00',
+      routeFrom: reqRouteFrom.trim() || requestingListing.plannedFrom || 'Mannar Town',
+      routeTo: reqRouteTo.trim() || requestingListing.plannedTo || 'Jaffna City',
+      seatCount: requestedSeats,
+      specialNotes: reqNotes,
+      ownerTravelCharge: seatSubtotal,
+      convenienceFee: adminCharge,
+      convenienceFeePercentage,
+      finalAmount: totalAmount,
+      // DIRECT CONFIRMATION (Bypasses Owner Review/Accept)
+      requestStatus: 'confirmed',
+      paymentStatus: 'paid',
+      paymentRef: payRef,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    // Deduct seats immediately from inventory
+    setListings(prev =>
+      prev.map(l => {
+        if (l.id === requestingListing.id) {
+          const cur = l.availableSeats !== undefined ? l.availableSeats : l.totalSeats;
+          return { ...l, availableSeats: Math.max(0, cur - requestedSeats), updatedAt: Date.now() };
+        }
+        return l;
+      })
+    );
+
+    setRequests(prev => [newRequest, ...prev]);
+
+    // Dispatch Lifecycle Notification
+    await triggerLifecycleNotifications('booking_confirmed', newRequest);
+
+    // Show Success Modal
+    setBookingSuccessModal({
+      requestNumber: reqNum,
+      isSchedule: true,
+      totalAmount,
+      seats: requestedSeats,
+    });
+    setRequestingListing(null);
+  };
+
+  // 2. TRIP: SUBMIT TRIP REQUEST TO OWNER (Requires Owner Accept -> Passenger Pay)
+  const handleTripBookingRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!requestingListing) return;
+
+    const finalPassengerName = reqPassengerName || currentUser?.name || currentUser?.username || 'Passenger';
+    const finalPassengerPhone = reqPassengerPhone || currentUser?.phone || '+94 77 123 4567';
 
     const reqNum = `MGR-REQ-${Math.floor(1000 + Math.random() * 9000)}`;
     const newRequest: TransportV2Request = {
@@ -750,41 +595,33 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
         whatsapp: finalPassengerPhone,
         email: currentUser?.email,
       },
-      listingMode: requestingListing.listingMode,
+      listingMode: 'trip',
       travelDate: reqTravelDate,
-      travelTime: isPlanned ? requestingListing.departureTime : reqTravelTime,
-      routeFrom: isPlanned ? requestingListing.plannedFrom || 'Mannar' : reqRouteFrom,
-      routeTo: isPlanned ? requestingListing.plannedTo || 'Jaffna' : reqRouteTo,
-      seatCount: isPlanned ? Number(reqSeats) : 1,
+      travelTime: reqTravelTime,
+      routeFrom: reqRouteFrom.trim() || 'Mannar Town',
+      routeTo: reqRouteTo.trim() || 'Islandwide',
+      seatCount: 1,
       specialNotes: reqNotes,
-      ownerTravelCharge: seatSubtotal,
-      convenienceFee: adminFee,
-      convenienceFeePercentage: convenienceFeePercentage,
-      finalAmount: totalAmount,
-      holdExpiresAt: isPlanned ? (Date.now() + 15 * 60 * 1000) : undefined,
-      requestStatus: isPlanned ? 'awaiting_payment' : 'pending_owner',
+      requestStatus: 'pending_owner',
       paymentStatus: 'pending',
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
 
     setRequests(prev => [newRequest, ...prev]);
-    setRequestSuccessNumber(reqNum);
 
-    // Trigger Notifications to Passenger, Owner, and Admin
+    // Dispatch Lifecycle Notification
     await triggerLifecycleNotifications('request_created', newRequest);
 
-    setTimeout(() => {
-      setRequestingListing(null);
-      setRequestSuccessNumber(null);
-      setReqPassengerName('');
-      setReqPassengerPhone('');
-      setReqNotes('');
-    }, 2000);
+    setBookingSuccessModal({
+      requestNumber: reqNum,
+      isSchedule: false,
+    });
+    setRequestingListing(null);
   };
 
-  // Handler: Owner Accepts with Travel Charge
-  const handleOwnerAccept = async (req: TransportV2Request) => {
+  // 3. OWNER ACCEPTS TRIP REQUEST WITH TRAVEL CHARGE
+  const handleOwnerAcceptTrip = async (req: TransportV2Request) => {
     const charge = Number(ownerChargeInput);
     if (!charge || charge <= 0) return;
 
@@ -804,27 +641,25 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
     setReviewingRequest(null);
 
-    // Dispatch Notifications (Owner Accepted)
     await triggerLifecycleNotifications('owner_accepted', updated);
   };
 
-  // Handler: Owner Rejects Request
+  // 4. OWNER DECLINES REQUEST
   const handleOwnerReject = async (req: TransportV2Request) => {
     const updated: TransportV2Request = {
       ...req,
       requestStatus: 'owner_rejected',
-      rejectionReason: rejectionReasonInput || 'Owner unable to accommodate on selected date.',
+      rejectionReason: rejectionReasonInput || 'Operator unable to accommodate on selected date.',
       updatedAt: Date.now(),
     };
 
     setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
     setReviewingRequest(null);
 
-    // Dispatch Notifications (Owner Rejected)
     await triggerLifecycleNotifications('owner_rejected', updated);
   };
 
-  // Handler: Passenger Simulates Payment Success
+  // 5. PASSENGER PAYS FOR TRIP BOOKING (Confirmed upon payment)
   const handleCompletePayment = async (req: TransportV2Request) => {
     const paymentRef = `PAY-MGR-${Math.floor(100000 + Math.random() * 900000)}`;
 
@@ -838,169 +673,122 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 
     setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
 
-    // Update Inventory Only AFTER Payment Success!
-    if (req.listingMode === 'planned_trip') {
-      setListings(prev =>
-        prev.map(l => {
-          if (l.id === req.listingId) {
-            const currentSeats = l.availableSeats ?? l.totalSeats;
-            const newSeats = Math.max(0, currentSeats - req.seatCount);
-            return { ...l, availableSeats: newSeats, updatedAt: Date.now() };
-          }
-          return l;
-        })
-      );
-    } else {
-      // Block the booked date for availability_only
-      setListings(prev =>
-        prev.map(l => {
-          if (l.id === req.listingId && l.availableDates) {
-            return {
-              ...l,
-              availableDates: l.availableDates.filter(d => d !== req.travelDate),
-              updatedAt: Date.now(),
-            };
-          }
-          return l;
-        })
-      );
-    }
+    // Block the booked date on the trip vehicle
+    setListings(prev =>
+      prev.map(l => {
+        if (l.id === req.listingId && l.availableDates) {
+          return {
+            ...l,
+            availableDates: l.availableDates.filter(d => d !== req.travelDate),
+            updatedAt: Date.now(),
+          };
+        }
+        return l;
+      })
+    );
 
     setPayingRequest(null);
-
-    // Dispatch Notifications (Booking Confirmed)
     await triggerLifecycleNotifications('booking_confirmed', updated);
   };
 
-  // Handler: Create New Listing (Owner view)
-  const handleSaveNewListing = (e: React.FormEvent) => {
-    e.preventDefault();
-    const matchedVehicle = vehicles.find(v => v.id === newListVehicleId) || vehicles[0];
-    const matchedOwner = owners.find(o => o.id === matchedVehicle?.ownerId) || owners[0];
+  // 6. EDIT REQUEST (Requirements 10 & 11)
+  const handleOpenEditRequest = (req: TransportV2Request) => {
+    setEditingRequest(req);
+    setEditFrom(req.routeFrom);
+    setEditTo(req.routeTo);
+    setEditDate(req.travelDate);
+    setEditTime(req.travelTime || '08:00');
+    setEditSeats(req.seatCount || 1);
+    setEditNotes(req.specialNotes || '');
+    setEditCharge(req.ownerTravelCharge || 0);
+    setEditStatus(req.requestStatus);
+    setEditPaymentStatus(req.paymentStatus);
+    setEditPassengerPhone(req.passenger.phone || '');
+    setEditSuccessFeedback(null);
+  };
 
-    // Section 6 Validation: Prevent Same Vehicle and Date in Both Listing Types
-    if (isAddingListing === 'planned_trip') {
-      const hasTypeAConflict = listings.some(l => 
-        l.vehicleId === matchedVehicle.id && 
-        l.listingMode === 'availability_only' &&
-        (l.availableDates?.includes(newPlannedDate) || l.dateAvailabilityMap?.[newPlannedDate] === 'available')
-      );
-      if (hasTypeAConflict) {
-        alert(`This vehicle is already listed as Vehicle Available for ${newPlannedDate}.\n\nPlease remove or change the existing availability before creating a Planned Trip for this date.`);
-        return;
-      }
-      const hasDuplicateTrip = listings.some(l => 
-        l.vehicleId === matchedVehicle.id && 
-        l.listingMode === 'planned_trip' && 
-        l.plannedTripDate === newPlannedDate
-      );
-      if (hasDuplicateTrip) {
-        alert(`This vehicle already has a Planned Trip scheduled for ${newPlannedDate}. Duplicate routes for the same vehicle on the same date are not allowed.`);
-        return;
-      }
-    } else if (isAddingListing === 'availability_only') {
-      const dates = newListDates.split(',').map(d => d.trim()).filter(Boolean);
-      for (const d of dates) {
-        const hasTripConflict = listings.some(l => 
-          l.vehicleId === matchedVehicle.id && 
-          l.listingMode === 'planned_trip' && 
-          l.plannedTripDate === d
-        );
-        if (hasTripConflict) {
-          alert(`This vehicle is already scheduled for a Planned Trip on ${d}.\n\nPlease remove or reschedule the planned trip before marking vehicle availability for this date.`);
-          return;
-        }
-      }
+  const handleSaveEditRequest = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRequest) return;
+
+    let updatedCharge = editingRequest.ownerTravelCharge;
+    let updatedFee = editingRequest.convenienceFee;
+    let updatedFinal = editingRequest.finalAmount;
+
+    if (isOwnerOrAdmin && editCharge > 0 && editCharge !== editingRequest.ownerTravelCharge) {
+      updatedCharge = editCharge;
+      updatedFee = Math.round(editCharge * (convenienceFeePercentage / 100));
+      updatedFinal = updatedCharge + updatedFee;
     }
 
-    const newListing: TransportV2Listing = {
-      id: `LST-MGR-${Math.floor(1000 + Math.random() * 9000)}`,
-      vehicleId: matchedVehicle.id,
-      vehicleName: `${matchedVehicle.make} ${matchedVehicle.model}`,
-      vehicleType: matchedVehicle.type,
-      registrationNumber: matchedVehicle.registrationNumber,
-      ownerId: matchedOwner.id,
-      ownerName: matchedOwner.fullName,
-      ownerPhone: matchedOwner.mobileNumber,
-      ownerWhatsApp: matchedOwner.whatsappNumber || matchedOwner.mobileNumber,
-      listingMode: isAddingListing,
-      totalSeats: matchedVehicle.totalSeats,
-      driverOption: matchedVehicle.driverOption,
-      photos: matchedVehicle.photos,
-      status: 'active',
-      availableDates:
-        isAddingListing === 'availability_only'
-          ? newListDates.split(',').map(d => d.trim()).filter(Boolean)
-          : undefined,
-      plannedTripDate: isAddingListing === 'planned_trip' ? newPlannedDate : undefined,
-      plannedFrom: isAddingListing === 'planned_trip' ? newPlannedFrom : undefined,
-      plannedTo: isAddingListing === 'planned_trip' ? newPlannedTo : undefined,
-      departureTime: isAddingListing === 'planned_trip' ? newPlannedTime : undefined,
-      availableSeats: isAddingListing === 'planned_trip' ? Number(newPlannedSeats) : undefined,
-      createdAt: Date.now(),
+    const updated: TransportV2Request = {
+      ...editingRequest,
+      routeFrom: editFrom,
+      routeTo: editTo,
+      travelDate: editDate,
+      travelTime: editTime,
+      seatCount: editSeats,
+      specialNotes: editNotes,
+      passenger: {
+        ...editingRequest.passenger,
+        phone: editPassengerPhone || editingRequest.passenger.phone,
+        whatsapp: editPassengerPhone || editingRequest.passenger.whatsapp,
+      },
+      ownerTravelCharge: updatedCharge,
+      convenienceFee: updatedFee,
+      finalAmount: updatedFinal,
+      requestStatus: isAppAdmin ? editStatus : editingRequest.requestStatus,
+      paymentStatus: isAppAdmin ? editPaymentStatus : editingRequest.paymentStatus,
       updatedAt: Date.now(),
     };
 
-    setListings(prev => [newListing, ...prev]);
-    setIsAddingListing(null);
-    setNewListDates('');
+    setRequests(prev => prev.map(r => (r.id === editingRequest.id ? updated : r)));
+    setEditSuccessFeedback('Request updated and saved successfully!');
+    setTimeout(() => {
+      setEditingRequest(null);
+      setEditSuccessFeedback(null);
+    }, 1200);
   };
+
+  // 7. DELETE REQUEST (Requirement 11, Admin Only)
+  const handleConfirmDeleteRequest = () => {
+    if (!deletingRequest) return;
+    setRequests(prev => prev.filter(r => r.id !== deletingRequest.id));
+    setDeletingRequest(null);
+  };
+
+  // If view is 'owner-listings', it has been removed per Requirement 8
+  if (view === 'owner-listings') {
+    return null;
+  }
 
   return (
     <div className="space-y-6 animate-fade-in text-slate-900">
       {/* ─────────────────────────────────────────────────────────────
-          VIEW 1: PASSENGER MGR TRANSPORT SEARCH
+          VIEW 1: PASSENGER MGR TRANSPORT SEARCH (Find Transport)
       ───────────────────────────────────────────────────────────── */}
       {view === 'search' && (
         <div className="space-y-6">
-          {/* MGR Transport Search Box */}
+          {/* Top Search & Filter Bar */}
           <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Search Available Transport & Scheduled Trips</h3>
-                <p className="text-xs text-slate-500">
-                  Search by global keywords, date, route, and vehicle type. Request a vehicle or reserve seats directly from verified operators.
-                </p>
-              </div>
-              <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
-                MGR Transport Booking
-              </span>
-            </div>
-
-            {/* Global Search Bar */}
+            {/* Global Search Input */}
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <Search className="w-4 h-4" />
-              </div>
+              <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
-                id="mgr-find-transport-global-search"
                 type="text"
+                placeholder="Search by vehicle make, model, registration #, operator, route (From/To), or date..."
                 value={globalSearch}
                 onChange={e => {
                   setGlobalSearch(e.target.value);
                   setSearchPage(1);
                 }}
-                placeholder="Global Search: search by vehicle name, model, reg #, driver, location, operator, trip type..."
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-xs sm:text-sm font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
               />
-              {globalSearch && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGlobalSearch('');
-                    setSearchPage(1);
-                  }}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
-                  title="Clear search"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
             </div>
 
             {/* Inputs Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3 text-xs">
-              {/* Trip / Booking Type Filter */}
+              {/* Trip / Booking Type Filter (Requirement 1: Strictly 'Trip' and 'Schedule') */}
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Filter</label>
                 <select
@@ -1013,8 +801,8 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 font-medium bg-white"
                 >
                   <option value="all">All</option>
-                  <option value="planned_trip">Planned Trip</option>
-                  <option value="availability_only">Vehicle Available</option>
+                  <option value="trip">Trip</option>
+                  <option value="schedule">Schedule</option>
                 </select>
               </div>
 
@@ -1046,7 +834,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 />
               </div>
 
-              {/* From */}
+              {/* From Location */}
               <div>
                 <label className="block font-bold text-slate-700 mb-1">From Location</label>
                 <input
@@ -1058,7 +846,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 />
               </div>
 
-              {/* To */}
+              {/* To Location */}
               <div>
                 <label className="block font-bold text-slate-700 mb-1">To Location</label>
                 <input
@@ -1108,29 +896,32 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                   Search Results ({sortedListings.length})
                 </h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  Showing {Math.min(sortedListings.length, (searchPage - 1) * pageSize + 1)}-{Math.min(searchPage * pageSize, sortedListings.length)} of {sortedListings.length}
+                  Showing {Math.min(sortedListings.length, (searchPage - 1) * pageSize + 1)}-
+                  {Math.min(searchPage * pageSize, sortedListings.length)} of {sortedListings.length}
                 </span>
                 {listingTypeFilter !== 'all' && (
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                    listingTypeFilter === 'planned_trip' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  }`}>
-                    {listingTypeFilter === 'planned_trip' ? 'Planned Trips' : 'Vehicle Available'}
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      listingTypeFilter === 'schedule'
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    }`}
+                  >
+                    {listingTypeFilter === 'schedule' ? 'Schedule' : 'Trip'}
                   </span>
                 )}
               </div>
 
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500 hidden md:inline">
-                  Direct Owner Booking • Reserve Your Trip
+                  Direct Operator Booking • Reserve Your Journey
                 </span>
                 <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
                   <button
                     type="button"
                     onClick={() => setSearchViewMode('table')}
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                      searchViewMode === 'table'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
+                      searchViewMode === 'table' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                     title="Table View (20 rows/page)"
                   >
@@ -1141,9 +932,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                     type="button"
                     onClick={() => setSearchViewMode('cards')}
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                      searchViewMode === 'cards'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
+                      searchViewMode === 'cards' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                     title="Card Grid"
                   >
@@ -1156,29 +945,41 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 
             {sortedListings.length === 0 ? (
               <div className="p-12 text-center rounded-2xl border border-dashed border-slate-300 bg-white space-y-2">
-                <p className="text-sm font-bold text-slate-700">No matching vehicles found</p>
+                <p className="text-sm font-bold text-slate-700">No matching vehicles or trips found</p>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Try adjusting the travel date, keywords, or vehicle category. We have active Cars, Vans, Buses, Safari jeeps, and Boats ready for hire.
+                  Try adjusting your travel date, route keywords, or vehicle category. Active fleet vehicles are ready for hire.
                 </p>
               </div>
             ) : searchViewMode === 'table' ? (
-              /* TABLE FORMAT (MAX 20 ROWS) WITH TEXT WRAPPING */
+              /* TABLE FORMAT (MAX 20 ROWS) */
               <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
-                      {renderSortHeader('Vehicle & Photo', 'vehicleName', searchSortField, searchSortDir, () => handleSort('vehicleName', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage))}
-                      {renderSortHeader('Type', 'vehicleType', searchSortField, searchSortDir, () => handleSort('vehicleType', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage))}
-                      {renderSortHeader('Reg #', 'registrationNumber', searchSortField, searchSortDir, () => handleSort('registrationNumber', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage))}
-                      {renderSortHeader('From ➔ To Location', 'plannedFrom', searchSortField, searchSortDir, () => handleSort('plannedFrom', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage))}
-                      {renderSortHeader('Seats', 'totalSeats', searchSortField, searchSortDir, () => handleSort('totalSeats', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage))}
-                      {renderSortHeader('Driver Option', 'driverOption', searchSortField, searchSortDir, () => handleSort('driverOption', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage))}
+                      {renderSortHeader('Vehicle & Photo', 'vehicleName', searchSortField, searchSortDir, () =>
+                        handleSort('vehicleName', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage)
+                      )}
+                      {renderSortHeader('Type', 'vehicleType', searchSortField, searchSortDir, () =>
+                        handleSort('vehicleType', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage)
+                      )}
+                      {renderSortHeader('Reg #', 'registrationNumber', searchSortField, searchSortDir, () =>
+                        handleSort('registrationNumber', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage)
+                      )}
+                      {renderSortHeader('From ➔ To Location', 'plannedFrom', searchSortField, searchSortDir, () =>
+                        handleSort('plannedFrom', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage)
+                      )}
+                      {renderSortHeader('Seats', 'totalSeats', searchSortField, searchSortDir, () =>
+                        handleSort('totalSeats', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage)
+                      )}
+                      {renderSortHeader('Driver Option', 'driverOption', searchSortField, searchSortDir, () =>
+                        handleSort('driverOption', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage)
+                      )}
                       <th className="py-3.5 px-4 text-center break-words">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {paginatedListings.map(item => {
-                      const isTypeA = item.listingMode === 'availability_only';
+                      const isSchedule = item.listingMode === 'schedule' || item.listingMode === 'planned_trip';
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-3 px-4 break-words">
@@ -1196,12 +997,15 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                               )}
                               <div className="break-words min-w-0">
                                 <span className="font-bold text-slate-900 block break-words">{item.vehicleName}</span>
-                                <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.2 rounded border inline-block mt-0.5 ${
-                                  isTypeA 
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                                    : 'bg-blue-50 text-blue-700 border-blue-200'
-                                }`}>
-                                  {isTypeA ? 'Vehicle Available' : 'Planned Trip'}
+                                {/* Badge: Strictly 'Trip' or 'Schedule' (Requirement 1) */}
+                                <span
+                                  className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border inline-block mt-0.5 ${
+                                    !isSchedule
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                      : 'bg-blue-50 text-blue-800 border-blue-200'
+                                  }`}
+                                >
+                                  {!isSchedule ? 'Trip' : 'Schedule'}
                                 </span>
                               </div>
                             </div>
@@ -1219,38 +1023,44 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                             </span>
                           </td>
 
-                          {/* From Location & To Location clearly displayed */}
+                          {/* From ➔ To Location */}
                           <td className="py-3 px-4 break-words min-w-[180px]">
-                            {isTypeA ? (
+                            {!isSchedule ? (
                               <div className="space-y-1">
                                 <div className="font-semibold text-slate-800 break-words">
                                   {item.serviceArea || `${searchFrom || 'Mannar'} ➔ ${searchTo || 'Islandwide'}`}
                                 </div>
                                 <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 inline-block">
-                                  {item.availableDates && item.availableDates.length > 0 ? `${item.availableDates.length} Days Available` : 'Available on Request'}
+                                  {item.availableDates && item.availableDates.length > 0
+                                    ? `${item.availableDates.length} Dates Available`
+                                    : 'Available for Booking'}
                                 </span>
                               </div>
                             ) : (
                               <div className="space-y-1">
                                 <div className="flex flex-col gap-0.5 text-xs font-bold text-blue-950">
                                   <div className="break-words">
-                                    <span className="text-[10px] uppercase font-bold text-blue-600 mr-1.5">From Location:</span>
+                                    <span className="text-[10px] uppercase font-bold text-blue-600 mr-1.5">From:</span>
                                     <span className="font-semibold">{item.plannedFrom || 'Mannar Town'}</span>
                                   </div>
                                   <div className="break-words">
-                                    <span className="text-[10px] uppercase font-bold text-indigo-600 mr-1.5">To Location:</span>
+                                    <span className="text-[10px] uppercase font-bold text-indigo-600 mr-1.5">To:</span>
                                     <span className="font-semibold">{item.plannedTo || 'Jaffna City'}</span>
                                   </div>
                                 </div>
                                 <div className="text-[10px] text-slate-500 mt-1 break-words">
-                                  📅 {item.plannedTripDate} at {item.departureTime} • <span className="font-bold text-emerald-700">{getRemainingSeatsForListing(item)} seats left</span>
+                                  📅 {item.plannedTripDate} at {item.departureTime || '08:00'} •{' '}
+                                  <span className="font-bold text-emerald-700">
+                                    {getRemainingSeatsForListing(item)} seats left
+                                  </span>{' '}
+                                  • <span className="font-bold text-slate-700">Rs. {item.seatFare || 1200}/seat</span>
                                 </div>
                               </div>
                             )}
                           </td>
 
                           <td className="py-3 px-4 break-words font-bold text-slate-800">
-                            {item.totalSeats} Seats
+                            {isSchedule ? `${getRemainingSeatsForListing(item)} / ${item.totalSeats}` : `${item.totalSeats} Seats`}
                           </td>
 
                           <td className="py-3 px-4 break-words">
@@ -1259,28 +1069,29 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                             </span>
                           </td>
 
-                          {/* Distinct booking button colours: Emerald for Vehicle Available, Blue for Planned Trip */}
+                          {/* Distinct Button Colors & Labels: Emerald for 'Book Trip', Blue for 'Book Schedule' (Requirement 1) */}
                           <td className="py-3 px-4 break-words text-center">
                             <button
                               type="button"
                               onClick={() => {
                                 setRequestingListing(item);
-                                setReqRouteFrom(item.listingMode === 'planned_trip' ? (item.plannedFrom || 'Mannar Town') : (searchFrom || 'Mannar Town'));
-                                setReqRouteTo(item.listingMode === 'planned_trip' ? (item.plannedTo || 'Jaffna') : (searchTo || ''));
-                                setReqTravelDate(item.listingMode === 'planned_trip' ? (item.plannedTripDate || searchDate) : searchDate);
-                                setReqSeats(item.listingMode === 'planned_trip' ? Math.min(searchPassengers, getRemainingSeatsForListing(item) || 1) : 1);
+                                setReqRouteFrom(isSchedule ? item.plannedFrom || 'Mannar Town' : searchFrom || 'Mannar Town');
+                                setReqRouteTo(isSchedule ? item.plannedTo || 'Jaffna City' : searchTo || '');
+                                setReqTravelDate(isSchedule ? item.plannedTripDate || searchDate : searchDate);
+                                setReqSeats(isSchedule ? Math.min(searchPassengers, getRemainingSeatsForListing(item) || 1) : 1);
                                 setReqPassengerName(currentUser?.name || currentUser?.username || '');
                                 setReqPassengerPhone(currentUser?.phone || '+94 77 123 4567');
+                                setReqNotes('');
                               }}
                               className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shadow-xs transition cursor-pointer ${
-                                isTypeA
+                                !isSchedule
                                   ? 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700'
                                   : 'bg-blue-600 hover:bg-blue-500 active:bg-blue-700'
                               }`}
-                              title={isTypeA ? 'Book this Available Vehicle' : 'Book Seats on this Planned Trip'}
+                              title={!isSchedule ? 'Book Trip' : 'Book Schedule Seats'}
                             >
                               <Calendar className="w-3.5 h-3.5" />
-                              <span>Book Vehicle</span>
+                              <span>{!isSchedule ? 'Book Trip' : 'Book Schedule'}</span>
                             </button>
                           </td>
                         </tr>
@@ -1290,10 +1101,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 </table>
               </div>
             ) : (
-              /* CARDS GRID (PAGINATED MAX 20) */
+              /* CARDS GRID (MAX 20) */
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {paginatedListings.map(item => {
-                  const isTypeA = item.listingMode === 'availability_only';
+                  const isSchedule = item.listingMode === 'schedule' || item.listingMode === 'planned_trip';
 
                   return (
                     <div
@@ -1308,31 +1119,27 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                           </span>
                           <span
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border ${
-                              isTypeA
+                              !isSchedule
                                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                 : 'bg-blue-50 text-blue-800 border-blue-200'
                             }`}
                           >
-                            {isTypeA ? 'Vehicle Available' : 'Planned Trip'}
+                            {!isSchedule ? 'Trip' : 'Schedule'}
                           </span>
                         </div>
 
-                        {/* Title & Photo */}
+                        {/* Title & Operator */}
                         <h4 className="text-sm font-bold text-slate-900 mt-2">{item.vehicleName}</h4>
-                        <p className="text-[11px] text-slate-500">Owner: {item.ownerName}</p>
+                        <p className="text-[11px] text-slate-500">Operator: {item.ownerName}</p>
 
                         {item.photos && item.photos.length > 0 && (
                           <div className="mt-2 h-32 rounded-xl overflow-hidden bg-slate-100 border border-slate-200">
-                            <img
-                              src={item.photos[0]}
-                              alt={item.vehicleName}
-                              className="w-full h-full object-cover"
-                            />
+                            <img src={item.photos[0]} alt={item.vehicleName} className="w-full h-full object-cover" />
                           </div>
                         )}
 
-                        {/* Type Specific Info */}
-                        {isTypeA ? (
+                        {/* Info Body */}
+                        {!isSchedule ? (
                           <div className="mt-3 p-3 bg-slate-50 rounded-xl space-y-2 text-xs">
                             <div className="flex items-center justify-between text-[11px]">
                               <span className="text-slate-500">Capacity:</span>
@@ -1340,11 +1147,13 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                             </div>
                             <div className="flex items-center justify-between text-[11px]">
                               <span className="text-slate-500">Driver:</span>
-                              <strong className="text-slate-800 capitalize">{item.driverOption === 'both' ? 'Discuss' : item.driverOption.replace('_', ' ')}</strong>
+                              <strong className="text-slate-800 capitalize">
+                                {item.driverOption === 'both' ? 'Discuss' : item.driverOption.replace('_', ' ')}
+                              </strong>
                             </div>
                             <div>
                               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                                Available Schedule
+                                Available Dates
                               </span>
                               <div className="text-[11px] text-slate-600">
                                 {item.availableDates && item.availableDates.length > 0 ? (
@@ -1359,7 +1168,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                                     )}
                                   </div>
                                 ) : (
-                                  <span className="italic text-slate-400">Available on inquiry</span>
+                                  <span className="italic text-slate-400">Available on request</span>
                                 )}
                               </div>
                             </div>
@@ -1367,12 +1176,18 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                         ) : (
                           <div className="mt-3 p-3 bg-blue-50/60 border border-blue-100 rounded-xl space-y-2 text-xs">
                             <div className="flex flex-col gap-0.5 font-bold text-blue-900">
-                              <div><span className="text-[10px] uppercase text-blue-500 font-extrabold mr-1">From Location:</span> {item.plannedFrom || 'Mannar Town'}</div>
-                              <div><span className="text-[10px] uppercase text-indigo-500 font-extrabold mr-1">To Location:</span> {item.plannedTo || 'Jaffna City'}</div>
+                              <div>
+                                <span className="text-[10px] uppercase text-blue-500 font-extrabold mr-1">From:</span>{' '}
+                                {item.plannedFrom || 'Mannar Town'}
+                              </div>
+                              <div>
+                                <span className="text-[10px] uppercase text-indigo-500 font-extrabold mr-1">To:</span>{' '}
+                                {item.plannedTo || 'Jaffna City'}
+                              </div>
                             </div>
                             <div className="flex items-center justify-between text-[11px] text-slate-600">
                               <span>📅 Date: {item.plannedTripDate}</span>
-                              <span>⏰ Time: {item.departureTime}</span>
+                              <span>⏰ Time: {item.departureTime || '08:00'}</span>
                             </div>
                             <div className="flex items-center justify-between text-[11px] pt-1 border-t border-blue-200/50">
                               <span className="text-slate-600">Available Seats:</span>
@@ -1380,47 +1195,37 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                                 {getRemainingSeatsForListing(item)} / {item.totalSeats}
                               </strong>
                             </div>
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-slate-600">Per Seat Amount:</span>
+                              <strong className="text-slate-900 font-bold">Rs. {(item.seatFare || 1200).toLocaleString()}</strong>
+                            </div>
                           </div>
                         )}
                       </div>
 
                       {/* Request Action Button with distinct colors */}
                       <div className="pt-2 border-t border-slate-100 flex justify-end">
-                        {isTypeA ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRequestingListing(item);
-                              setReqRouteFrom(searchFrom || 'Mannar Town');
-                              setReqRouteTo(searchTo || '');
-                              setReqTravelDate(searchDate);
-                              setReqSeats(1);
-                              setReqPassengerName(currentUser?.name || currentUser?.username || '');
-                              setReqPassengerPhone(currentUser?.phone || '+94 77 123 4567');
-                            }}
-                            className="w-full flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs transition cursor-pointer"
-                          >
-                            <Calendar className="w-3.5 h-3.5" />
-                            <span>Book Vehicle</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRequestingListing(item);
-                              setReqRouteFrom(item.plannedFrom || 'Mannar Town');
-                              setReqRouteTo(item.plannedTo || 'Jaffna');
-                              setReqTravelDate(item.plannedTripDate || searchDate);
-                              setReqSeats(Math.min(searchPassengers, getRemainingSeatsForListing(item) || 1));
-                              setReqPassengerName(currentUser?.name || currentUser?.username || '');
-                              setReqPassengerPhone(currentUser?.phone || '+94 77 123 4567');
-                            }}
-                            className="w-full flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-xs transition cursor-pointer"
-                          >
-                            <Calendar className="w-3.5 h-3.5" />
-                            <span>Book Vehicle</span>
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRequestingListing(item);
+                            setReqRouteFrom(isSchedule ? item.plannedFrom || 'Mannar Town' : searchFrom || 'Mannar Town');
+                            setReqRouteTo(isSchedule ? item.plannedTo || 'Jaffna City' : searchTo || '');
+                            setReqTravelDate(isSchedule ? item.plannedTripDate || searchDate : searchDate);
+                            setReqSeats(isSchedule ? Math.min(searchPassengers, getRemainingSeatsForListing(item) || 1) : 1);
+                            setReqPassengerName(currentUser?.name || currentUser?.username || '');
+                            setReqPassengerPhone(currentUser?.phone || '+94 77 123 4567');
+                            setReqNotes('');
+                          }}
+                          className={`w-full flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs transition cursor-pointer ${
+                            !isSchedule
+                              ? 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700'
+                              : 'bg-blue-600 hover:bg-blue-500 active:bg-blue-700'
+                          }`}
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span>{!isSchedule ? 'Book Trip' : 'Book Schedule'}</span>
+                        </button>
                       </div>
                     </div>
                   );
@@ -1428,7 +1233,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
               </div>
             )}
 
-            {/* Pagination Controls (Max 20 rows per page) */}
+            {/* Pagination Controls */}
             {sortedListings.length > pageSize && (
               <div className="p-3 rounded-2xl border border-slate-200 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
                 <div className="text-slate-500">
@@ -1455,9 +1260,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                         type="button"
                         onClick={() => setSearchPage(p)}
                         className={`w-7 h-7 rounded-lg text-xs font-bold transition cursor-pointer ${
-                          searchPage === p
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'text-slate-600 hover:bg-slate-100'
+                          searchPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                         }`}
                       >
                         {p}
@@ -1482,16 +1285,16 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          VIEW 2: REQUESTS & PAYMENT PIPELINE
+          VIEW 2: TRANSPORT BOOKING REQUESTS & PAYMENTS (Requests)
       ───────────────────────────────────────────────────────────── */}
       {view === 'requests' && (
         <div className="space-y-4">
-          {/* Filter Bar */}
+          {/* Top Filter Bar */}
           <div className="p-4 rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-slate-900">Transport Booking Requests & Payments</h3>
               <p className="text-xs text-slate-500">
-                MGR Transport Booking lifecycle: Request ➔ Owner sets travel charge ➔ Passenger pays ➔ Confirmed.
+                Manage your Trip and Schedule bookings with live updates and actions.
               </p>
             </div>
 
@@ -1514,17 +1317,29 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
             </div>
           </div>
 
-          {/* Table Format */}
+          {/* Requests Table */}
           <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
-                  {renderSortHeader('Request # & Type', 'requestNumber', reqSortField, reqSortDir, () => handleSort('requestNumber', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage))}
-                  {renderSortHeader('Vehicle / Reg', 'vehicleName', reqSortField, reqSortDir, () => handleSort('vehicleName', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage))}
-                  {renderSortHeader('Passenger', 'passenger', reqSortField, reqSortDir, () => handleSort('passenger', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage))}
-                  {renderSortHeader('Route & Date', 'routeFrom', reqSortField, reqSortDir, () => handleSort('routeFrom', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage))}
-                  {renderSortHeader('Pricing', 'finalAmount', reqSortField, reqSortDir, () => handleSort('finalAmount', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage))}
-                  {renderSortHeader('Status', 'requestStatus', reqSortField, reqSortDir, () => handleSort('requestStatus', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage))}
+                  {renderSortHeader('Request # & Type', 'requestNumber', reqSortField, reqSortDir, () =>
+                    handleSort('requestNumber', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage)
+                  )}
+                  {renderSortHeader('Vehicle / Reg', 'vehicleName', reqSortField, reqSortDir, () =>
+                    handleSort('vehicleName', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage)
+                  )}
+                  {renderSortHeader('Passenger', 'passenger', reqSortField, reqSortDir, () =>
+                    handleSort('passenger', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage)
+                  )}
+                  {renderSortHeader('Route & Date', 'routeFrom', reqSortField, reqSortDir, () =>
+                    handleSort('routeFrom', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage)
+                  )}
+                  {renderSortHeader('Pricing', 'finalAmount', reqSortField, reqSortDir, () =>
+                    handleSort('finalAmount', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage)
+                  )}
+                  {renderSortHeader('Status', 'requestStatus', reqSortField, reqSortDir, () =>
+                    handleSort('requestStatus', reqSortField, reqSortDir, setReqSortField, setReqSortDir, setReqPage)
+                  )}
                   <th className="py-3.5 px-4 text-center break-words">Actions</th>
                 </tr>
               </thead>
@@ -1537,9 +1352,24 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                   </tr>
                 ) : (
                   paginatedRequests.map(req => {
+                    const isSchedule = req.listingMode === 'schedule' || req.listingMode === 'planned_trip';
                     const isPending = req.requestStatus === 'pending_owner';
                     const isAwaiting = req.requestStatus === 'awaiting_payment';
                     const isConfirmed = req.requestStatus === 'confirmed';
+                    const isPaid = req.paymentStatus === 'paid';
+
+                    // Requirement 10: Editable only while pending; once confirmed/paid, locked to View only
+                    const canEdit = isAppAdmin || (isPending || isAwaiting);
+
+                    // Requirement 7: Contact Privacy Logic
+                    // Hide owner contact info from passenger until paid & confirmed.
+                    // Hide passenger contact info from owner until paid & confirmed.
+                    // Admin sees all contact info at all stages.
+                    const isPaidAndConfirmed = isPaid && isConfirmed;
+                    const canViewPassengerContact =
+                      isAppAdmin ||
+                      isPaidAndConfirmed ||
+                      (isPassengerUser && req.passenger.email === currentUserEmail);
 
                     return (
                       <tr key={req.id} className="hover:bg-slate-50/80 transition-colors">
@@ -1547,8 +1377,12 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                           <span className="font-mono font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 inline-block break-words">
                             {req.requestNumber}
                           </span>
-                          <span className="text-[10px] font-bold block mt-1 text-slate-500 break-words">
-                            {req.listingMode === 'availability_only' ? 'Vehicle Booking' : `Seat Booking (${req.seatCount} seat)`}
+                          <span
+                            className={`text-[10px] font-bold block mt-1 px-1.5 py-0.2 rounded w-fit uppercase ${
+                              !isSchedule ? 'bg-emerald-50 text-emerald-800' : 'bg-blue-50 text-blue-800'
+                            }`}
+                          >
+                            {!isSchedule ? 'Trip' : `Schedule (${req.seatCount} Seat)`}
                           </span>
                         </td>
 
@@ -1557,16 +1391,20 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                           <span className="font-mono text-[10px] text-slate-400 break-words">{req.registrationNumber}</span>
                         </td>
 
+                        {/* Passenger Column (Contact Privacy: Requirement 7) */}
                         <td className="py-3 px-4 break-words">
-                          {isAppAdmin || (req.paymentStatus === 'paid' && req.requestStatus === 'confirmed') || (isPassengerUser && req.passenger.email === currentUserEmail) ? (
+                          {canViewPassengerContact ? (
                             <>
                               <div className="font-bold text-slate-900 break-words">{req.passenger.name}</div>
                               <span className="text-[11px] text-slate-500 break-words">{req.passenger.phone}</span>
                             </>
                           ) : (
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 text-[10px] font-bold">
-                              <Lock className="w-3 h-3 text-amber-600 shrink-0" />
-                              <span>Protected (Paid only)</span>
+                            <div>
+                              <div className="font-bold text-slate-900 break-words">{req.passenger.name}</div>
+                              <div className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 text-[10px] font-bold">
+                                <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                                <span>Protected (Paid only)</span>
+                              </div>
                             </div>
                           )}
                         </td>
@@ -1588,9 +1426,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                             </span>
                           ) : req.finalAmount ? (
                             <div className="break-words">
-                              <div className="font-extrabold text-emerald-700">
-                                Rs. {req.finalAmount.toLocaleString()}
-                              </div>
+                              <div className="font-extrabold text-emerald-700">Rs. {req.finalAmount.toLocaleString()}</div>
                               <span className="text-[10px] text-slate-400 block break-words">
                                 Charge: {req.ownerTravelCharge?.toLocaleString()} + Fee: {req.convenienceFee?.toLocaleString()}
                               </span>
@@ -1615,30 +1451,56 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                           >
                             {req.requestStatus.replace('_', ' ')}
                           </span>
+                          {isPaid && (
+                            <span className="text-[10px] font-bold text-emerald-600 block mt-0.5">✓ PAID</span>
+                          )}
                         </td>
 
-                        {/* Actions */}
+                        {/* Actions (Requirements 10 & 11) */}
                         <td className="py-3 px-4 break-words text-center">
                           <div className="flex items-center justify-center gap-1.5">
+                            {/* VIEW (Available to Passenger, Owner, Admin) */}
                             <button
                               type="button"
                               onClick={() => setViewingRequest(req)}
-                              className="p-1 text-slate-500 hover:text-slate-900 transition cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer"
                               title="View Details"
                             >
                               <Eye className="w-4 h-4" />
                             </button>
 
-                            <a
-                              href={getWhatsAppUrl(req.passenger.whatsapp, `Hi ${req.passenger.name}, regarding your transport booking ${req.requestNumber}.`)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="p-1 text-emerald-600 hover:text-emerald-700 transition"
-                              title="Chat WhatsApp"
-                            >
-                              <MessageSquare className="w-4 h-4" />
-                            </a>
+                            {/* EDIT (Requirement 10: Editable only while pending; locked when paid/confirmed) */}
+                            {canEdit ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditRequest(req)}
+                                className="p-1.5 rounded-lg text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition cursor-pointer"
+                                title="Edit Request"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            ) : (
+                              <span
+                                className="p-1.5 text-slate-300 cursor-not-allowed inline-block"
+                                title="Locked: Confirmed & Paid bookings cannot be modified"
+                              >
+                                <Lock className="w-4 h-4" />
+                              </span>
+                            )}
 
+                            {/* DELETE (Requirement 11: Admin Only, with confirmation popup) */}
+                            {isAppAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => setDeletingRequest(req)}
+                                className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition cursor-pointer"
+                                title="Delete Booking (Admin Only)"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            {/* Trip Owner Review/Accept Button */}
                             {isOwnerOrAdmin && isPending && (
                               <button
                                 type="button"
@@ -1649,10 +1511,11 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                                 }}
                                 className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs transition cursor-pointer"
                               >
-                                Review / Accept
+                                Review / Price
                               </button>
                             )}
 
+                            {/* Trip Passenger Pay Now Button */}
                             {isAwaiting && (
                               <button
                                 type="button"
@@ -1673,7 +1536,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
             </table>
           </div>
 
-          {/* Pagination Controls (Max 20 rows per page) */}
+          {/* Pagination Controls */}
           {sortedRequests.length > pageSize && (
             <div className="p-3 rounded-2xl border border-slate-200 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
               <div className="text-slate-500">
@@ -1700,9 +1563,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                       type="button"
                       onClick={() => setReqPage(p)}
                       className={`w-7 h-7 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        reqPage === p
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'text-slate-600 hover:bg-slate-100'
+                        reqPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                       }`}
                     >
                       {p}
@@ -1726,580 +1587,105 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          VIEW 3: OWNER LISTINGS MANAGEMENT (Type A & Type B)
+          MODAL: PASSENGER BOOKING (Schedule Direct vs Trip Request)
       ───────────────────────────────────────────────────────────── */}
-      {view === 'owner-listings' && (
-        <div className="space-y-6">
-          {/* Top Bar: Overview & Quick Actions */}
-          <div className="p-4 rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-slate-900">Owner Vehicle Listings & Schedules</h3>
-                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                  Type A & Type B Unified
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Manage monthly availability calendars (Type A) and scheduled planned route trips (Type B) inside this unified card.
-              </p>
-            </div>
+      {requestingListing && (() => {
+        const isSchedule = requestingListing.listingMode === 'schedule' || requestingListing.listingMode === 'planned_trip';
+        const remaining = getRemainingSeatsForListing(requestingListing);
+        const seatFare = requestingListing.seatFare || 1200;
+        const seatSubtotal = reqSeats * seatFare;
+        const adminCharge = Math.round(seatSubtotal * (convenienceFeePercentage / 100));
+        const totalPayable = seatSubtotal + adminCharge;
 
-            {/* Quick Action Buttons */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsAddingListing('availability_only')}
-                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs transition cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Add Availability</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setNewListVehicleId(activeCalendarVehicleId || '');
-                  setIsAddingListing('planned_trip');
-                }}
-                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-xs transition cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Schedule Route Trip</span>
-              </button>
-            </div>
-          </div>
-
-          {/* ═════════════════════════════════════════════════════════════
-              UNIFIED AVAILABILITY (TYPE A) & PLANNED TRIPS (TYPE B) CARD
-          ═════════════════════════════════════════════════════════════ */}
-          <div className="p-5 rounded-2xl border-2 border-slate-300 bg-white shadow-sm space-y-4">
-            {/* Header: Vehicle Picker & Title */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold">
-                  <Calendar className="w-4 h-4" />
-                </div>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
+              <div className="flex items-center justify-between border-b pb-3">
                 <div>
-                  <h4 className="text-sm font-black text-slate-900">
-                    Vehicle Availability & Route Schedule Calendar
-                  </h4>
-                  <p className="text-[11px] text-slate-500">
-                    Slightly darker, compact display presenting both Type A availability status and Type B scheduled route trips in one window.
-                  </p>
-                </div>
-              </div>
-
-              {/* Scoped Vehicle Dropdown (Logged-in Owner's vehicles only) */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-700">Vehicle:</span>
-                <select
-                  value={activeCalendarVehicleId}
-                  onChange={e => setSelectedCalendarVehicleId(e.target.value)}
-                  className="px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white cursor-pointer shadow-xs"
-                >
-                  {myOwnerVehicles.length === 0 ? (
-                    <option value="">No vehicles registered yet</option>
-                  ) : (
-                    myOwnerVehicles.map(v => (
-                      <option key={v.id} value={v.id}>
-                        {v.name} ({v.registrationNumber}) — {v.type.toUpperCase()}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-            </div>
-
-            {/* Controls Bar: Month Nav, Paint Brush, Batch Tools, and SAVE BUTTON */}
-            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-slate-100 p-3 rounded-xl border border-slate-300 text-xs">
-              {/* Month Navigation */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
-                  className="p-1.5 rounded-lg border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
-                  title="Previous Month"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="font-black text-xs sm:text-sm text-slate-900 min-w-[140px] text-center">
-                  {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
-                  className="p-1.5 rounded-lg border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
-                  title="Next Month"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCalendarMonth(new Date())}
-                  className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 font-bold cursor-pointer text-xs shadow-2xs"
-                >
-                  Today
-                </button>
-              </div>
-
-              {/* Paint Tool Dropdown */}
-              <div className="flex items-center gap-2">
-                <label className="font-bold text-slate-800 text-xs">Paint Availability:</label>
-                <select
-                  value={selectedBrush}
-                  onChange={e => setSelectedBrush(e.target.value as any)}
-                  className="px-2.5 py-1.5 rounded-xl font-bold border border-slate-300 bg-white text-slate-900 shadow-xs focus:outline-none focus:border-emerald-600 cursor-pointer text-xs"
-                >
-                  <option value="available">🟢 Available (Green)</option>
-                  <option value="tentative">🟡 Tentative / Holding (Yellow)</option>
-                  <option value="booked">🔴 Booked / Reserved (Red)</option>
-                  <option value="planned">🔵 Route / Planned (Blue)</option>
-                  <option value="off">⚪ Off / Unavailable (Grey)</option>
-                </select>
-              </div>
-
-              {/* Quick Batch Actions */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleBatchMarkMonth('available')}
-                  className="px-2.5 py-1.5 rounded-lg bg-white border border-emerald-400 text-emerald-800 hover:bg-emerald-50 font-bold transition cursor-pointer text-[11px] shadow-2xs"
-                >
-                  ✓ Mark Month Available
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleBatchMarkMonth('off')}
-                  className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-bold transition cursor-pointer text-[11px] shadow-2xs"
-                >
-                  ✕ Clear Month
-                </button>
-              </div>
-
-              {/* SAVE / DISCARD ACTIONS (Requirement 3) */}
-              <div className="flex items-center gap-2">
-                {calendarSaveFeedback && (
-                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold animate-fade-in">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>{calendarSaveFeedback}</span>
-                  </div>
-                )}
-
-                {hasUnsavedCalendarChanges && (
-                  <button
-                    type="button"
-                    onClick={handleDiscardCalendarAvailability}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 transition cursor-pointer shadow-2xs"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Discard</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleSaveCalendarAvailability}
-                  disabled={!hasUnsavedCalendarChanges}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-extrabold transition shadow-xs cursor-pointer ${
-                    hasUnsavedCalendarChanges
-                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white ring-2 ring-emerald-400 shadow-md'
-                      : 'bg-slate-300 text-slate-600 cursor-not-allowed opacity-70'
-                  }`}
-                  title={hasUnsavedCalendarChanges ? "Save your staged calendar edits" : "No pending calendar changes"}
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>Save Availability</span>
-                  {hasUnsavedCalendarChanges && (
-                    <span className="w-2 h-2 rounded-full bg-amber-300 animate-ping ml-0.5" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Darker, Compact Unified Calendar Grid (Type A + Type B in same cell) */}
-            <div className="border-2 border-slate-300 rounded-xl overflow-hidden bg-white shadow-xs">
-              <div className="grid grid-cols-7 bg-slate-200 border-b-2 border-slate-300 text-center font-black text-slate-800 text-[11px] py-2 tracking-wide uppercase">
-                <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
-              </div>
-              <div className="grid grid-cols-7 text-xs divide-x divide-y divide-slate-300 bg-slate-100/60">
-                {Array.from({ length: new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1).getDay() }).map((_, idx) => (
-                  <div key={`avail-empty-${idx}`} className="min-h-[58px] sm:min-h-[64px] bg-slate-100 p-1" />
-                ))}
-                {Array.from({ length: new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate() }).map((_, idx) => {
-                  const dayNum = idx + 1;
-                  const dateStr = `${calendarMonth.getFullYear()}-${String(calendarMonth.getMonth() + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-                  
-                  // Type A Status from draft or saved map
-                  const currentStatus = draftDateAvailabilityMap[dateStr] || 
-                    activeCalendarListing?.dateAvailabilityMap?.[dateStr] || 
-                    (activeCalendarListing?.availableDates?.includes(dateStr) ? 'available' : 'off');
-
-                  const statusConfig = {
-                    available: { label: 'Available', short: 'AVAIL', bg: 'bg-emerald-50 hover:bg-emerald-100/80 border-emerald-300 text-emerald-950', dot: 'bg-emerald-600' },
-                    tentative: { label: 'Tentative', short: 'TENT', bg: 'bg-amber-50 hover:bg-amber-100/80 border-amber-300 text-amber-950', dot: 'bg-amber-600' },
-                    booked: { label: 'Booked', short: 'BOOKED', bg: 'bg-rose-50 hover:bg-rose-100/80 border-rose-300 text-rose-950', dot: 'bg-rose-600' },
-                    planned: { label: 'Route', short: 'ROUTE', bg: 'bg-blue-50 hover:bg-blue-100/80 border-blue-300 text-blue-950', dot: 'bg-blue-600' },
-                    off: { label: 'Off', short: 'OFF', bg: 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-500', dot: 'bg-slate-400' },
-                  }[currentStatus as 'available' | 'tentative' | 'booked' | 'planned' | 'off'] || {
-                    label: 'Off', short: 'OFF', bg: 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-500', dot: 'bg-slate-400'
-                  };
-
-                  // Type B: Planned Route Trips on this date for this vehicle
-                  const tripsOnDate = listings.filter(l => 
-                    l.listingMode === 'planned_trip' && 
-                    l.vehicleId === activeCalendarVehicleId && 
-                    l.plannedTripDate === dateStr
-                  );
-
-                  const isToday = todayYMD === dateStr;
-
-                  return (
-                    <div
-                      key={dateStr}
-                      onClick={() => handlePaintDate(dateStr)}
-                      className={`min-h-[58px] sm:min-h-[64px] p-1.5 transition cursor-pointer flex flex-col justify-between border select-none ${statusConfig.bg}`}
-                      title={`Date: ${dateStr}\nType A: ${statusConfig.label}\nType B Trips: ${tripsOnDate.length}\nClick to paint as ${selectedBrush.toUpperCase()}`}
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-800">
+                      {requestingListing.registrationNumber}
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border ${
+                        !isSchedule ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-blue-50 text-blue-800 border-blue-200'
+                      }`}
                     >
-                      {/* Top Row: Date Number & Type A Status Badge */}
-                      <div className="flex items-center justify-between gap-1">
-                        <span className={`text-[11px] font-black leading-none ${
-                          isToday ? 'w-5 h-5 rounded-full bg-slate-950 text-white flex items-center justify-center font-bold shadow-xs' : 'text-slate-900'
-                        }`}>
-                          {dayNum}
-                        </span>
-
-                        <div className="flex items-center gap-1">
-                          <span className={`w-2 h-2 rounded-full ${statusConfig.dot} shrink-0`} />
-                          <span className="text-[9px] font-extrabold uppercase tracking-tight hidden sm:inline">
-                            {statusConfig.short}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Middle/Bottom: Type B Planned Route Trip Pills inside same cell */}
-                      <div className="space-y-0.5 mt-1 overflow-hidden">
-                        {tripsOnDate.length > 0 ? (
-                          tripsOnDate.slice(0, 1).map(trip => (
-                            <div
-                              key={trip.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                              }}
-                              className="px-1 py-0.5 rounded bg-blue-600 text-white text-[9px] font-bold leading-tight truncate shadow-2xs flex items-center gap-0.5"
-                              title={`Type B Route: ${trip.plannedFrom} ➔ ${trip.plannedTo} at ${trip.departureTime} (${trip.availableSeats} seats left)`}
-                            >
-                              <span className="truncate">🚌 {trip.departureTime} {trip.plannedTo}</span>
-                            </div>
-                          ))
-                        ) : null}
-
-                        {tripsOnDate.length > 1 && (
-                          <div className="text-[8px] font-bold text-blue-700 leading-none">
-                            +{tripsOnDate.length - 1} more trip
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Combined Legend */}
-            <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-slate-200 text-[11px] text-slate-700">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="font-extrabold text-slate-900">Legend:</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block" /> 🟢 Green = Available (Type A)</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" /> 🟡 Yellow = Tentative</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-rose-600 inline-block" /> 🔴 Red = Booked</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block" /> ⚪ Grey = Off</span>
-                <span className="flex items-center gap-1"><span className="px-1.5 py-0.2 rounded bg-blue-600 text-white text-[9px] font-bold">🚌 Blue Pill</span> = Scheduled Route Trip (Type B)</span>
-              </div>
-              <span className="text-[10px] text-slate-500 italic">
-                *Click any date cell to paint Type A status. Remember to click "Save Availability" to persist changes.
-              </span>
-            </div>
-          </div>
-
-          {/* ═════════════════════════════════════════════════════════════
-              SECTION 1: YOUR AVAILABLE DATE LISTINGS (TYPE A)
-              Requirement 6: Strictly Today to +30 days for owners
-          ═════════════════════════════════════════════════════════════ */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
-                  Your Available Date Listings ({availableOwnerListings.length})
-                </h4>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                  {!isAppAdmin ? `Next 30 Days (Today - ${max30YMD})` : 'Admin View: All Dates (Past & Future)'}
-                </span>
-              </div>
-              {!isAppAdmin && (
-                <span className="text-[11px] text-slate-500 italic">
-                  *Past availability dates are automatically filtered out.
-                </span>
-              )}
-            </div>
-
-            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
-                    <th className="py-3.5 px-4">Vehicle / Reg #</th>
-                    <th className="py-3.5 px-4">Available Schedule (Next 30 Days)</th>
-                    <th className="py-3.5 px-4">Capacity</th>
-                    <th className="py-3.5 px-4">Driver Option</th>
-                    <th className="py-3.5 px-4">Status</th>
-                    <th className="py-3.5 px-4 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {availableOwnerListings.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-500">
-                        No available date listings found for your vehicles. Click '+ Add Availability' above.
-                      </td>
-                    </tr>
-                  ) : (
-                    availableOwnerListings.map(lst => {
-                      // Requirement 6: Strict Today + 30 days filtering for owners; admin sees all
-                      const visibleDates = isAppAdmin 
-                        ? (lst.availableDates || [])
-                        : (lst.availableDates || []).filter(d => d >= todayYMD && d <= max30YMD);
-
-                      return (
-                        <tr key={lst.id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="py-3 px-4 break-words">
-                            <div className="font-bold text-slate-900 break-words">{lst.vehicleName}</div>
-                            <span className="font-mono text-[10px] text-slate-400 break-words">{lst.registrationNumber}</span>
-                          </td>
-                          <td className="py-3 px-4 break-words">
-                            <div className="flex flex-wrap gap-1">
-                              {visibleDates.length > 0 ? (
-                                visibleDates.slice(0, 6).map(d => {
-                                  const isToday = d === todayYMD;
-                                  return (
-                                    <span
-                                      key={d}
-                                      className={`px-1.5 py-0.5 rounded font-mono text-[10px] border ${
-                                        isToday
-                                          ? 'bg-emerald-600 text-white border-emerald-700 font-bold'
-                                          : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                      }`}
-                                    >
-                                      {d}{isToday ? ' (Today)' : ''}
-                                    </span>
-                                  );
-                                })
-                              ) : (
-                                <span className="text-slate-400 italic text-[11px]">
-                                  {!isAppAdmin ? `No availability within next 30 days (Today – ${max30YMD})` : 'No dates painted'}
-                                </span>
-                              )}
-                              {visibleDates.length > 6 && (
-                                <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px]">
-                                  +{visibleDates.length - 6} more
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-3 px-4 break-words font-medium text-slate-800">
-                            {lst.totalSeats} Passengers
-                          </td>
-                          <td className="py-3 px-4 break-words">
-                            <span className="capitalize text-slate-700 bg-slate-50 px-2 py-0.5 rounded text-[10px] font-medium border border-slate-200 inline-block break-words">
-                              {lst.driverOption === 'both' ? 'Discuss' : lst.driverOption.replace('_', ' ')}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 break-words">
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 uppercase inline-block">
-                              {lst.status}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 break-words text-center">
-                            <button
-                              type="button"
-                              onClick={() => setListings(prev => prev.filter(l => l.id !== lst.id))}
-                              className="p-1 text-slate-400 hover:text-rose-600 transition cursor-pointer"
-                              title="Delete Listing"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* ═════════════════════════════════════════════════════════════
-              SECTION 2: YOUR SCHEDULED PLANNED ROUTE TRIPS (TYPE B)
-              Inside the SAME window/card
-          ═════════════════════════════════════════════════════════════ */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
-                  Your Scheduled Planned Trips ({plannedOwnerListings.length})
-                </h4>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                  Type B Fixed Routes
-                </span>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
-                    <th className="py-3.5 px-4">Vehicle / Reg #</th>
-                    <th className="py-3.5 px-4">Planned Route</th>
-                    <th className="py-3.5 px-4">Date & Time</th>
-                    <th className="py-3.5 px-4">Seats Left / Total</th>
-                    <th className="py-3.5 px-4">Fare / Seat</th>
-                    <th className="py-3.5 px-4">Driver Option</th>
-                    <th className="py-3.5 px-4">Status</th>
-                    <th className="py-3.5 px-4 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {plannedOwnerListings.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="py-8 text-center text-slate-500">
-                        No planned trips scheduled for your vehicles. Click '+ Schedule Route Trip' above.
-                      </td>
-                    </tr>
-                  ) : (
-                    plannedOwnerListings.map(lst => (
-                      <tr key={lst.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-4 break-words">
-                          <div className="font-bold text-slate-900 break-words">{lst.vehicleName}</div>
-                          <span className="font-mono text-[10px] text-slate-400 break-words">{lst.registrationNumber}</span>
-                        </td>
-                        <td className="py-3 px-4 break-words font-bold text-blue-900">
-                          <div className="space-y-0.5">
-                            <div className="break-words"><span className="text-[10px] uppercase text-blue-600 font-extrabold mr-1">From:</span>{lst.plannedFrom || 'Mannar Town'}</div>
-                            <div className="break-words"><span className="text-[10px] uppercase text-indigo-600 font-extrabold mr-1">To:</span>{lst.plannedTo || 'Jaffna City'}</div>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 break-words">
-                          <div className="font-semibold text-slate-800">{lst.plannedTripDate}</div>
-                          <span className="text-[10px] text-slate-500">{lst.departureTime}</span>
-                        </td>
-                        <td className="py-3 px-4 break-words">
-                          <strong className="text-emerald-700">{lst.availableSeats} / {lst.totalSeats} Seats</strong>
-                        </td>
-                        <td className="py-3 px-4 break-words font-bold text-slate-800">
-                          Rs. {(lst.seatFare || 1200).toLocaleString()}
-                        </td>
-                        <td className="py-3 px-4 break-words">
-                          <span className="capitalize text-slate-700 bg-slate-50 px-2 py-0.5 rounded text-[10px] font-medium border border-slate-200 inline-block break-words">
-                            {lst.driverOption === 'both' ? 'Discuss' : lst.driverOption.replace('_', ' ')}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 break-words">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200 uppercase inline-block">
-                            {lst.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 break-words text-center">
-                          <button
-                            type="button"
-                            onClick={() => setListings(prev => prev.filter(l => l.id !== lst.id))}
-                            className="p-1 text-slate-400 hover:text-rose-600 transition cursor-pointer"
-                            title="Delete Listing"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          MODAL: PASSENGER BOOKING REQUEST
-      ───────────────────────────────────────────────────────────── */}
-      {requestingListing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div>
-                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                  {requestingListing.registrationNumber}
-                </span>
-                <h3 className="text-base font-bold text-slate-900 mt-1">
-                  {requestingListing.listingMode === 'availability_only' ? 'Request Vehicle' : 'Request Seats'}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setRequestingListing(null)}
-                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {requestSuccessNumber ? (
-              <div className="p-8 text-center space-y-2">
-                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-6 h-6" />
+                      {!isSchedule ? 'Trip Booking' : 'Schedule Seat Booking'}
+                    </span>
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 mt-1">
+                    {!isSchedule ? `Book Trip: ${requestingListing.vehicleName}` : `Reserve Seats: ${requestingListing.vehicleName}`}
+                  </h3>
                 </div>
-                <h4 className="text-base font-bold text-slate-900">Request Sent to Owner!</h4>
-                <p className="text-xs text-slate-600">
-                  Reference: <strong>{requestSuccessNumber}</strong>. The vehicle owner has been notified and will enter the travel charge.
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setRequestingListing(null)}
+                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            ) : (
-              <form onSubmit={handleSendBookingRequest} className="space-y-3">
-                {/* Passenger Name - prefilled with login user */}
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Passenger Name</label>
-                  <input
-                    type="text"
-                    required
-                    readOnly
-                    value={reqPassengerName || currentUser?.name || currentUser?.username || 'Passenger'}
-                    onChange={e => setReqPassengerName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 font-semibold text-slate-800"
-                  />
+
+              {/* Form: Schedule Direct Booking vs Trip Request */}
+              <form onSubmit={isSchedule ? handleScheduleDirectBooking : handleTripBookingRequest} className="space-y-3">
+                {/* Passenger Info */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Passenger Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={reqPassengerName || currentUser?.name || currentUser?.username || ''}
+                      onChange={e => setReqPassengerName(e.target.value)}
+                      placeholder="e.g. John Doe"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 font-semibold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Contact Phone *</label>
+                    <input
+                      type="tel"
+                      required
+                      value={reqPassengerPhone || currentUser?.phone || ''}
+                      onChange={e => setReqPassengerPhone(e.target.value)}
+                      placeholder="+94 77 123 4567"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 font-semibold text-slate-800"
+                    />
+                  </div>
                 </div>
 
+                {/* Route Information */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">From Location *</label>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isSchedule ? 'Pickup Place *' : 'From Location *'}
+                    </label>
                     <input
                       type="text"
                       required
                       value={reqRouteFrom}
                       onChange={e => setReqRouteFrom(e.target.value)}
-                      disabled={requestingListing.listingMode === 'planned_trip'}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 disabled:bg-slate-100"
+                      placeholder="e.g. Mannar Town Stand"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300"
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">To Location *</label>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isSchedule ? 'Drop-off Place *' : 'To Location *'}
+                    </label>
                     <input
                       type="text"
                       required
                       value={reqRouteTo}
                       onChange={e => setReqRouteTo(e.target.value)}
-                      disabled={requestingListing.listingMode === 'planned_trip'}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 disabled:bg-slate-100"
+                      placeholder="e.g. Jaffna City Bus Stand"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300"
                     />
                   </div>
                 </div>
 
+                {/* Date, Time & Seats */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">Travel Date *</label>
@@ -2308,30 +1694,26 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                       required
                       value={reqTravelDate}
                       onChange={e => setReqTravelDate(e.target.value)}
-                      disabled={requestingListing.listingMode === 'planned_trip'}
+                      disabled={isSchedule}
                       className="w-full px-3 py-2 rounded-xl border border-slate-300 disabled:bg-slate-100"
                     />
                   </div>
 
-                  {requestingListing.listingMode === 'planned_trip' ? (
+                  {isSchedule ? (
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="font-bold text-slate-700">Required Seats *</label>
-                        <span className="text-[10px] font-bold text-emerald-700">
-                          {getRemainingSeatsForListing(requestingListing)} seats left
-                        </span>
+                        <span className="text-[10px] font-bold text-emerald-700">{remaining} seats left</span>
                       </div>
                       <input
                         type="number"
                         min={1}
-                        max={getRemainingSeatsForListing(requestingListing)}
+                        max={remaining}
                         required
                         value={reqSeats}
                         onChange={e => setReqSeats(Number(e.target.value))}
                         className={`w-full px-3 py-2 rounded-xl border font-bold ${
-                          reqSeats > getRemainingSeatsForListing(requestingListing)
-                            ? 'border-rose-500 bg-rose-50 text-rose-900 focus:ring-rose-500'
-                            : 'border-slate-300'
+                          reqSeats > remaining ? 'border-rose-500 bg-rose-50 text-rose-900' : 'border-slate-300'
                         }`}
                       />
                     </div>
@@ -2348,63 +1730,44 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                   )}
                 </div>
 
-                {/* Section 4: Passenger Seat Count Validation Popup */}
-                {requestingListing.listingMode === 'planned_trip' && reqSeats > getRemainingSeatsForListing(requestingListing) && (
-                  <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl flex items-start gap-2 text-rose-800 text-xs font-semibold">
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong>Only {getRemainingSeatsForListing(requestingListing)} seats are currently available.</strong>
-                      <div className="text-[11px] text-rose-700 mt-0.5">Please reduce your requested seat count to continue.</div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Section 5: Planned Trip Amount Calculation */}
-                {requestingListing.listingMode === 'planned_trip' && (
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs">
+                {/* Schedule Live Price Breakdown & Direct Confirmation (Requirement 2) */}
+                {isSchedule && (
+                  <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-1.5 text-xs">
                     <div className="flex justify-between text-slate-600">
-                      <span>Requested Seats</span>
-                      <span className="font-bold text-slate-800">{reqSeats}</span>
+                      <span>Available Seats for Journey:</span>
+                      <strong className="text-slate-800">{remaining} Seats</strong>
                     </div>
                     <div className="flex justify-between text-slate-600">
-                      <span>Per Seat Amount</span>
-                      <span className="font-bold text-slate-800">Rs. {(requestingListing.seatFare || 1200).toLocaleString()}</span>
+                      <span>Per Seat Amount:</span>
+                      <strong className="text-slate-800">Rs. {seatFare.toLocaleString()}</strong>
                     </div>
-                    <div className="flex justify-between text-slate-600 pt-1 border-t border-slate-200">
-                      <span>Seat Amount ({reqSeats} × Rs. {(requestingListing.seatFare || 1200).toLocaleString()})</span>
-                      <span className="font-semibold text-slate-800">
-                        Rs. {(reqSeats * (requestingListing.seatFare || 1200)).toLocaleString()}
-                      </span>
+                    <div className="flex justify-between text-slate-600 pt-1 border-t border-blue-200/60">
+                      <span>Seat Amount ({reqSeats} × Rs. {seatFare.toLocaleString()}):</span>
+                      <strong className="text-slate-800">Rs. {seatSubtotal.toLocaleString()}</strong>
                     </div>
                     <div className="flex justify-between text-slate-600">
-                      <span>Admin Fee – {convenienceFeePercentage}%</span>
-                      <span className="font-semibold text-slate-800">
-                        Rs. {Math.round((reqSeats * (requestingListing.seatFare || 1200)) * (convenienceFeePercentage / 100)).toLocaleString()}
-                      </span>
+                      <span>Admin Charge ({convenienceFeePercentage}%):</span>
+                      <strong className="text-slate-800">Rs. {adminCharge.toLocaleString()}</strong>
                     </div>
-                    <div className="flex justify-between text-slate-900 font-extrabold text-sm pt-1.5 border-t border-slate-300">
-                      <span>Total Payable</span>
-                      <span className="text-emerald-700">
-                        Rs. {(
-                          (reqSeats * (requestingListing.seatFare || 1200)) +
-                          Math.round((reqSeats * (requestingListing.seatFare || 1200)) * (convenienceFeePercentage / 100))
-                        ).toLocaleString()}
-                      </span>
+                    <div className="flex justify-between text-slate-900 font-extrabold text-sm pt-1.5 border-t border-blue-300">
+                      <span>Total Amount Payable:</span>
+                      <span className="text-emerald-700">Rs. {totalPayable.toLocaleString()}</span>
                     </div>
                   </div>
                 )}
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Trip Notes (Optional)</label>
+                  <label className="block font-bold text-slate-700 mb-1">Special Notes (Optional)</label>
                   <textarea
                     rows={2}
-                    placeholder="e.g. Need space for 4 large bags, senior citizen on board."
+                    placeholder="e.g. Need space for 2 large luggage bags, senior citizen travelling."
                     value={reqNotes}
                     onChange={e => setReqNotes(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300"
                   />
                 </div>
 
+                {/* Action Buttons */}
                 <div className="pt-3 border-t flex justify-end gap-2">
                   <button
                     type="button"
@@ -2413,22 +1776,80 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                   >
                     Cancel
                   </button>
-                  <button
-                    type="submit"
-                    disabled={requestingListing.listingMode === 'planned_trip' && (reqSeats > getRemainingSeatsForListing(requestingListing) || reqSeats < 1)}
-                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold cursor-pointer shadow-xs"
-                  >
-                    Send Request to Owner
-                  </button>
+
+                  {isSchedule ? (
+                    /* DIRECT PAYMENT & SEAT CONFIRMATION (Requirement 2) */
+                    <button
+                      type="submit"
+                      disabled={reqSeats > remaining || reqSeats < 1}
+                      className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold cursor-pointer shadow-xs flex items-center gap-1.5"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span>Pay & Confirm Seats (Rs. {totalPayable.toLocaleString()})</span>
+                    </button>
+                  ) : (
+                    /* TRIP: SEND REQUEST TO OPERATOR */
+                    <button
+                      type="submit"
+                      className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer shadow-xs"
+                    >
+                      Send Request to Operator
+                    </button>
+                  )}
                 </div>
               </form>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ─────────────────────────────────────────────────────────────
+          MODAL: BOOKING CONFIRMATION SUCCESS BANNER
+      ───────────────────────────────────────────────────────────── */}
+      {bookingSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 text-center space-y-4 shadow-2xl border border-slate-200 text-xs">
+            <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+
+            {bookingSuccessModal.isSchedule ? (
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Seats Confirmed & Paid!</h3>
+                <p className="text-xs text-slate-600 mt-1">
+                  Your seat booking has been <strong>instantly confirmed</strong> with reference{' '}
+                  <strong className="text-slate-900">{bookingSuccessModal.requestNumber}</strong>.
+                </p>
+                <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 font-medium">
+                  {bookingSuccessModal.seats} Seat(s) Booked • Payment of Rs.{' '}
+                  {bookingSuccessModal.totalAmount?.toLocaleString()} received.
+                </div>
+              </div>
+            ) : (
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Trip Request Sent!</h3>
+                <p className="text-xs text-slate-600 mt-1">
+                  Your request <strong className="text-slate-900">{bookingSuccessModal.requestNumber}</strong> has been
+                  forwarded to the vehicle operator. They will review and enter the travel charge.
+                </p>
+              </div>
             )}
+
+            <div className="pt-3 border-t">
+              <button
+                type="button"
+                onClick={() => setBookingSuccessModal(null)}
+                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL: OWNER REVIEW & ACCEPT (Enter Travel Charge)
+          MODAL: OWNER REVIEW & ACCEPT (for Trip bookings)
       ───────────────────────────────────────────────────────────── */}
       {reviewingRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
@@ -2438,7 +1859,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
                   {reviewingRequest.requestNumber}
                 </span>
-                <h3 className="text-base font-bold text-slate-900 mt-1">Owner Review & Travel Charge</h3>
+                <h3 className="text-base font-bold text-slate-900 mt-1">Operator Review & Travel Charge</h3>
               </div>
               <button
                 type="button"
@@ -2450,19 +1871,23 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
             </div>
 
             <div className="p-3 bg-slate-50 rounded-xl space-y-1.5">
-              <div><strong>Passenger:</strong> {reviewingRequest.passenger.name} ({reviewingRequest.passenger.phone})</div>
-              <div><strong>Route:</strong> {reviewingRequest.routeFrom} ➔ {reviewingRequest.routeTo}</div>
-              <div><strong>Date:</strong> {reviewingRequest.travelDate} {reviewingRequest.travelTime ? `at ${reviewingRequest.travelTime}` : ''}</div>
+              <div>
+                <strong>Passenger:</strong> {reviewingRequest.passenger.name}
+              </div>
+              <div>
+                <strong>Route:</strong> {reviewingRequest.routeFrom} ➔ {reviewingRequest.routeTo}
+              </div>
+              <div>
+                <strong>Date:</strong> {reviewingRequest.travelDate}{' '}
+                {reviewingRequest.travelTime ? `at ${reviewingRequest.travelTime}` : ''}
+              </div>
               {reviewingRequest.specialNotes && (
                 <div className="text-slate-500 italic mt-1">"{reviewingRequest.specialNotes}"</div>
               )}
             </div>
 
-            {/* Travel Charge Input */}
             <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                Your Travel Charge (Rs.) *
-              </label>
+              <label className="block font-bold text-slate-700 mb-1">Your Travel Charge (Rs.) *</label>
               <div className="relative">
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-bold text-slate-400">Rs.</span>
                 <input
@@ -2477,20 +1902,20 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
               </div>
             </div>
 
-            {/* Calculated Breakdown */}
             <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 space-y-1.5 text-xs">
               <div className="flex justify-between text-slate-600">
-                <span>Owner Travel Charge:</span>
+                <span>Operator Travel Charge:</span>
                 <span>Rs. {Number(ownerChargeInput).toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-slate-600">
-                <span>Convenience Fee ({convenienceFeePercentage}%):</span>
+                <span>Admin Fee ({convenienceFeePercentage}%):</span>
                 <span>Rs. {Math.round(Number(ownerChargeInput) * (convenienceFeePercentage / 100)).toLocaleString()}</span>
               </div>
               <div className="flex justify-between font-extrabold text-emerald-800 pt-1 border-t border-emerald-200">
                 <span>Passenger Final Payable:</span>
                 <span>
-                  Rs. {(
+                  Rs.{' '}
+                  {(
                     Number(ownerChargeInput) +
                     Math.round(Number(ownerChargeInput) * (convenienceFeePercentage / 100))
                   ).toLocaleString()}
@@ -2504,11 +1929,11 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 onClick={() => handleOwnerReject(reviewingRequest)}
                 className="px-3 py-2 rounded-xl text-rose-700 hover:bg-rose-50 border border-rose-200 font-bold"
               >
-                Decline Request
+                Decline
               </button>
               <button
                 type="button"
-                onClick={() => handleOwnerAccept(reviewingRequest)}
+                onClick={() => handleOwnerAcceptTrip(reviewingRequest)}
                 className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
               >
                 Accept & Send Price
@@ -2519,7 +1944,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL: PASSENGER PAYMENT (Simulated Gateway / Success)
+          MODAL: PASSENGER PAYMENT (for Trip bookings)
       ───────────────────────────────────────────────────────────── */}
       {payingRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
@@ -2547,7 +1972,9 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Route:</span>
-                <span className="text-slate-800 font-medium">{payingRequest.routeFrom} ➔ {payingRequest.routeTo}</span>
+                <span className="text-slate-800 font-medium">
+                  {payingRequest.routeFrom} ➔ {payingRequest.routeTo}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Travel Date:</span>
@@ -2557,13 +1984,6 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 <span>Total Amount:</span>
                 <span>Rs. {(payingRequest.finalAmount || 0).toLocaleString()}</span>
               </div>
-            </div>
-
-            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs">
-              <p className="font-bold">Production Payment Gateway Note:</p>
-              <p className="text-[11px] mt-0.5">
-                In production, this triggers your payment gateway (e.g. PayHere / Stripe). Upon verified webhook callback, the booking confirms and locks calendar dates/seats automatically.
-              </p>
             </div>
 
             <div className="pt-2 border-t flex justify-end gap-2">
@@ -2588,226 +2008,345 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL: VIEW DETAILS
+          MODAL: VIEW DETAILS (Contact Privacy, Requirement 7)
       ───────────────────────────────────────────────────────────── */}
-      {viewingRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div>
-                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                  {viewingRequest.requestNumber}
-                </span>
-                <h3 className="text-base font-bold text-slate-900 mt-1">Booking Request Record</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setViewingRequest(null)}
-                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {viewingRequest && (() => {
+        const isPaidAndConfirmed = viewingRequest.paymentStatus === 'paid' && viewingRequest.requestStatus === 'confirmed';
+        const canViewPassenger =
+          isAppAdmin || isPaidAndConfirmed || (isPassengerUser && viewingRequest.passenger.email === currentUserEmail);
+        const canViewOwner =
+          isAppAdmin || isPaidAndConfirmed || (isOwnerUser && myVehicleIds.has(viewingRequest.vehicleId));
 
-            <div className="space-y-2.5">
-              <div className="p-3 bg-slate-50 rounded-xl space-y-1">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Passenger</span>
-                {isAppAdmin || (viewingRequest.paymentStatus === 'paid' && viewingRequest.requestStatus === 'confirmed') || (isPassengerUser && viewingRequest.passenger.email === currentUserEmail) ? (
-                  <>
-                    <strong className="text-slate-800 text-sm block">{viewingRequest.passenger.name}</strong>
-                    <div className="text-slate-600 text-xs flex items-center gap-2 mt-0.5">
-                      <span>📞 {viewingRequest.passenger.phone}</span>
-                      {viewingRequest.passenger.email && <span>✉️ {viewingRequest.passenger.email}</span>}
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex items-center gap-1.5 py-1 text-amber-800 text-xs font-semibold">
-                    <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>Passenger contact protected until payment confirmation.</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="p-3 bg-slate-50 rounded-xl space-y-1">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Vehicle & Operator</span>
-                <strong className="text-slate-800 text-sm block">{viewingRequest.vehicleName} ({viewingRequest.registrationNumber})</strong>
-                {isAppAdmin || (viewingRequest.paymentStatus === 'paid' && viewingRequest.requestStatus === 'confirmed') || (isOwnerUser && myVehicleIds.has(viewingRequest.vehicleId)) ? (
-                  <div className="text-slate-600 text-xs flex items-center gap-2 mt-0.5">
-                    <span>Operator: {viewingRequest.ownerName}</span>
-                    <span>📞 {viewingRequest.ownerPhone}</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 py-1 text-amber-800 text-xs font-semibold">
-                    <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>Owner contact protected until payment confirmation.</span>
-                  </div>
-                )}
-              </div>
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-slate-400 block text-[10px] uppercase">Route & Date</span>
-                <strong className="text-slate-800">{viewingRequest.routeFrom} ➔ {viewingRequest.routeTo}</strong>
-                <div className="text-slate-500 mt-0.5">{viewingRequest.travelDate} at {viewingRequest.travelTime || '08:00'}</div>
-              </div>
-              {viewingRequest.finalAmount && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex justify-between items-center">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase text-emerald-800 block">Total Final Amount</span>
-                    <span className="text-slate-500">Payment Status: {viewingRequest.paymentStatus.toUpperCase()}</span>
-                  </div>
-                  <span className="text-base font-extrabold text-emerald-800">
-                    Rs. {viewingRequest.finalAmount.toLocaleString()}
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div>
+                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                    {viewingRequest.requestNumber}
                   </span>
+                  <h3 className="text-base font-bold text-slate-900 mt-1">Booking Request Record</h3>
                 </div>
-              )}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setViewingRequest(null)}
+                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-            <div className="pt-3 border-t flex justify-end">
-              <button
-                type="button"
-                onClick={() => setViewingRequest(null)}
-                className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold"
-              >
-                Close
-              </button>
+              <div className="space-y-2.5">
+                {/* Passenger Contact Privacy */}
+                <div className="p-3 bg-slate-50 rounded-xl space-y-1">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Passenger Details</span>
+                  {canViewPassenger ? (
+                    <>
+                      <strong className="text-slate-800 text-sm block">{viewingRequest.passenger.name}</strong>
+                      <div className="text-slate-600 text-xs flex items-center gap-2 mt-0.5">
+                        <span>📞 {viewingRequest.passenger.phone}</span>
+                        {viewingRequest.passenger.email && <span>✉️ {viewingRequest.passenger.email}</span>}
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <strong className="text-slate-800 text-sm block">{viewingRequest.passenger.name}</strong>
+                      <div className="flex items-center gap-1.5 py-1 text-amber-800 text-xs font-semibold">
+                        <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>Passenger contact protected until booking confirmed & paid.</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Operator Contact Privacy */}
+                <div className="p-3 bg-slate-50 rounded-xl space-y-1">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Vehicle & Operator</span>
+                  <strong className="text-slate-800 text-sm block">
+                    {viewingRequest.vehicleName} ({viewingRequest.registrationNumber})
+                  </strong>
+                  {canViewOwner ? (
+                    <div className="text-slate-600 text-xs flex items-center gap-2 mt-0.5">
+                      <span>Operator: {viewingRequest.ownerName}</span>
+                      <span>📞 {viewingRequest.ownerPhone}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 py-1 text-amber-800 text-xs font-semibold">
+                      <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>Operator contact protected until booking confirmed & paid.</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400 block text-[10px] uppercase">Route & Date</span>
+                  <strong className="text-slate-800">
+                    {viewingRequest.routeFrom} ➔ {viewingRequest.routeTo}
+                  </strong>
+                  <div className="text-slate-500 mt-0.5">
+                    {viewingRequest.travelDate} at {viewingRequest.travelTime || '08:00'} • {viewingRequest.seatCount} Seat(s)
+                  </div>
+                  {viewingRequest.specialNotes && (
+                    <div className="text-slate-600 italic mt-1">"{viewingRequest.specialNotes}"</div>
+                  )}
+                </div>
+
+                {viewingRequest.finalAmount && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex justify-between items-center">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase text-emerald-800 block">Total Final Amount</span>
+                      <span className="text-slate-500">Payment Status: {viewingRequest.paymentStatus.toUpperCase()}</span>
+                    </div>
+                    <span className="text-base font-extrabold text-emerald-800">
+                      Rs. {viewingRequest.finalAmount.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-3 border-t flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setViewingRequest(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL: ADD NEW LISTING (Type A / Type B)
+          MODAL: EDIT REQUEST (Requirements 10 & 11: Passenger/Owner/Admin)
       ───────────────────────────────────────────────────────────── */}
-      {isAddingListing && (
+      {editingRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
             <div className="flex items-center justify-between border-b pb-3">
-              <h3 className="text-base font-bold text-slate-900">
-                {isAddingListing === 'availability_only'
-                  ? 'Publish Available Dates (Type A)'
-                  : 'Publish Planned Trip (Type B)'}
-              </h3>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                    {editingRequest.requestNumber}
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 uppercase">
+                    {editingRequest.requestStatus.replace('_', ' ')}
+                  </span>
+                </div>
+                <h3 className="text-base font-bold text-slate-900 mt-1">Edit Booking Request</h3>
+              </div>
               <button
                 type="button"
-                onClick={() => setIsAddingListing(null)}
+                onClick={() => setEditingRequest(null)}
                 className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveNewListing} className="space-y-3">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Select Fleet Vehicle *</label>
-                <select
-                  value={newListVehicleId}
-                  onChange={e => setNewListVehicleId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                >
-                  {vehicles.map(v => (
-                    <option key={v.id} value={v.id}>
-                      {v.make} {v.model} ({v.registrationNumber}) - {v.totalSeats} Seats
-                    </option>
-                  ))}
-                </select>
+            {editSuccessFeedback && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 font-bold flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>{editSuccessFeedback}</span>
               </div>
+            )}
 
-              {isAddingListing === 'availability_only' ? (
+            <form onSubmit={handleSaveEditRequest} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Available Dates (Comma-separated YYYY-MM-DD) *
-                  </label>
+                  <label className="block font-bold text-slate-700 mb-1">Pickup Location *</label>
                   <input
                     type="text"
                     required
-                    placeholder="2026-09-12, 2026-09-15, 2026-09-18"
-                    value={newListDates}
-                    onChange={e => setNewListDates(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono"
+                    value={editFrom}
+                    onChange={e => setEditFrom(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300"
                   />
-                  <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    Passenger will specify their own From/To route when booking on these dates.
-                  </span>
                 </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">From Location *</label>
-                      <input
-                        type="text"
-                        required
-                        value={newPlannedFrom}
-                        onChange={e => setNewPlannedFrom(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                        placeholder="e.g. Mannar Town"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">To Location *</label>
-                      <input
-                        type="text"
-                        required
-                        value={newPlannedTo}
-                        onChange={e => setNewPlannedTo(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                        placeholder="e.g. Jaffna City"
-                      />
-                    </div>
-                  </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Drop-off Location *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editTo}
+                    onChange={e => setEditTo(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                  />
+                </div>
+              </div>
 
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Trip Date *</label>
-                      <input
-                        type="date"
-                        required
-                        value={newPlannedDate}
-                        onChange={e => setNewPlannedDate(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Time *</label>
-                      <input
-                        type="time"
-                        required
-                        value={newPlannedTime}
-                        onChange={e => setNewPlannedTime(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Available Seats *</label>
-                      <input
-                        type="number"
-                        min={1}
-                        required
-                        value={newPlannedSeats}
-                        onChange={e => setNewPlannedSeats(Number(e.target.value))}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                      />
-                    </div>
-                  </div>
-                </>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Travel Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={editDate}
+                    onChange={e => setEditDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={editTime}
+                    onChange={e => setEditTime(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Seats *</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    required
+                    value={editSeats}
+                    onChange={e => setEditSeats(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-semibold"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Passenger Phone</label>
+                <input
+                  type="tel"
+                  value={editPassengerPhone}
+                  onChange={e => setEditPassengerPhone(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                />
+              </div>
+
+              {/* Admin or Owner Travel Charge Editor */}
+              {(isAppAdmin || isOwnerOrAdmin) && (
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Operator Travel Charge (Rs.)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={500}
+                    value={editCharge}
+                    onChange={e => setEditCharge(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-semibold"
+                  />
+                </div>
               )}
 
+              {/* Admin-only Status Controllers */}
+              {isAppAdmin && (
+                <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Request Status</label>
+                    <select
+                      value={editStatus}
+                      onChange={e => setEditStatus(e.target.value as TransportRequestStatus)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                    >
+                      <option value="pending_owner">Pending Owner Review</option>
+                      <option value="awaiting_payment">Awaiting Payment</option>
+                      <option value="confirmed">Confirmed</option>
+                      <option value="owner_rejected">Declined</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Payment Status</label>
+                    <select
+                      value={editPaymentStatus}
+                      onChange={e => setEditPaymentStatus(e.target.value as TransportPaymentStatus)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="paid">Paid</option>
+                      <option value="failed">Failed</option>
+                      <option value="refunded">Refunded</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Special Notes</label>
+                <textarea
+                  rows={2}
+                  value={editNotes}
+                  onChange={e => setEditNotes(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                />
+              </div>
+
+              {/* Save Button (Requirement 10 & 11) */}
               <div className="pt-3 border-t flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddingListing(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold"
+                  onClick={() => setEditingRequest(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer shadow-xs"
                 >
                   <Save className="w-4 h-4" />
-                  <span>Save & Publish Listing</span>
+                  <span>Save Changes</span>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          MODAL: CONFIRM DELETE REQUEST (Requirement 11, Admin Only)
+      ───────────────────────────────────────────────────────────── */}
+      {deletingRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Confirm Deletion</h3>
+                <p className="text-[11px] text-slate-500">
+                  Are you sure you want to permanently delete request{' '}
+                  <strong className="text-slate-800">{deletingRequest.requestNumber}</strong>?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-[11px] space-y-1">
+              <div>
+                <strong>Passenger:</strong> {deletingRequest.passenger.name} ({deletingRequest.passenger.phone})
+              </div>
+              <div>
+                <strong>Route:</strong> {deletingRequest.routeFrom} ➔ {deletingRequest.routeTo}
+              </div>
+              <div>
+                <strong>Vehicle:</strong> {deletingRequest.vehicleName} ({deletingRequest.registrationNumber})
+              </div>
+            </div>
+
+            <div className="pt-2 border-t flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeletingRequest(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteRequest}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer shadow-xs"
+              >
+                Confirm Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

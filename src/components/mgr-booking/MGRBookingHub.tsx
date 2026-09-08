@@ -281,14 +281,6 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
               isAdmin={isAdminUser}
               themeMode="light"
             />
-
-            <MGRTransportBooking
-              view="owner-listings"
-              vehicles={vehicles}
-              owners={owners}
-              currentUser={currentUser}
-              convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
-            />
           </div>
         )
       )}

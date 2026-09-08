@@ -27,9 +27,17 @@ import {
   ChevronDown,
   ChevronsUpDown,
   Upload,
+  CalendarDays,
   Image as ImageIcon,
 } from 'lucide-react';
-import { TransportVehicle, TransportType, DriverOption, TransportOwner } from '../../types/mgrBooking';
+import {
+  TransportVehicle,
+  TransportType,
+  DriverOption,
+  TransportOwner,
+  VehicleBookingType,
+  VehicleScheduleItem,
+} from '../../types/mgrBooking';
 import { UserAccount } from '../../utils/auth';
 
 interface MGRFleetViewProps {
@@ -62,10 +70,30 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
   // View modal state
   const [viewingVehicle, setViewingVehicle] = useState<TransportVehicle | null>(null);
 
-  // Edit modal state (Admin only)
+  // Edit modal state
   const [editingVehicle, setEditingVehicle] = useState<TransportVehicle | null>(null);
 
+  // Availability modal state (Requirement 3, 4, 5)
+  const [availabilityVehicle, setAvailabilityVehicle] = useState<TransportVehicle | null>(null);
+  const [tempTripDates, setTempTripDates] = useState<string[]>([]);
+  const [tempSchedules, setTempSchedules] = useState<VehicleScheduleItem[]>([]);
+  const [calMonthOffset, setCalMonthOffset] = useState<number>(0);
+
+  // New Schedule Date Form Inputs
+  const [schedDate, setSchedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [schedFrom, setSchedFrom] = useState<string>('Mannar');
+  const [schedTo, setSchedTo] = useState<string>('Jaffna');
+  const [schedStartTime, setSchedStartTime] = useState<string>('06:00 AM');
+  const [schedEndTime, setSchedEndTime] = useState<string>('09:30 AM');
+  const [schedTotalSeats, setSchedTotalSeats] = useState<number>(12);
+  const [schedAvailSeats, setSchedAvailSeats] = useState<number>(12);
+  const [schedPricePerSeat, setSchedPricePerSeat] = useState<number>(1200);
+
+  // Delete confirmation modal state (Requirement 11)
+  const [deletingVehicle, setDeletingVehicle] = useState<TransportVehicle | null>(null);
+
   // New vehicle form state
+  const [newBookingType, setNewBookingType] = useState<VehicleBookingType>('trip');
   const [newType, setNewType] = useState<TransportType>('van');
   const [newOwnerId, setNewOwnerId] = useState(owners[0]?.id || 'OWN-MGR-00001');
   const [newRegNumber, setNewRegNumber] = useState('');
@@ -258,6 +286,9 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
       insuranceExpiry: newInsuranceExpiry,
       revenueLicenceExpiry: newRevenueLicenceExpiry,
       status: isAdmin ? 'active' : 'pending', // Pending admin approval when added by owner!
+      bookingType: newBookingType,
+      availableDates: [],
+      schedules: [],
       oneDayPrice: Number(newOneDayPrice),
       basePrice: Number(newBasePrice),
       pricingMethod: newType === 'route_bus' || newType === 'boat' ? 'per_seat' : 'fixed',
@@ -280,6 +311,72 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
     setIsAddingVehicle(false);
     setNewPhotos([]);
     setPhotoUrlInput('');
+    setNewBookingType('trip');
+  };
+
+  const handleOpenAvailability = (vehicle: TransportVehicle) => {
+    setAvailabilityVehicle(vehicle);
+    setTempTripDates(vehicle.availableDates ? [...vehicle.availableDates] : []);
+    setTempSchedules(vehicle.schedules ? [...vehicle.schedules] : []);
+    setSchedTotalSeats(vehicle.totalSeats || 12);
+    setSchedAvailSeats(vehicle.totalSeats || 12);
+    setSchedPricePerSeat(vehicle.pricePerSeat || 1200);
+    setCalMonthOffset(0);
+  };
+
+  const handleToggleTripDate = (dateStr: string) => {
+    setTempTripDates(prev => {
+      if (prev.includes(dateStr)) {
+        return prev.filter(d => d !== dateStr);
+      } else {
+        return [...prev, dateStr].sort();
+      }
+    });
+  };
+
+  const handleSaveTripAvailability = () => {
+    if (!availabilityVehicle || !onEditVehicle) return;
+    const updated: TransportVehicle = {
+      ...availabilityVehicle,
+      availableDates: tempTripDates,
+    };
+    onEditVehicle(updated);
+    setAvailabilityVehicle(null);
+  };
+
+  const handleAddScheduleDate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!schedDate || !schedFrom || !schedTo) {
+      alert('Please fill in Date, Starting Location, and Ending Location.');
+      return;
+    }
+    const newSchedule: VehicleScheduleItem = {
+      id: `SCH-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      date: schedDate,
+      fromLocation: schedFrom,
+      startTime: schedStartTime,
+      toLocation: schedTo,
+      endTime: schedEndTime,
+      totalSeats: Number(schedTotalSeats),
+      availableSeats: Number(schedAvailSeats),
+      pricePerSeat: Number(schedPricePerSeat),
+      createdAt: Date.now(),
+    };
+    setTempSchedules(prev => [newSchedule, ...prev]);
+  };
+
+  const handleRemoveScheduleDate = (id: string) => {
+    setTempSchedules(prev => prev.filter(s => s.id !== id));
+  };
+
+  const handleSaveScheduleAvailability = () => {
+    if (!availabilityVehicle || !onEditVehicle) return;
+    const updated: TransportVehicle = {
+      ...availabilityVehicle,
+      schedules: tempSchedules,
+    };
+    onEditVehicle(updated);
+    setAvailabilityVehicle(null);
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -287,6 +384,14 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
     if (!editingVehicle || !onEditVehicle) return;
     onEditVehicle(editingVehicle);
     setEditingVehicle(null);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deletingVehicle) return;
+    if (onDeleteVehicle) {
+      onDeleteVehicle(deletingVehicle.id);
+    }
+    setDeletingVehicle(null);
   };
 
   const handleDelete = (vehicleId: string, regNumber: string) => {
@@ -463,13 +568,15 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                   )}
                 </div>
               </th>
+              <th className="py-3.5 px-4 text-center">Booking Type</th>
+              <th className="py-3.5 px-4 text-center">Availability</th>
               <th className="py-3.5 px-4 text-center">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {paginatedVehicles.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-slate-500">
+                <td colSpan={10} className="py-8 text-center text-slate-500">
                   No vehicles found matching the filter criteria.
                 </td>
               </tr>
@@ -563,7 +670,6 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                             <option value="suspended">Suspended</option>
                           </select>
                         )}
-
                         {/* Admin 1-Click Approve button */}
                         {vehicle.status === 'pending' && isAdmin && (
                           <button
@@ -579,7 +685,35 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                       </div>
                     </td>
 
-                    {/* Actions: View, Bids, Edit (Admin only), Delete (Admin only) */}
+                    {/* Booking Type (Requirement 1 & 3) */}
+                    <td className="py-3 px-4 text-center">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border ${
+                        vehicle.bookingType === 'schedule'
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      }`}>
+                        {vehicle.bookingType === 'schedule' ? 'Schedule' : 'Trip'}
+                      </span>
+                    </td>
+
+                    {/* Availability Calendar (Requirement 3, 4, 5) */}
+                    <td className="py-3 px-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAvailability(vehicle)}
+                        title={`Configure ${vehicle.bookingType === 'schedule' ? 'Schedule' : 'Trip'} Availability`}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 hover:text-emerald-700 shadow-xs text-xs font-bold transition cursor-pointer"
+                      >
+                        <CalendarDays className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>
+                          {vehicle.bookingType === 'schedule'
+                            ? `${(vehicle.schedules || []).length} Dates`
+                            : `${(vehicle.availableDates || []).length} Days`}
+                        </span>
+                      </button>
+                    </td>
+
+                    {/* Actions: View, Edit, Delete */}
                     <td className="py-3 px-4 whitespace-nowrap text-center">
                       <div className="flex items-center justify-center gap-1">
                         {/* View Button */}
@@ -592,30 +726,30 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                           <Eye className="w-4 h-4" />
                         </button>
 
-                        {/* Edit Button (Admin Only) */}
-                        {isAdmin ? (
+                        {/* Edit Button (Admin, or Owner if pending) */}
+                        {isAdmin || vehicle.status === 'pending' ? (
                           <button
                             type="button"
                             onClick={() => setEditingVehicle(vehicle)}
-                            title="Edit Vehicle (Admin Only)"
+                            title={isAdmin ? "Edit Vehicle (Admin)" : "Edit Pending Vehicle"}
                             className="p-1.5 rounded-lg text-slate-600 hover:text-blue-700 hover:bg-blue-50 transition cursor-pointer"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
                         ) : (
                           <span
-                            title="Edit restricted to Admin"
+                            title="Edit locked once verified/approved"
                             className="p-1.5 text-slate-300 cursor-not-allowed inline-flex"
                           >
                             <Lock className="w-3.5 h-3.5" />
                           </span>
                         )}
 
-                        {/* Delete Button (Admin Only) */}
+                        {/* Delete Button (Admin Only with Confirmation) */}
                         {isAdmin ? (
                           <button
                             type="button"
-                            onClick={() => handleDelete(vehicle.id, vehicle.registrationNumber)}
+                            onClick={() => setDeletingVehicle(vehicle)}
                             title="Delete Vehicle (Admin Only)"
                             className="p-1.5 rounded-lg text-slate-600 hover:text-rose-700 hover:bg-rose-50 transition cursor-pointer"
                           >
@@ -894,6 +1028,60 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveVehicle} className="space-y-4 text-xs">
+              {/* Vehicle Booking Type (Requirement 3) */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                <label className="block font-bold text-slate-800">
+                  Vehicle Booking Type *
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <label
+                    className={`flex items-start gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition ${
+                      newBookingType === 'trip'
+                        ? 'border-emerald-600 bg-emerald-50/70 text-emerald-950 font-bold'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="newBookingType"
+                      value="trip"
+                      checked={newBookingType === 'trip'}
+                      onChange={() => setNewBookingType('trip')}
+                      className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <div className="text-xs font-bold text-slate-900">Trip</div>
+                      <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                        Charter / full vehicle hire with dates marked as available.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-start gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition ${
+                      newBookingType === 'schedule'
+                        ? 'border-indigo-600 bg-indigo-50/70 text-indigo-950 font-bold'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="newBookingType"
+                      value="schedule"
+                      checked={newBookingType === 'schedule'}
+                      onChange={() => setNewBookingType('schedule')}
+                      className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div>
+                      <div className="text-xs font-bold text-slate-900">Schedule</div>
+                      <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                        Per-seat route trip with fixed start/end times and per-seat fare.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Service Type *</label>
@@ -1170,6 +1358,416 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ─────────────────────────────────────────────────────────────
+          TRIP AVAILABILITY MODAL (Requirement 4)
+      ───────────────────────────────────────────────────────────── */}
+      {availabilityVehicle && availabilityVehicle.bookingType !== 'schedule' && (() => {
+        const calDate = new Date();
+        calDate.setMonth(calDate.getMonth() + calMonthOffset);
+        const y = calDate.getFullYear();
+        const m = calDate.getMonth();
+        const monthLabel = calDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+        const daysInMonth = new Date(y, m + 1, 0).getDate();
+        const firstDayWeekDay = new Date(y, m, 1).getDay();
+
+        const daysArray: (string | null)[] = [];
+        for (let i = 0; i < firstDayWeekDay; i++) {
+          daysArray.push(null);
+        }
+        for (let d = 1; d <= daysInMonth; d++) {
+          const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          daysArray.push(dateStr);
+        }
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl border border-slate-200 text-xs">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                    <CalendarDays className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Trip Availability: {availabilityVehicle.registrationNumber}
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      {availabilityVehicle.make} {availabilityVehicle.model} • Click dates to mark as available for Trip hire
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAvailabilityVehicle(null)}
+                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Month Navigation */}
+              <div className="flex items-center justify-between px-2 py-1.5 bg-slate-50 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setCalMonthOffset(prev => prev - 1)}
+                  className="px-2.5 py-1 rounded-lg font-bold text-slate-600 hover:bg-white hover:shadow-xs transition"
+                >
+                  ‹ Prev
+                </button>
+                <span className="font-extrabold text-slate-800 text-sm">{monthLabel}</span>
+                <button
+                  type="button"
+                  onClick={() => setCalMonthOffset(prev => prev + 1)}
+                  className="px-2.5 py-1 rounded-lg font-bold text-slate-600 hover:bg-white hover:shadow-xs transition"
+                >
+                  Next ›
+                </button>
+              </div>
+
+              {/* Calendar Grid */}
+              <div>
+                <div className="grid grid-cols-7 text-center font-bold text-slate-400 text-[10px] uppercase mb-1">
+                  <span>Sun</span>
+                  <span>Mon</span>
+                  <span>Tue</span>
+                  <span>Wed</span>
+                  <span>Thu</span>
+                  <span>Fri</span>
+                  <span>Sat</span>
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {daysArray.map((dateStr, idx) => {
+                    if (!dateStr) {
+                      return <div key={`empty-${idx}`} className="h-9 rounded-lg bg-slate-50/50" />;
+                    }
+                    const isSelected = tempTripDates.includes(dateStr);
+                    const dayNumber = Number(dateStr.split('-')[2]);
+                    return (
+                      <button
+                        key={dateStr}
+                        type="button"
+                        onClick={() => handleToggleTripDate(dateStr)}
+                        className={`h-9 rounded-lg font-bold text-xs transition flex flex-col items-center justify-center cursor-pointer border ${
+                          isSelected
+                            ? 'bg-emerald-600 border-emerald-700 text-white shadow-xs'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-400 hover:bg-emerald-50/50'
+                        }`}
+                      >
+                        <span>{dayNumber}</span>
+                        {isSelected && <span className="w-1 h-1 rounded-full bg-white mt-0.5" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Selected Dates Summary */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-700">Selected Available Trip Dates:</span>
+                  <span className="font-extrabold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full text-[11px]">
+                    {tempTripDates.length} Days
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto p-1 bg-white rounded-lg border border-slate-200">
+                  {tempTripDates.length === 0 ? (
+                    <span className="text-slate-400 text-[11px] p-1">No dates selected yet. Click any day on the calendar above.</span>
+                  ) : (
+                    tempTripDates.map(d => (
+                      <span
+                        key={d}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-mono font-bold"
+                      >
+                        {d}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTripDate(d)}
+                          className="hover:text-rose-600"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-3 border-t flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTempTripDates([])}
+                  className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-100 font-bold"
+                >
+                  Clear All
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAvailabilityVehicle(null)}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveTripAvailability}
+                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Save Availability</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ─────────────────────────────────────────────────────────────
+          SCHEDULE AVAILABILITY MODAL (Requirement 5)
+      ───────────────────────────────────────────────────────────── */}
+      {availabilityVehicle && availabilityVehicle.bookingType === 'schedule' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-2xl border border-slate-200 text-xs">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center">
+                  <CalendarDays className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Schedule Availability: {availabilityVehicle.registrationNumber}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {availabilityVehicle.make} {availabilityVehicle.model} • Create timetable availability one date at a time
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAvailabilityVehicle(null)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Add Date Form */}
+            <form onSubmit={handleAddScheduleDate} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <strong className="text-slate-800 text-xs">+ Add New Schedule Date</strong>
+                <span className="text-[10px] text-slate-500">One date per route schedule</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={schedDate}
+                    onChange={e => setSchedDate(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Starting Location *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Mannar"
+                    value={schedFrom}
+                    onChange={e => setSchedFrom(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Ending Location *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Jaffna"
+                    value={schedTo}
+                    onChange={e => setSchedTo(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Starting Time</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="06:00 AM"
+                    value={schedStartTime}
+                    onChange={e => setSchedStartTime(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Ending Time</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="09:30 AM"
+                    value={schedEndTime}
+                    onChange={e => setSchedEndTime(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Available Seats</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    max={availabilityVehicle.totalSeats}
+                    value={schedAvailSeats}
+                    onChange={e => setSchedAvailSeats(Number(e.target.value))}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Per Seat Amount (Rs.)</label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="1200"
+                    value={schedPricePerSeat}
+                    onChange={e => setSchedPricePerSeat(Number(e.target.value))}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white font-bold text-indigo-700"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-xs cursor-pointer flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Schedule Date</span>
+                </button>
+              </div>
+            </form>
+
+            {/* Existing Schedules Table */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <strong className="text-slate-800 text-xs">Configured Schedule Dates ({tempSchedules.length})</strong>
+                <span className="text-[10px] text-slate-500">Multiple dates can be added</span>
+              </div>
+
+              {tempSchedules.length === 0 ? (
+                <div className="p-4 rounded-xl border border-dashed border-slate-300 text-center text-slate-400">
+                  No schedule dates added yet. Use the form above to add a departure date.
+                </div>
+              ) : (
+                <div className="border border-slate-200 rounded-xl overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold text-[11px]">
+                      <tr>
+                        <th className="py-2 px-3">Date</th>
+                        <th className="py-2 px-3">Route</th>
+                        <th className="py-2 px-3">Times</th>
+                        <th className="py-2 px-3 text-center">Seats</th>
+                        <th className="py-2 px-3 text-right">Per Seat</th>
+                        <th className="py-2 px-3 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {tempSchedules.map(sch => (
+                        <tr key={sch.id} className="hover:bg-slate-50/70">
+                          <td className="py-2 px-3 font-mono font-bold text-slate-800">{sch.date}</td>
+                          <td className="py-2 px-3 font-medium text-slate-700">{sch.fromLocation} ➔ {sch.toLocation}</td>
+                          <td className="py-2 px-3 text-slate-500">{sch.startTime} – {sch.endTime}</td>
+                          <td className="py-2 px-3 text-center font-bold text-indigo-700">{sch.availableSeats} / {sch.totalSeats}</td>
+                          <td className="py-2 px-3 text-right font-extrabold text-emerald-700">Rs. {sch.pricePerSeat.toLocaleString()}</td>
+                          <td className="py-2 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveScheduleDate(sch.id)}
+                              className="p-1 rounded text-rose-600 hover:bg-rose-50 cursor-pointer"
+                              title="Delete this schedule date"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-3 border-t flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAvailabilityVehicle(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveScheduleAvailability}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Save Schedule</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          DELETE CONFIRMATION MODAL (Admin Only, Requirement 11)
+      ───────────────────────────────────────────────────────────── */}
+      {deletingVehicle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl border border-slate-200 text-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Confirm Vehicle Deletion</h3>
+                <p className="text-[11px] text-slate-500">
+                  Are you sure you want to permanently remove vehicle <strong className="text-slate-800">{deletingVehicle.registrationNumber}</strong> ({deletingVehicle.make} {deletingVehicle.model})?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-[11px]">
+              This action cannot be undone. All configured availability dates and route schedules for this vehicle will also be removed.
+            </div>
+
+            <div className="pt-2 border-t flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeletingVehicle(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Confirm Delete</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
