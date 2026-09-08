@@ -38,6 +38,7 @@ import {
   List,
   Save,
   RotateCcw,
+  Lock,
 } from 'lucide-react';
 import { TransportVehicle, TransportOwner, TransportType, DriverOption } from '../../types/mgrBooking';
 import {
@@ -49,7 +50,7 @@ import {
 import { triggerLifecycleNotifications, getWhatsAppUrl } from '../../utils/mgrTransportNotifications';
 import { UserAccount, getMGRPersona } from '../../utils/auth';
 
-interface MGRHotelStyleBookingProps {
+export interface MGRTransportBookingProps {
   view: 'search' | 'requests' | 'owner-listings';
   vehicles: TransportVehicle[];
   owners: TransportOwner[];
@@ -233,7 +234,7 @@ const createListingFromVehicle = (v: TransportVehicle): TransportV2Listing => {
   };
 };
 
-export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
+export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   view,
   vehicles,
   owners,
@@ -363,6 +364,31 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
   const [newPlannedTime, setNewPlannedTime] = useState('08:00');
   const [newPlannedSeats, setNewPlannedSeats] = useState(25);
 
+  // ─── FIFO SEAT CAPACITY CALCULATION (Section 3 & 9) ──────────────────
+  // Formula: Remaining Seats = Total Seats - Confirmed Booked Seats - Active FIFO Holds
+  const getRemainingSeatsForListing = (listing: TransportV2Listing): number => {
+    if (listing.listingMode !== 'planned_trip') return listing.totalSeats || 4;
+    
+    // Confirmed booked seats
+    const confirmedSeats = requests
+      .filter(r => r.listingId === listing.id && (r.paymentStatus === 'paid' || r.requestStatus === 'accepted'))
+      .reduce((acc, r) => acc + (r.seatCount || 1), 0);
+
+    // Active FIFO holds (pending requests within hold period)
+    const now = Date.now();
+    const activeHolds = requests
+      .filter(r => 
+        r.listingId === listing.id && 
+        r.requestStatus === 'pending_owner' && 
+        (!r.holdExpiresAt || r.holdExpiresAt > now)
+      )
+      .reduce((acc, r) => acc + (r.seatCount || 1), 0);
+
+    const baseSeats = listing.availableSeats !== undefined ? listing.availableSeats : (listing.totalSeats || 4);
+    const remaining = baseSeats - confirmedSeats - activeHolds;
+    return Math.max(0, remaining);
+  };
+
   // Filter listings for search
   const filteredListings = listings.filter(item => {
     if (item.status !== 'active') return false;
@@ -411,11 +437,14 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
       }
       if (item.totalSeats < searchPassengers) return false;
     } else {
-      // Planned trip checks
+      // Planned trip checks: Section 3 & 9 FIFO Remaining Seat Validation
+      const remainingSeats = getRemainingSeatsForListing(item);
+      // When Remaining Seats = 0, trip must not display in Find Transport for that date
+      if (remainingSeats <= 0) return false;
       if (searchDate && item.plannedTripDate && item.plannedTripDate !== searchDate) return false;
       if (searchFrom && item.plannedFrom && !item.plannedFrom.toLowerCase().includes(searchFrom.toLowerCase())) return false;
       if (searchTo && item.plannedTo && !item.plannedTo.toLowerCase().includes(searchTo.toLowerCase())) return false;
-      if ((item.availableSeats || 0) < searchPassengers) return false;
+      if (remainingSeats < searchPassengers) return false;
     }
 
     return true;
@@ -602,7 +631,7 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
     setHasUnsavedCalendarChanges(true);
   };
 
-  // Explicit Save Action for Calendar Availability (Requirement 3)
+  // Explicit Save Action for Calendar Availability (Requirement 3 & Section 6 Conflict Prevention)
   const handleSaveCalendarAvailability = () => {
     if (!activeCalendarVehicleId) return;
 
@@ -613,6 +642,16 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
       .filter(([_, status]) => status === 'available')
       .map(([d]) => d)
       .sort();
+
+    // Section 6 Validation: Prevent Same Vehicle and Date in Both Listing Types
+    const plannedTripsForVehicle = listings.filter(l => l.listingMode === 'planned_trip' && l.vehicleId === activeCalendarVehicleId);
+    for (const d of newAvailableDates) {
+      const conflict = plannedTripsForVehicle.find(t => t.plannedTripDate === d);
+      if (conflict) {
+        alert(`This vehicle is already listed as a Planned Trip (${conflict.plannedFrom} ➔ ${conflict.plannedTo}) for ${d}.\n\nPlease remove or reschedule the planned trip before marking this vehicle available for ${d}.`);
+        return;
+      }
+    }
 
     if (existingListing) {
       setListings(prev => prev.map(l => l.id === existingListing.id ? {
@@ -666,12 +705,31 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
   const max30YMD = `${max30DateObj.getFullYear()}-${String(max30DateObj.getMonth() + 1).padStart(2, '0')}-${String(max30DateObj.getDate()).padStart(2, '0')}`;
 
 
-  // Handler: Passenger Submits Booking Request
+  // Handler: Passenger Submits Booking Request (with Section 3, 4, 5 FIFO Seat & Pricing Calculation)
   const handleSendBookingRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     const finalPassengerName = reqPassengerName || currentUser?.name || currentUser?.username || 'Passenger';
     const finalPassengerPhone = reqPassengerPhone || currentUser?.phone || '+94 77 123 4567';
     if (!requestingListing || !finalPassengerName) return;
+
+    const isPlanned = requestingListing.listingMode === 'planned_trip';
+    if (isPlanned) {
+      const freshRemaining = getRemainingSeatsForListing(requestingListing);
+      const requested = Number(reqSeats);
+      if (requested > freshRemaining) {
+        alert(`Only ${freshRemaining} seats are currently available. Please reduce your requested seat count to continue.`);
+        return;
+      }
+      if (requested < 1) {
+        alert('Please enter at least 1 seat.');
+        return;
+      }
+    }
+
+    const seatFare = requestingListing.seatFare || 1200;
+    const seatSubtotal = isPlanned ? Number(reqSeats) * seatFare : undefined;
+    const adminFee = isPlanned && seatSubtotal ? Math.round(seatSubtotal * (convenienceFeePercentage / 100)) : undefined;
+    const totalAmount = isPlanned && seatSubtotal !== undefined && adminFee !== undefined ? (seatSubtotal + adminFee) : undefined;
 
     const reqNum = `MGR-REQ-${Math.floor(1000 + Math.random() * 9000)}`;
     const newRequest: TransportV2Request = {
@@ -690,15 +748,21 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
         name: finalPassengerName,
         phone: finalPassengerPhone,
         whatsapp: finalPassengerPhone,
+        email: currentUser?.email,
       },
       listingMode: requestingListing.listingMode,
       travelDate: reqTravelDate,
-      travelTime: requestingListing.listingMode === 'planned_trip' ? requestingListing.departureTime : reqTravelTime,
-      routeFrom: requestingListing.listingMode === 'planned_trip' ? requestingListing.plannedFrom || 'Mannar' : reqRouteFrom,
-      routeTo: requestingListing.listingMode === 'planned_trip' ? requestingListing.plannedTo || 'Jaffna' : reqRouteTo,
-      seatCount: requestingListing.listingMode === 'planned_trip' ? Number(reqSeats) : 1,
+      travelTime: isPlanned ? requestingListing.departureTime : reqTravelTime,
+      routeFrom: isPlanned ? requestingListing.plannedFrom || 'Mannar' : reqRouteFrom,
+      routeTo: isPlanned ? requestingListing.plannedTo || 'Jaffna' : reqRouteTo,
+      seatCount: isPlanned ? Number(reqSeats) : 1,
       specialNotes: reqNotes,
-      requestStatus: 'pending_owner',
+      ownerTravelCharge: seatSubtotal,
+      convenienceFee: adminFee,
+      convenienceFeePercentage: convenienceFeePercentage,
+      finalAmount: totalAmount,
+      holdExpiresAt: isPlanned ? (Date.now() + 15 * 60 * 1000) : undefined,
+      requestStatus: isPlanned ? 'awaiting_payment' : 'pending_owner',
       paymentStatus: 'pending',
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -811,10 +875,43 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
   // Handler: Create New Listing (Owner view)
   const handleSaveNewListing = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAddingListing) return;
-
     const matchedVehicle = vehicles.find(v => v.id === newListVehicleId) || vehicles[0];
     const matchedOwner = owners.find(o => o.id === matchedVehicle?.ownerId) || owners[0];
+
+    // Section 6 Validation: Prevent Same Vehicle and Date in Both Listing Types
+    if (isAddingListing === 'planned_trip') {
+      const hasTypeAConflict = listings.some(l => 
+        l.vehicleId === matchedVehicle.id && 
+        l.listingMode === 'availability_only' &&
+        (l.availableDates?.includes(newPlannedDate) || l.dateAvailabilityMap?.[newPlannedDate] === 'available')
+      );
+      if (hasTypeAConflict) {
+        alert(`This vehicle is already listed as Vehicle Available for ${newPlannedDate}.\n\nPlease remove or change the existing availability before creating a Planned Trip for this date.`);
+        return;
+      }
+      const hasDuplicateTrip = listings.some(l => 
+        l.vehicleId === matchedVehicle.id && 
+        l.listingMode === 'planned_trip' && 
+        l.plannedTripDate === newPlannedDate
+      );
+      if (hasDuplicateTrip) {
+        alert(`This vehicle already has a Planned Trip scheduled for ${newPlannedDate}. Duplicate routes for the same vehicle on the same date are not allowed.`);
+        return;
+      }
+    } else if (isAddingListing === 'availability_only') {
+      const dates = newListDates.split(',').map(d => d.trim()).filter(Boolean);
+      for (const d of dates) {
+        const hasTripConflict = listings.some(l => 
+          l.vehicleId === matchedVehicle.id && 
+          l.listingMode === 'planned_trip' && 
+          l.plannedTripDate === d
+        );
+        if (hasTripConflict) {
+          alert(`This vehicle is already scheduled for a Planned Trip on ${d}.\n\nPlease remove or reschedule the planned trip before marking vehicle availability for this date.`);
+          return;
+        }
+      }
+    }
 
     const newListing: TransportV2Listing = {
       id: `LST-MGR-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -1146,7 +1243,7 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
                                   </div>
                                 </div>
                                 <div className="text-[10px] text-slate-500 mt-1 break-words">
-                                  📅 {item.plannedTripDate} at {item.departureTime} • <span className="font-bold text-emerald-700">{item.availableSeats} seats left</span>
+                                  📅 {item.plannedTripDate} at {item.departureTime} • <span className="font-bold text-emerald-700">{getRemainingSeatsForListing(item)} seats left</span>
                                 </div>
                               </div>
                             )}
@@ -1171,7 +1268,7 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
                                 setReqRouteFrom(item.listingMode === 'planned_trip' ? (item.plannedFrom || 'Mannar Town') : (searchFrom || 'Mannar Town'));
                                 setReqRouteTo(item.listingMode === 'planned_trip' ? (item.plannedTo || 'Jaffna') : (searchTo || ''));
                                 setReqTravelDate(item.listingMode === 'planned_trip' ? (item.plannedTripDate || searchDate) : searchDate);
-                                setReqSeats(item.listingMode === 'planned_trip' ? Math.min(searchPassengers, item.availableSeats || 1) : 1);
+                                setReqSeats(item.listingMode === 'planned_trip' ? Math.min(searchPassengers, getRemainingSeatsForListing(item) || 1) : 1);
                                 setReqPassengerName(currentUser?.name || currentUser?.username || '');
                                 setReqPassengerPhone(currentUser?.phone || '+94 77 123 4567');
                               }}
@@ -1280,7 +1377,7 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
                             <div className="flex items-center justify-between text-[11px] pt-1 border-t border-blue-200/50">
                               <span className="text-slate-600">Available Seats:</span>
                               <strong className="text-emerald-700 font-extrabold">
-                                {item.availableSeats} / {item.totalSeats}
+                                {getRemainingSeatsForListing(item)} / {item.totalSeats}
                               </strong>
                             </div>
                           </div>
@@ -1314,7 +1411,7 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
                               setReqRouteFrom(item.plannedFrom || 'Mannar Town');
                               setReqRouteTo(item.plannedTo || 'Jaffna');
                               setReqTravelDate(item.plannedTripDate || searchDate);
-                              setReqSeats(Math.min(searchPassengers, item.availableSeats || 1));
+                              setReqSeats(Math.min(searchPassengers, getRemainingSeatsForListing(item) || 1));
                               setReqPassengerName(currentUser?.name || currentUser?.username || '');
                               setReqPassengerPhone(currentUser?.phone || '+94 77 123 4567');
                             }}
@@ -1461,8 +1558,17 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
                         </td>
 
                         <td className="py-3 px-4 break-words">
-                          <div className="font-bold text-slate-900 break-words">{req.passenger.name}</div>
-                          <span className="text-[11px] text-slate-500 break-words">{req.passenger.phone}</span>
+                          {isAppAdmin || (req.paymentStatus === 'paid' && req.requestStatus === 'confirmed') || (isPassengerUser && req.passenger.email === currentUserEmail) ? (
+                            <>
+                              <div className="font-bold text-slate-900 break-words">{req.passenger.name}</div>
+                              <span className="text-[11px] text-slate-500 break-words">{req.passenger.phone}</span>
+                            </>
+                          ) : (
+                            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 text-[10px] font-bold">
+                              <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span>Protected (Paid only)</span>
+                            </div>
+                          )}
                         </td>
 
                         <td className="py-3 px-4 break-words">
@@ -2209,15 +2315,24 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
 
                   {requestingListing.listingMode === 'planned_trip' ? (
                     <div>
-                      <label className="block font-bold text-slate-700 mb-1">Required Seats *</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-bold text-slate-700">Required Seats *</label>
+                        <span className="text-[10px] font-bold text-emerald-700">
+                          {getRemainingSeatsForListing(requestingListing)} seats left
+                        </span>
+                      </div>
                       <input
                         type="number"
                         min={1}
-                        max={requestingListing.availableSeats || 10}
+                        max={getRemainingSeatsForListing(requestingListing)}
                         required
                         value={reqSeats}
                         onChange={e => setReqSeats(Number(e.target.value))}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 font-bold"
+                        className={`w-full px-3 py-2 rounded-xl border font-bold ${
+                          reqSeats > getRemainingSeatsForListing(requestingListing)
+                            ? 'border-rose-500 bg-rose-50 text-rose-900 focus:ring-rose-500'
+                            : 'border-slate-300'
+                        }`}
                       />
                     </div>
                   ) : (
@@ -2232,6 +2347,52 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Section 4: Passenger Seat Count Validation Popup */}
+                {requestingListing.listingMode === 'planned_trip' && reqSeats > getRemainingSeatsForListing(requestingListing) && (
+                  <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl flex items-start gap-2 text-rose-800 text-xs font-semibold">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong>Only {getRemainingSeatsForListing(requestingListing)} seats are currently available.</strong>
+                      <div className="text-[11px] text-rose-700 mt-0.5">Please reduce your requested seat count to continue.</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Section 5: Planned Trip Amount Calculation */}
+                {requestingListing.listingMode === 'planned_trip' && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs">
+                    <div className="flex justify-between text-slate-600">
+                      <span>Requested Seats</span>
+                      <span className="font-bold text-slate-800">{reqSeats}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600">
+                      <span>Per Seat Amount</span>
+                      <span className="font-bold text-slate-800">Rs. {(requestingListing.seatFare || 1200).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600 pt-1 border-t border-slate-200">
+                      <span>Seat Amount ({reqSeats} × Rs. {(requestingListing.seatFare || 1200).toLocaleString()})</span>
+                      <span className="font-semibold text-slate-800">
+                        Rs. {(reqSeats * (requestingListing.seatFare || 1200)).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-slate-600">
+                      <span>Admin Fee – {convenienceFeePercentage}%</span>
+                      <span className="font-semibold text-slate-800">
+                        Rs. {Math.round((reqSeats * (requestingListing.seatFare || 1200)) * (convenienceFeePercentage / 100)).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-slate-900 font-extrabold text-sm pt-1.5 border-t border-slate-300">
+                      <span>Total Payable</span>
+                      <span className="text-emerald-700">
+                        Rs. {(
+                          (reqSeats * (requestingListing.seatFare || 1200)) +
+                          Math.round((reqSeats * (requestingListing.seatFare || 1200)) * (convenienceFeePercentage / 100))
+                        ).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Trip Notes (Optional)</label>
@@ -2248,13 +2409,14 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
                   <button
                     type="button"
                     onClick={() => setRequestingListing(null)}
-                    className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold"
+                    className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                    disabled={requestingListing.listingMode === 'planned_trip' && (reqSeats > getRemainingSeatsForListing(requestingListing) || reqSeats < 1)}
+                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold cursor-pointer shadow-xs"
                   >
                     Send Request to Owner
                   </button>
@@ -2448,13 +2610,38 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
             </div>
 
             <div className="space-y-2.5">
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-slate-400 block text-[10px] uppercase">Passenger</span>
-                <strong className="text-slate-800">{viewingRequest.passenger.name} ({viewingRequest.passenger.phone})</strong>
+              <div className="p-3 bg-slate-50 rounded-xl space-y-1">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Passenger</span>
+                {isAppAdmin || (viewingRequest.paymentStatus === 'paid' && viewingRequest.requestStatus === 'confirmed') || (isPassengerUser && viewingRequest.passenger.email === currentUserEmail) ? (
+                  <>
+                    <strong className="text-slate-800 text-sm block">{viewingRequest.passenger.name}</strong>
+                    <div className="text-slate-600 text-xs flex items-center gap-2 mt-0.5">
+                      <span>📞 {viewingRequest.passenger.phone}</span>
+                      {viewingRequest.passenger.email && <span>✉️ {viewingRequest.passenger.email}</span>}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-1.5 py-1 text-amber-800 text-xs font-semibold">
+                    <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Passenger contact protected until payment confirmation.</span>
+                  </div>
+                )}
               </div>
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-slate-400 block text-[10px] uppercase">Vehicle & Owner</span>
-                <strong className="text-slate-800">{viewingRequest.vehicleName} • Owner: {viewingRequest.ownerName}</strong>
+
+              <div className="p-3 bg-slate-50 rounded-xl space-y-1">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Vehicle & Operator</span>
+                <strong className="text-slate-800 text-sm block">{viewingRequest.vehicleName} ({viewingRequest.registrationNumber})</strong>
+                {isAppAdmin || (viewingRequest.paymentStatus === 'paid' && viewingRequest.requestStatus === 'confirmed') || (isOwnerUser && myVehicleIds.has(viewingRequest.vehicleId)) ? (
+                  <div className="text-slate-600 text-xs flex items-center gap-2 mt-0.5">
+                    <span>Operator: {viewingRequest.ownerName}</span>
+                    <span>📞 {viewingRequest.ownerPhone}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 py-1 text-amber-800 text-xs font-semibold">
+                    <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Owner contact protected until payment confirmation.</span>
+                  </div>
+                )}
               </div>
               <div className="p-3 bg-slate-50 rounded-xl">
                 <span className="text-slate-400 block text-[10px] uppercase">Route & Date</span>
@@ -2628,4 +2815,4 @@ export const MGRHotelStyleBooking: React.FC<MGRHotelStyleBookingProps> = ({
   );
 };
 
-export const MGRTransportBooking = MGRHotelStyleBooking;
+export const MGRHotelStyleBooking = MGRTransportBooking;

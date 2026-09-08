@@ -94,6 +94,7 @@ export interface TransportV2Request {
   paymentStatus: TransportPaymentStatus;
   paymentRef?: string;
   rejectionReason?: string;
+  holdExpiresAt?: number; // FIFO temporary hold expiration timestamp
 
   createdAt: number;
   updatedAt: number;

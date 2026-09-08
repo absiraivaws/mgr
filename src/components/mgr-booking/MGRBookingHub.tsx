@@ -33,7 +33,7 @@ import { TransportListingCards } from './TransportListingCards';
 import { SeatMapModal } from './SeatMapModal';
 import { BookingModal } from './BookingModal';
 import { VehicleBidModal } from './VehicleBidModal';
-import { MGRHotelStyleBooking } from './MGRHotelStyleBooking';
+import { MGRTransportBooking } from './MGRTransportBooking';
 import { MGRBookingsView } from './MGRBookingsView';
 import { MGRFleetView } from './MGRFleetView';
 import { MGROwnersDriversView } from './MGROwnersDriversView';
@@ -421,7 +421,7 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
       )}
 
       {activeTab === 'mgr-search' && (
-        <MGRHotelStyleBooking
+        <MGRTransportBooking
           view="search"
           vehicles={vehicles}
           owners={owners}
@@ -431,7 +431,7 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
       )}
 
       {activeTab === 'mgr-bookings' && (
-        <MGRHotelStyleBooking
+        <MGRTransportBooking
           view="requests"
           vehicles={vehicles}
           owners={owners}
@@ -474,7 +474,7 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
               themeMode="light"
             />
 
-            <MGRHotelStyleBooking
+            <MGRTransportBooking
               view="owner-listings"
               vehicles={vehicles}
               owners={owners}
@@ -557,7 +557,7 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
       )}
 
       {activeTab === 'mgr-requests' && (
-        <MGRHotelStyleBooking
+        <MGRTransportBooking
           view="requests"
           vehicles={vehicles}
           owners={owners}
