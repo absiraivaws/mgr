@@ -12,11 +12,9 @@ import {
   TransportRoute,
   TransportSchedule,
   TransportBooking,
-  TransportRequest,
   MarketplaceSettings,
   BookingStatus,
   VerificationStatus,
-  VehicleBid,
 } from '../../types/mgrBooking';
 import {
   INITIAL_OWNERS,
@@ -25,24 +23,17 @@ import {
   INITIAL_ROUTES,
   INITIAL_SCHEDULES,
   INITIAL_BOOKINGS,
-  INITIAL_REQUESTS,
   INITIAL_MARKETPLACE_SETTINGS,
 } from '../../data/mgrInitialData';
-import { PassengerTransportSearch, SearchCriteria } from './PassengerTransportSearch';
-import { TransportListingCards } from './TransportListingCards';
-import { SeatMapModal } from './SeatMapModal';
-import { BookingModal } from './BookingModal';
 import { MGRTransportBooking } from './MGRTransportBooking';
-import { MGRBookingsView } from './MGRBookingsView';
 import { MGRFleetView } from './MGRFleetView';
 import { MGROwnersDriversView } from './MGROwnersDriversView';
 import { MGRRoutesView } from './MGRRoutesView';
-import { MGRVehicleRequestsView } from './MGRVehicleRequestsView';
 import { MGRMarketplaceAdminView } from './MGRMarketplaceAdminView';
 import { MGRDashboardView } from './MGRDashboardView';
 import { MGRSettingsView } from './MGRSettingsView';
 import { UserAccount, getMGRPersona } from '../../utils/auth';
-import { Search, Calendar, CheckCircle2, DollarSign, Car, Bus, Ship, ShieldCheck, LayoutGrid } from 'lucide-react';
+import { ShieldCheck, Car } from 'lucide-react';
 
 interface MGRBookingHubProps {
   activeTab: MGRTabType;
@@ -109,11 +100,6 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
     return saved ? JSON.parse(saved) : INITIAL_BOOKINGS;
   });
 
-  const [requests, setRequests] = useState<TransportRequest[]>(() => {
-    const saved = localStorage.getItem('mgr_transport_requests');
-    return saved ? JSON.parse(saved) : INITIAL_REQUESTS;
-  });
-
   const [settings, setSettings] = useState<MarketplaceSettings>(() => {
     const saved = localStorage.getItem('mgr_marketplace_settings');
     return saved ? JSON.parse(saved) : INITIAL_MARKETPLACE_SETTINGS;
@@ -139,81 +125,12 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
     localStorage.setItem('mgr_transport_bookings', JSON.stringify(bookings));
   }, [bookings]);
   useEffect(() => {
-    localStorage.setItem('mgr_transport_requests', JSON.stringify(requests));
-  }, [requests]);
-  useEffect(() => {
     localStorage.setItem('mgr_marketplace_settings', JSON.stringify(settings));
   }, [settings]);
 
-  // Search Criteria
-  const [searchCriteria, setSearchCriteria] = useState<SearchCriteria>({
-    fromLocation: '',
-    toLocation: '',
-    travelDate: new Date().toISOString().split('T')[0],
-    travelTime: '08:00',
-    vehicleType: 'all',
-    driverOption: 'all',
-    passengersCount: 1,
-  });
-
-  // Modals state
-  const [seatMapVehicle, setSeatMapVehicle] = useState<TransportVehicle | null>(null);
-  const [seatMapSchedule, setSeatMapSchedule] = useState<TransportSchedule | undefined>(undefined);
-
-  const [bookingModalVehicle, setBookingModalVehicle] = useState<TransportVehicle | null>(null);
-  const [bookingType, setBookingType] = useState<'whole_vehicle' | 'seat'>('whole_vehicle');
-  const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
-  const [totalSeatPrice, setTotalSeatPrice] = useState<number | undefined>(undefined);
-
-  // Filter available vehicles based on search criteria
-  const filteredVehicles = vehicles.filter(v => {
-    if (v.status !== 'active') return false;
-    if (searchCriteria.vehicleType !== 'all' && v.type !== searchCriteria.vehicleType) {
-      return false;
-    }
-    if (searchCriteria.driverOption !== 'all') {
-      if (searchCriteria.driverOption === 'with_driver' && v.driverOption === 'without_driver') {
-        return false;
-      }
-      if (searchCriteria.driverOption === 'without_driver' && v.driverOption === 'with_driver') {
-        return false;
-      }
-    }
-    if (v.totalSeats < searchCriteria.passengersCount) {
-      return false;
-    }
-    return true;
-  });
-
-  // Modal Triggers
-  const handleOpenSeatMap = (vehicle: TransportVehicle, schedule?: TransportSchedule) => {
-    setSeatMapVehicle(vehicle);
-    setSeatMapSchedule(schedule);
-  };
-
-  const handleProceedFromSeatMap = (seats: string[], price: number) => {
-    if (!seatMapVehicle) return;
-    const v = seatMapVehicle;
-    setSeatMapVehicle(null);
-    setBookingModalVehicle(v);
-    setBookingType('seat');
-    setSelectedSeats(seats);
-    setTotalSeatPrice(price);
-  };
-
-  const handleOpenWholeVehicleBooking = (vehicle: TransportVehicle) => {
-    setBookingModalVehicle(vehicle);
-    setBookingType('whole_vehicle');
-    setSelectedSeats([]);
-    setTotalSeatPrice(undefined);
-  };
 
 
 
-  // Handlers for data mutations
-  const handleConfirmBooking = (newBooking: TransportBooking) => {
-    setBookings(prev => [newBooking, ...prev]);
-  };
 
   const handleUpdateBookingStatus = (bookingId: string, newStatus: BookingStatus) => {
     setBookings(prev => prev.map(b => (b.id === bookingId ? { ...b, status: newStatus } : b)));
@@ -295,58 +212,7 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
     setSchedules(prev => [newSchedule, ...prev]);
   };
 
-  const handleAddRequest = (newReq: TransportRequest) => {
-    setRequests(prev => [newReq, ...prev]);
-  };
 
-  const handleUpdateRequestStatus = (requestId: string, status: TransportRequest['status']) => {
-    setRequests(prev => prev.map(r => (r.id === requestId ? { ...r, status } : r)));
-  };
-
-  const handleEditRequest = (updated: TransportRequest) => {
-    setRequests(prev => prev.map(r => (r.id === updated.id ? updated : r)));
-  };
-
-  const handleDeleteRequest = (id: string) => {
-    setRequests(prev => prev.filter(r => r.id !== id));
-  };
-
-  const handleAddQuote = (requestId: string, newQuote: any) => {
-    setRequests(prev =>
-      prev.map(r => {
-        if (r.id === requestId) {
-          const quotes = r.quotes || [];
-          return {
-            ...r,
-            status: 'quoted',
-            quotesCount: quotes.length + 1,
-            quotes: [...quotes, newQuote],
-          };
-        }
-        return r;
-      })
-    );
-  };
-
-  const handleAcceptQuote = (requestId: string, quoteId: string) => {
-    setRequests(prev =>
-      prev.map(r => {
-        if (r.id === requestId) {
-          return {
-            ...r,
-            status: 'accepted',
-            quotes: r.quotes?.map(q => ({
-              ...q,
-              status: q.id === quoteId ? 'accepted' : 'rejected',
-            })),
-          };
-        }
-        return r;
-      })
-    );
-  };
-
-  const availableRoutePairs = routes.map(r => ({ from: r.fromLocation, to: r.toLocation }));
 
   return (
     <div className="space-y-6 animate-fade-in text-slate-900">
@@ -567,32 +433,6 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
         )
       )}
 
-      {/* Seat Map Modal */}
-      {seatMapVehicle && (
-        <SeatMapModal
-          vehicle={seatMapVehicle}
-          schedule={seatMapSchedule}
-          onClose={() => setSeatMapVehicle(null)}
-          onProceedToBooking={handleProceedFromSeatMap}
-          themeMode="light"
-        />
-      )}
-
-      {/* Booking Modal */}
-      {bookingModalVehicle && (
-        <BookingModal
-          vehicle={bookingModalVehicle}
-          route={routes[0]}
-          bookingType={bookingType}
-          selectedSeats={selectedSeats}
-          totalSeatPrice={totalSeatPrice}
-          travelDate={searchCriteria.travelDate}
-          travelTime={searchCriteria.travelTime}
-          onClose={() => setBookingModalVehicle(null)}
-          onConfirmBooking={handleConfirmBooking}
-          themeMode="light"
-        />
-      )}
     </div>
   );
 };
