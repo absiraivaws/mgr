@@ -34,7 +34,7 @@ import { DEFAULT_USER, UserAccount, getUserPermissions, getMGRPersona } from '..
 import { ACCENT_COLORS, AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { MGRTabType } from '../types/mgrBooking';
 
-export type NavTabType = 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers' | 'messages';
+export type NavTabType = 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers' | 'messages' | 'finance';
 
 interface NavbarProps {
   activeTab: NavTabType;
@@ -202,10 +202,10 @@ export const Navbar: React.FC<NavbarProps> = ({
       activeClass: 'bg-blue-500/20 text-blue-400 border border-blue-500/40',
     },
     {
-      id: 'income' as const,
-      label: 'Income & Expenses',
+      id: 'finance' as const,
+      label: 'Finance',
       icon: <DollarSign className="w-4 h-4 shrink-0" />,
-      show: userPerms.accessIncome ?? (userPerms.accessSettings || isAdmin),
+      show: userPerms.accessFinance ?? userPerms.accessIncome ?? (userPerms.accessSettings || isAdmin),
       badge: null as number | null,
       activeClass: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
     },

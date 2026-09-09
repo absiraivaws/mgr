@@ -110,7 +110,9 @@ ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rentals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 
--- 6. INCOME & EXPENSES TABLE
+ALTER TABLE vehicle_types ADD COLUMN IF NOT EXISTS rental_start_method TEXT DEFAULT 'both';
+
+-- 6. INCOME & EXPENSES TABLE (FINANCE)
 CREATE TABLE IF NOT EXISTS income_expenses (
   id TEXT PRIMARY KEY,
   date TEXT NOT NULL,                       -- ISO date e.g. '2026-09-03'
@@ -118,26 +120,47 @@ CREATE TABLE IF NOT EXISTS income_expenses (
   type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
   amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
   category TEXT DEFAULT 'Other',
-  who TEXT DEFAULT 'Mark',                  -- Person responsible: Mark, Jenis, Beni
+  who TEXT DEFAULT 'Staff',
   cashier_name TEXT DEFAULT '',
+  reference TEXT,                           -- e.g. 'RENT-000145' or manual ref
+  payment_method TEXT,                      -- e.g. 'cash', 'card', 'bank_transfer'
+  remarks TEXT,
   created_at BIGINT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE income_expenses ADD COLUMN IF NOT EXISTS who TEXT DEFAULT 'Mark';
+ALTER TABLE income_expenses ADD COLUMN IF NOT EXISTS who TEXT DEFAULT 'Staff';
+ALTER TABLE income_expenses ADD COLUMN IF NOT EXISTS reference TEXT;
+ALTER TABLE income_expenses ADD COLUMN IF NOT EXISTS payment_method TEXT;
+ALTER TABLE income_expenses ADD COLUMN IF NOT EXISTS remarks TEXT;
 ALTER TABLE income_expenses ENABLE ROW LEVEL SECURITY;
 
--- 7. USER ACCOUNTS TABLE
+-- 7. USER ACCOUNTS TABLE (Profile info only; passwords managed by Supabase Auth)
 CREATE TABLE IF NOT EXISTS user_accounts (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   phone TEXT,
   role TEXT NOT NULL DEFAULT 'staff',
-  password_hash TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
   created_at BIGINT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
+
+-- AUDIT LOGS TABLE
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  user_name TEXT NOT NULL,
+  user_email TEXT,
+  action TEXT NOT NULL,
+  reference TEXT,
+  details TEXT,
+  created_at BIGINT,
+  timestamp TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- 8. USER ROLES & PERMISSIONS TABLE
 CREATE TABLE IF NOT EXISTS user_roles (

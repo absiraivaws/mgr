@@ -58,6 +58,8 @@ import { RentalHistoryPanel } from './components/RentalHistoryPanel';
 import { UserRolesManager } from './components/UserRolesManager';
 import { DashboardStats } from './components/DashboardStats';
 import { IncomeExpensesPanel } from './components/IncomeExpensesPanel';
+import { FinancePanel } from './components/FinancePanel';
+import { recordAuditLog } from './utils/audit';
 import { CustomerManagementPanel } from './components/CustomerManagementPanel';
 import { CustomerMessagingTab } from './components/CustomerMessagingTab';
 import { CustomerGroupsModal } from './components/CustomerGroupsModal';
@@ -746,27 +748,45 @@ export default function App() {
       )
     );
 
-    // 4. Automatically add rental revenue to Income & Expenses Ledger
+    // 4. Automatically add rental revenue to Income & Expenses / Finance Ledger with unique de-duplicated reference
+    const rentRef = `RENT-${completedRecord.rentalNumber}`;
+    const activeCashier = completedRecord.cashierName || activeUser.name || currentUser?.name || settings.cashierName || 'Staff';
+
     if (completedRecord.totalAmount && completedRecord.totalAmount > 0) {
-      const activeCashier = completedRecord.cashierName || activeUser.name || currentUser?.name || settings.cashierName || 'Staff';
-      const rentalIncomeEntry: IncomeEntry = {
-        id: `inc-rent-${completedRecord.id}`,
-        date: new Date(completedRecord.completedAt || Date.now()).toISOString().slice(0, 10),
-        description: `Rental #${completedRecord.rentalNumber} — ${completedRecord.vehicleTypeName} (${completedRecord.vehicleSerialNumber})`,
-        type: 'income',
-        amount: completedRecord.totalAmount,
-        category: 'Rental Revenue',
-        who: activeCashier,
-        createdAt: Date.now(),
-        cashierName: activeCashier,
-      };
+      setIncomeEntries((prev) => {
+        const alreadyExists = prev.some((e) => e.reference === rentRef);
+        if (alreadyExists) return prev;
 
-      setIncomeEntries((prev) => [rentalIncomeEntry, ...prev]);
+        const rentalIncomeEntry: IncomeEntry = {
+          id: `inc-rent-${completedRecord.id}`,
+          date: new Date(completedRecord.completedAt || Date.now()).toISOString().slice(0, 10),
+          description: `Rental #${completedRecord.rentalNumber} — ${completedRecord.vehicleTypeName} (${completedRecord.vehicleSerialNumber})`,
+          type: 'income',
+          amount: completedRecord.totalAmount,
+          category: 'Rental Income',
+          reference: rentRef,
+          paymentMethod: 'cash',
+          who: activeCashier,
+          cashierName: activeCashier,
+          createdAt: Date.now(),
+        };
 
-      if (isSupabaseConfigured()) {
-        syncIncomeEntryToSupabase(rentalIncomeEntry);
-      }
+        if (isSupabaseConfigured()) {
+          syncIncomeEntryToSupabase(rentalIncomeEntry);
+        }
+
+        return [rentalIncomeEntry, ...prev];
+      });
     }
+
+    // Record audit log for stopping / settling rental
+    recordAuditLog({
+      user: activeCashier,
+      userEmail: activeUser.email,
+      action: 'Rental Stopped by QR',
+      reference: rentRef,
+      details: `Settled rental #${completedRecord.rentalNumber} for ${completedRecord.vehicleSerialNumber} (${completedRecord.vehicleTypeName}) with amount ${completedRecord.totalAmount || 0}`,
+    });
 
     // 5. Live sync to Supabase
     if (isSupabaseConfigured()) {
@@ -989,6 +1009,7 @@ export default function App() {
                 themeMode={themeMode}
                 accent={accent}
                 onStartRental={handleStartRental}
+                onOpenStopRentalModal={(rental) => setSettlingRental(rental)}
               />
               <ActiveRentalsList
                 activeRentals={activeRentals}
@@ -1177,9 +1198,9 @@ export default function App() {
             />
           )}
 
-          {/* Tab 6: Income & Expenses */}
-          {activeTab === 'income' && (
-            <IncomeExpensesPanel
+          {/* Tab 6: Finance & Accounts */}
+          {(activeTab === 'finance' || activeTab === 'income') && (
+            <FinancePanel
               entries={incomeEntries}
               settings={settings}
               themeMode={themeMode}
@@ -1189,6 +1210,12 @@ export default function App() {
                 setIncomeEntries((prev) => [entry, ...prev]);
                 if (isSupabaseConfigured()) {
                   syncIncomeEntryToSupabase(entry);
+                }
+              }}
+              onUpdateEntry={(updated) => {
+                setIncomeEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+                if (isSupabaseConfigured()) {
+                  syncIncomeEntryToSupabase(updated);
                 }
               }}
               onDeleteEntry={(id) => {

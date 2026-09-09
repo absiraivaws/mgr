@@ -28,11 +28,13 @@ import {
   Palette,
   Sun,
   Moon,
-  Users,
   ShieldCheck,
-  Lock
+  Lock,
+  QrCode,
+  Printer
 } from 'lucide-react';
-import { AppSettings, Customer, PricingRates, RentalRecord, Vehicle, VehicleIconType, VehicleType } from '../types';
+import QRCode from 'qrcode';
+import { AppSettings, Customer, PricingRates, RentalRecord, RentalStartMethod, Vehicle, VehicleIconType, VehicleType } from '../types';
 import { VehicleIcon } from './VehicleIcon';
 import { formatCurrency } from '../utils/pricing';
 import { SupabaseSettingsTab } from './SupabaseSettingsTab';
@@ -92,6 +94,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [typeDescription, setTypeDescription] = useState('');
   const [typeFirstHour, setTypeFirstHour] = useState<string>('5.00');
   const [typeEvery30Min, setTypeEvery30Min] = useState<string>('2.50');
+  const [typeRentalStartMethod, setTypeRentalStartMethod] = useState<RentalStartMethod>('both');
 
   // Form State for Adding Vehicle Inventory (Serial Numbers)
   const [isAddingVehicle, setIsAddingVehicle] = useState(false);
@@ -110,6 +113,113 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   // Inventory search filter
   const [inventorySearch, setInventorySearch] = useState('');
 
+  // QR Viewer / Print State
+  const [selectedQRVehicle, setSelectedQRVehicle] = useState<Vehicle | null>(null);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
+
+  const handleOpenVehicleQR = async (v: Vehicle) => {
+    setSelectedQRVehicle(v);
+    try {
+      const url = await QRCode.toDataURL(v.serialNumber, {
+        width: 280,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#ffffff',
+        },
+      });
+      setQrCodeDataUrl(url);
+    } catch (err) {
+      console.error('Failed to generate QR code:', err);
+    }
+  };
+
+  const handlePrintQR = () => {
+    if (!selectedQRVehicle || !qrCodeDataUrl) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    const typeObj = vehicleTypes.find((t) => t.id === selectedQRVehicle.typeId);
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Vehicle QR Tag - ${selectedQRVehicle.serialNumber}</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              min-height: 100vh;
+              margin: 0;
+              padding: 20px;
+              box-sizing: border-box;
+            }
+            .badge-card {
+              border: 3px solid #000;
+              border-radius: 16px;
+              padding: 24px;
+              text-align: center;
+              width: 320px;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            }
+            .shop-name {
+              font-size: 16px;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              color: #10b981;
+              margin-bottom: 4px;
+            }
+            .vehicle-type {
+              font-size: 14px;
+              font-weight: 600;
+              color: #4b5563;
+              margin-bottom: 16px;
+            }
+            .qr-img {
+              width: 220px;
+              height: 220px;
+              margin: 0 auto 16px;
+              display: block;
+            }
+            .serial-box {
+              background: #f3f4f6;
+              border: 2px dashed #9ca3af;
+              border-radius: 8px;
+              padding: 8px;
+              font-family: monospace;
+              font-size: 20px;
+              font-weight: 900;
+              letter-spacing: 2px;
+              color: #111827;
+            }
+            @media print {
+              body { padding: 0; }
+              .no-print { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="badge-card">
+            <div class="shop-name">${settings.businessName || 'Cycly Rent'}</div>
+            <div class="vehicle-type">${typeObj?.name || 'Fleet Vehicle'}</div>
+            <img class="qr-img" src="${qrCodeDataUrl}" alt="${selectedQRVehicle.serialNumber}" />
+            <div class="serial-box">${selectedQRVehicle.serialNumber}</div>
+          </div>
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(function() { window.close(); }, 500);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   // Store Settings state
   const [storeForm, setStoreForm] = useState<AppSettings>({ ...settings });
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
@@ -127,6 +237,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setTypeDescription('');
     setTypeFirstHour('5.00');
     setTypeEvery30Min('2.50');
+    setTypeRentalStartMethod('both');
     setIsAddingType(true);
   };
 
@@ -137,6 +248,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setTypeDescription(typeItem.description || '');
     setTypeFirstHour(typeItem.rates.firstHour.toString());
     setTypeEvery30Min((typeItem.rates.every30Min ?? typeItem.rates.next30Min ?? 2.5).toString());
+    setTypeRentalStartMethod(typeItem.rentalStartMethod || 'both');
     setIsAddingType(true);
   };
 
@@ -161,6 +273,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               icon: typeIcon,
               description: typeDescription.trim() || undefined,
               rates,
+              rentalStartMethod: typeRentalStartMethod,
             }
           : item
       );
@@ -172,6 +285,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         icon: typeIcon,
         description: typeDescription.trim() || undefined,
         rates,
+        rentalStartMethod: typeRentalStartMethod,
       };
       onUpdateVehicleTypes([...vehicleTypes, newType]);
     }
@@ -522,17 +636,35 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
-                  Description / Specification (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. 250W Motor, Shimano 7-speed, Helmet included"
-                  value={typeDescription}
-                  onChange={(e) => setTypeDescription(e.target.value)}
-                  className={`w-full rounded-xl px-3 py-2 text-xs sm:text-sm ${t.textInput}`}
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Rental Start Method
+                  </label>
+                  <select
+                    id="select-rental-start-method"
+                    value={typeRentalStartMethod}
+                    onChange={(e) => setTypeRentalStartMethod(e.target.value as RentalStartMethod)}
+                    className={`w-full rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold ${t.dropdownInput}`}
+                  >
+                    <option value="both">Both (Scan QR or Select Manually)</option>
+                    <option value="qr">QR Only (Display QR scanner only)</option>
+                    <option value="manual">Manual Only (Available Vehicle dropdown)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Description / Specification (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 250W Motor, Shimano 7-speed, Helmet included"
+                    value={typeDescription}
+                    onChange={(e) => setTypeDescription(e.target.value)}
+                    className={`w-full rounded-xl px-3 py-2 text-xs sm:text-sm ${t.textInput}`}
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -574,6 +706,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       <div>
                         <h3 className={`font-bold text-sm sm:text-base ${t.textHeading}`}>{typeObj.name}</h3>
                         <p className={`text-xs ${t.textMuted}`}>{countOfVehicles} registered in fleet</p>
+                        <div className="mt-1">
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                            typeObj.rentalStartMethod === 'qr'
+                              ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                              : typeObj.rentalStartMethod === 'manual'
+                              ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                              : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          }`}>
+                            Start: {typeObj.rentalStartMethod ? typeObj.rentalStartMethod.toUpperCase() : 'BOTH'}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
@@ -842,6 +985,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   <th className="px-3.5 py-3">Type</th>
                   <th className="px-3.5 py-3">Model</th>
                   <th className="px-3.5 py-3">Status</th>
+                  <th className="px-3.5 py-3 text-center">QR</th>
                   <th className="px-3.5 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -877,6 +1021,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                             Maintenance
                           </span>
                         )}
+                      </td>
+                      <td className="px-3.5 py-3 text-center">
+                        <button
+                          type="button"
+                          id={`btn-view-qr-${v.serialNumber}`}
+                          onClick={() => handleOpenVehicleQR(v)}
+                          className="p-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition cursor-pointer"
+                          title={`View & Print QR for ${v.serialNumber}`}
+                        >
+                          <QrCode className="w-4 h-4" />
+                        </button>
                       </td>
                       <td className="px-3.5 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
@@ -915,6 +1070,74 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               </tbody>
             </table>
           </div>
+
+          {/* QR Code Modal for Vehicle Unit */}
+          {selectedQRVehicle && qrCodeDataUrl && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in">
+              <div className={`w-full max-w-sm ${t.cardBg} rounded-2xl border shadow-2xl p-5 sm:p-6 space-y-4 text-center`}>
+                <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+                  <div className="flex items-center gap-2">
+                    <QrCode className="w-5 h-5 text-emerald-400" />
+                    <h3 className={`font-bold text-sm sm:text-base ${t.textHeading}`}>Vehicle QR Code</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedQRVehicle(null);
+                      setQrCodeDataUrl(null);
+                    }}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white transition cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="font-mono font-extrabold text-xl tracking-wider text-emerald-400">
+                    {selectedQRVehicle.serialNumber}
+                  </div>
+                  <div className={`text-xs ${t.textMuted}`}>
+                    {vehicleTypes.find((t) => t.id === selectedQRVehicle.typeId)?.name || 'Fleet Vehicle'}
+                    {selectedQRVehicle.modelName ? ` — ${selectedQRVehicle.modelName}` : ''}
+                  </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl shadow-inner inline-block border-2 border-slate-200">
+                  <img
+                    src={qrCodeDataUrl}
+                    alt={selectedQRVehicle.serialNumber}
+                    className="w-52 h-52 mx-auto block"
+                  />
+                </div>
+
+                <div className="text-[11px] text-slate-400 px-2">
+                  Scannable tag strictly identifies vehicle serial <strong>{selectedQRVehicle.serialNumber}</strong>.
+                </div>
+
+                <div className="flex items-center justify-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedQRVehicle(null);
+                      setQrCodeDataUrl(null);
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer ${t.inactiveTab}`}
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    id="btn-print-vehicle-qr"
+                    onClick={handlePrintQR}
+                    className={`px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-md ${t.primaryBtn}`}
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>Print QR</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

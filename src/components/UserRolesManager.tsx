@@ -34,7 +34,9 @@ import {
   Timer,
   Bell,
   ChevronRight,
-  CheckSquare
+  CheckSquare,
+  X,
+  Key
 } from 'lucide-react';
 import { 
   DEFAULT_USER, 
@@ -50,6 +52,7 @@ import {
   registerNewUser, 
   updateRolePermissions,
   updateUserRoleAndDetails,
+  sendStaffPasswordResetEmail,
   saveStoredUsers,
   getCurrentUser,
   setCurrentUserSession
@@ -162,7 +165,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
 
   // Definition of all Side Menu Tabs as rows in the matrix
   const SIDE_MENU_TABS: {
-    key: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessMessages' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome'>;
+    key: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessMessages' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome' | 'accessFinance'>;
     label: string;
     icon: React.ReactNode;
     badgeColor: string;
@@ -218,13 +221,39 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       description: 'Hourly rate plans, fleet inventory management, and shop settings',
     },
     {
-      key: 'accessIncome',
-      label: 'Income & Expenses',
+      key: 'accessFinance',
+      label: 'Finance',
       icon: <DollarSign className="w-4 h-4 text-amber-400" />,
       badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
-      description: 'Log and track operating expenses, income receipts, and net profit',
+      description: 'Finance Dashboard, automatic rental income, manual transactions, P&L reports, and Statement of Accounts',
     },
   ];
+
+  // Send Password Reset State
+  const [resetTargetUser, setResetTargetUser] = useState<UserAccount | null>(null);
+  const [isSendingReset, setIsSendingReset] = useState(false);
+  const [resetAlertMsg, setResetAlertMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleConfirmSendResetPassword = async () => {
+    if (!resetTargetUser) return;
+    setIsSendingReset(true);
+    setResetAlertMsg(null);
+
+    const res = await sendStaffPasswordResetEmail(resetTargetUser.email, currentUser);
+    setIsSendingReset(false);
+    if (res.success) {
+      setResetAlertMsg({
+        type: 'success',
+        text: `Password reset email sent successfully to ${resetTargetUser.email}`,
+      });
+      setResetTargetUser(null);
+    } else {
+      setResetAlertMsg({
+        type: 'error',
+        text: res.error || 'Failed to dispatch password recovery email via Supabase.',
+      });
+    }
+  };
 
   const refreshState = () => {
     const freshUsers = getStoredUsers();
@@ -251,7 +280,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   // Toggle Tab Access for a Role Level (Tick box)
   const handleToggleTabPermission = (
     roleId: string, 
-    tabKey: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessMessages' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome'>
+    tabKey: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessMessages' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome' | 'accessFinance'>
   ) => {
     if (!isAdmin) return;
     if (roleId === 'admin') {
@@ -269,6 +298,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
         accessUsers: false,
         accessSettings: false,
         accessIncome: false,
+        accessFinance: false,
         canRent: true,
         canSettle: true,
         canExportReports: false,
@@ -277,6 +307,19 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
         canManageUsers: false,
         canManageRoles: false,
       };
+
+      const nextVal = !current[tabKey];
+      const updated: RolePermissionSet = {
+        ...current,
+        [tabKey]: nextVal,
+      };
+
+      // Keep legacy accessIncome and new accessFinance in lockstep
+      if (tabKey === 'accessFinance') {
+        updated.accessIncome = nextVal;
+      } else if (tabKey === 'accessIncome') {
+        updated.accessFinance = nextVal;
+      }
 
       return {
         ...prev,
@@ -1243,6 +1286,23 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
           </form>
         )}
 
+        {/* Reset Password Alert Notification */}
+        {resetAlertMsg && (
+          <div className={`p-3.5 rounded-xl flex items-center justify-between gap-3 text-xs font-semibold ${
+            resetAlertMsg.type === 'success' 
+              ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400' 
+              : 'bg-rose-500/15 border border-rose-500/30 text-rose-400'
+          }`}>
+            <div className="flex items-center gap-2">
+              {resetAlertMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+              <span>{resetAlertMsg.text}</span>
+            </div>
+            <button type="button" onClick={() => setResetAlertMsg(null)} className="opacity-60 hover:opacity-100 cursor-pointer">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* USERS TABLE WITH ROLE LEVEL TICK BOXES */}
         <div className={`overflow-x-auto rounded-2xl border ${t.divider}`}>
           <table className="w-full text-left text-xs whitespace-nowrap">
@@ -1324,9 +1384,26 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                       );
                     })}
 
-                    {/* Save Button & User Deletion */}
+                    {/* Save Button, Reset Password, & User Deletion */}
                     <td className="px-4 py-3.5 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {/* Send Reset Password Button */}
+                        {isAdmin && (
+                          <button
+                            id={`btn-reset-pw-${user.id}`}
+                            type="button"
+                            onClick={() => {
+                              setResetAlertMsg(null);
+                              setResetTargetUser(user);
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition cursor-pointer"
+                            title={`Send Supabase password recovery email to ${user.email}`}
+                          >
+                            <Key className="w-3.5 h-3.5" />
+                            <span className="hidden xl:inline">Send Reset Password</span>
+                          </button>
+                        )}
+
                         {isSaved ? (
                           <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-400 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
                             <Check className="w-3.5 h-3.5" />
@@ -1369,6 +1446,62 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Confirmation Modal for Sending Password Reset Email */}
+        {resetTargetUser && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in">
+            <div className={`w-full max-w-md ${t.cardBg} rounded-2xl border shadow-2xl p-5 sm:p-6 space-y-4`}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 flex items-center justify-center">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className={`text-base font-bold ${t.textHeading}`}>Send Reset Password</h3>
+                  <p className={`text-xs ${t.textMuted}`}>Supabase Password Recovery Email</p>
+                </div>
+              </div>
+
+              <div className={`p-3.5 rounded-xl border text-xs space-y-2 ${t.cardSubtleBg}`}>
+                <p className={t.textHeading}>
+                  Are you sure you want to send a Supabase password recovery email to:
+                </p>
+                <div className="font-mono text-indigo-400 font-bold bg-indigo-500/10 p-2.5 rounded-lg border border-indigo-500/20">
+                  {resetTargetUser.name} &lt;{resetTargetUser.email}&gt;
+                </div>
+                <p className={`text-[11px] ${t.textMuted}`}>
+                  The system will dispatch the official Supabase Auth recovery email. When the user opens the link, they will create their new password, which becomes permanently active. No passwords are ever stored or emailed in plaintext.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={isSendingReset}
+                  onClick={() => setResetTargetUser(null)}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer ${t.inactiveTab}`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  id="btn-confirm-send-reset-email"
+                  disabled={isSendingReset}
+                  onClick={handleConfirmSendResetPassword}
+                  className="px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white shadow-md disabled:opacity-50"
+                >
+                  {isSendingReset ? (
+                    <span>Sending Link...</span>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Send Reset Link</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 3. SECTION 3: MESSAGE TEMPLATES (WHATSAPP & SMS) */}

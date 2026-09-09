@@ -15,6 +15,9 @@ import {
   Info,
   ChevronDown,
   Clock,
+  QrCode,
+  Camera,
+  StopCircle,
 } from 'lucide-react';
 import { AppSettings, Customer, RentalRecord, Vehicle, VehicleType } from '../types';
 import { VehicleIcon } from './VehicleIcon';
@@ -22,6 +25,8 @@ import { formatCurrency, playSoundEffect, getNextRentalNumber } from '../utils/p
 import { findCustomerByNic, searchCustomers, isCustomerSuspendedOrBlocked, cleanWhatsAppPhoneNumber } from '../utils/customer';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { DEFAULT_USER, UserAccount } from '../utils/auth';
+import { QRScannerModal } from './QRScannerModal';
+import { recordAuditLog } from '../utils/audit';
 
 interface StartRentalCardProps {
   vehicleTypes: VehicleType[];
@@ -46,6 +51,7 @@ interface StartRentalCardProps {
     sendEndWhatsApp?: boolean;
   }) => void;
   onQuickAddSerial?: (typeId: string, serial: string) => void;
+  onOpenStopRentalModal?: (rental: RentalRecord) => void;
 }
 
 export const StartRentalCard: React.FC<StartRentalCardProps> = ({
@@ -60,6 +66,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   accent = 'emerald',
   onStartRental,
   onQuickAddSerial,
+  onOpenStopRentalModal,
 }) => {
   // Always start with Category and Serial Number blank
   const [selectedTypeId, setSelectedTypeId] = useState<string>('');
@@ -73,6 +80,12 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   const [sendEndWhatsApp, setSendEndWhatsApp] = useState<boolean>(true);
   const [customSerialMode, setCustomSerialMode] = useState<boolean>(false);
   const [isCustomStartTime, setIsCustomStartTime] = useState<boolean>(false);
+
+  // QR and dual-logic state
+  const [isQRScannerOpen, setIsQRScannerOpen] = useState<boolean>(false);
+  const [activeRentalFound, setActiveRentalFound] = useState<RentalRecord | null>(null);
+  const [isStartedViaQR, setIsStartedViaQR] = useState<boolean>(false);
+  const [qrScanNotice, setQrScanNotice] = useState<string | null>(null);
 
   const activeUser = currentUser || DEFAULT_USER;
   const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
@@ -198,12 +211,78 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
 
   const selectedType = vehicleTypes.find((t) => t.id === selectedTypeId);
 
+  // Dual-logic QR code scan handler
+  const handleQRScan = (scannedSerial: string) => {
+    setErrorMsg(null);
+    setQrScanNotice(null);
+    const cleanSerial = scannedSerial.trim().toUpperCase();
+
+    if (!cleanSerial) return;
+
+    // Dual-logic Check 1: Is this vehicle currently in an active rental?
+    const activeRental = (activeRentals || []).find(
+      (r) => r.vehicleSerialNumber.toUpperCase() === cleanSerial
+    );
+
+    if (activeRental) {
+      // Prompt user with active rental details & allow immediate stop/settle
+      setActiveRentalFound(activeRental);
+      return;
+    }
+
+    // Dual-logic Check 2: Starting a new rental
+    // Must select or enter customer details first
+    const hasCustomer = Boolean(customerNicPassport.trim() || customerName.trim() || matchedCustomer);
+    if (!hasCustomer) {
+      setErrorMsg('Please select or enter customer details first before scanning a vehicle.');
+      return;
+    }
+
+    // Check if vehicle exists in fleet
+    const existingVehicle = vehicles.find((v) => v.serialNumber.toUpperCase() === cleanSerial);
+    if (!existingVehicle) {
+      setErrorMsg(`Vehicle serial "${cleanSerial}" is not found in the fleet registry.`);
+      return;
+    }
+
+    if (existingVehicle.status === 'rented') {
+      setErrorMsg(`Vehicle serial "${cleanSerial}" is currently marked as rented.`);
+      return;
+    }
+
+    if (existingVehicle.status === 'maintenance') {
+      setErrorMsg(`Vehicle serial "${cleanSerial}" is currently under maintenance.`);
+      return;
+    }
+
+    // Check vehicle type rental start method
+    const vType = vehicleTypes.find((t) => t.id === existingVehicle.typeId);
+    if (vType && vType.rentalStartMethod === 'manual') {
+      setErrorMsg(`Category "${vType.name}" is configured for manual selection only.`);
+      return;
+    }
+
+    // Auto-select vehicle category and serial
+    setSelectedTypeId(existingVehicle.typeId);
+    setSelectedSerial(existingVehicle.serialNumber);
+    setCustomSerialMode(false);
+    setIsStartedViaQR(true);
+    setQrScanNotice(`Vehicle ${existingVehicle.serialNumber} (${vType?.name || 'Vehicle'}) successfully selected via QR!`);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
     const cleanSerial = selectedSerial.trim().toUpperCase();
 
+    // Verification 1: Customer must be selected / entered
+    if (!customerNicPassport.trim() && !customerName.trim() && !matchedCustomer) {
+      setErrorMsg('Please find or enter customer details before starting rental.');
+      return;
+    }
+
+    // Verification 2: Category and serial
     if (!selectedTypeId) {
       setErrorMsg('Please select a vehicle category from the dropdown.');
       return;
@@ -211,6 +290,12 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
 
     if (!cleanSerial) {
       setErrorMsg('Please select or enter a vehicle serial number.');
+      return;
+    }
+
+    // Check if vehicle type allows manual if not started via QR
+    if (!isStartedViaQR && selectedType && selectedType.rentalStartMethod === 'qr') {
+      setErrorMsg(`Vehicle Category "${selectedType.name}" requires QR scan to start rental.`);
       return;
     }
 
@@ -261,6 +346,15 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
       customStartMs = parsed;
     }
 
+    // Record audit log for rental start
+    recordAuditLog({
+      user: activeUser.name || 'Staff',
+      userEmail: activeUser.email,
+      action: isStartedViaQR ? 'Rental Started by QR' : 'Manual Rental Started',
+      reference: `REN-${nextRentalNumber}`,
+      details: `${isStartedViaQR ? 'QR Scan' : 'Manual selection'} rental started for ${cleanSerial} (${selectedType?.name || 'Vehicle'}) to customer ${customerName.trim() || matchedCustomer?.fullName || matchedCustomer?.name || 'Customer'}${customerNicPassport ? ` (NIC: ${customerNicPassport})` : ''}`,
+    });
+
     onStartRental({
       vehicleTypeId: selectedTypeId,
       vehicleSerialNumber: cleanSerial,
@@ -291,6 +385,8 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     setSelectedTypeId('');
     setSelectedSerial('');
     setCustomSerialMode(false);
+    setIsStartedViaQR(false);
+    setQrScanNotice(null);
     setCustomerName('');
     setCustomerPhone('');
     setCustomerNicPassport('');
@@ -299,6 +395,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     setMatchedCustomer(null);
     setShowSuggestions(false);
     setErrorMsg(null);
+    setActiveRentalFound(null);
   };
 
   return (
@@ -316,12 +413,12 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
                 Start New Rental
               </h2>
               <p className={`text-xs ${t.textMuted}`}>
-                Select vehicle, enter customer details & start
+                1. Customer Details → 2. Select / Scan Vehicle → 3. Start Rental
               </p>
             </div>
           </div>
 
-          {/* Today Completed Count & Amount in first row next to Start New Rental */}
+          {/* Today Completed Count & Amount */}
           <div className={`flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl border text-xs ${t.cardSubtleBg}`}>
             <span className={`text-[11px] font-semibold ${t.textMuted}`}>Today Completed:</span>
             <span className="font-mono font-bold text-emerald-500 text-sm">
@@ -348,6 +445,66 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
         </div>
       </div>
 
+      {/* Active Rental Detected Notification Prompt */}
+      {activeRentalFound && (
+        <div className="mb-4 p-4 rounded-xl bg-amber-500/15 border-2 border-amber-500/50 text-amber-200 space-y-3 animate-in fade-in">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-900 flex items-center justify-center shrink-0 font-bold mt-0.5 shadow-md">
+                <StopCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-white text-sm sm:text-base flex items-center gap-2">
+                  <span>Active Rental Detected for {activeRentalFound.vehicleSerialNumber}</span>
+                  <span className="text-xs bg-amber-500/30 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded font-mono">
+                    #{activeRentalFound.rentalNumber}
+                  </span>
+                </h4>
+                <p className="text-xs text-amber-200/90 mt-0.5">
+                  This vehicle is currently on an ongoing rental started by <strong>{activeRentalFound.customerName || 'Customer'}</strong>.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-amber-100 font-mono">
+                  <span>Vehicle: {activeRentalFound.vehicleTypeName} ({activeRentalFound.vehicleSerialNumber})</span>
+                  <span>Started: {new Date(activeRentalFound.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  {activeRentalFound.depositAmount ? <span>Deposit: {formatCurrency(activeRentalFound.depositAmount, settings.currencySymbol, settings.currencyPosition)}</span> : null}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveRentalFound(null)}
+              className="p-1 rounded-lg text-amber-300 hover:text-white transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 pt-1">
+            {onOpenStopRentalModal && (
+              <button
+                type="button"
+                onClick={() => {
+                  const target = activeRentalFound;
+                  setActiveRentalFound(null);
+                  onOpenStopRentalModal(target);
+                }}
+                className="px-4 py-2 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-md transition cursor-pointer"
+              >
+                <StopCircle className="w-4 h-4" />
+                <span>Stop Rental & Settle Payment</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setActiveRentalFound(null)}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition cursor-pointer border border-slate-700"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
         {errorMsg && (
           <div className="p-3 bg-rose-500/15 border border-rose-500/30 rounded-xl flex items-center gap-2.5 text-rose-400 text-xs font-medium">
@@ -356,177 +513,38 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
           </div>
         )}
 
-        {/* ================= STEP 1: DROPDOWN (Vehicle Type) ================= */}
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider mb-2 flex items-center justify-between">
-            <span className={`flex items-center gap-1.5 ${t.textHeading}`}>
-              <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
-                1
-              </span>
-              Vehicle Category (Dropdown)
-            </span>
-            <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${t.dropdownBadge}`}>
-              Dropdown Menu
-            </span>
-          </label>
-
-          <div className="relative">
-            <select
-              id="select-vehicle-type"
-              value={selectedTypeId}
-              onChange={(e) => {
-                setSelectedTypeId(e.target.value);
-                setSelectedSerial('');
-              }}
-              className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-semibold transition appearance-none cursor-pointer pr-10 shadow-xs ${t.dropdownInput}`}
-            >
-              <option value="" className="bg-slate-900 text-slate-400">
-                -- Select Vehicle Category --
-              </option>
-              {sortedVehicleTypes.map((type) => {
-                const availCount = vehicles.filter(
-                  (v) =>
-                    v.typeId === type.id &&
-                    v.status === 'available' &&
-                    !activeRentedSerials.has(v.serialNumber.toUpperCase())
-                ).length;
-                return (
-                  <option key={type.id} value={type.id} className="bg-slate-900 text-white">
-                    {type.name} — ({availCount} Available in Fleet)
-                  </option>
-                );
-              })}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-indigo-400">
-              <ChevronDown className="w-4 h-4" />
+        {qrScanNotice && (
+          <div className="p-3 bg-emerald-500/15 border border-emerald-500/30 rounded-xl flex items-center justify-between gap-2.5 text-emerald-400 text-xs font-medium">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>{qrScanNotice}</span>
             </div>
-          </div>
-
-          {/* Quick Rate Structure Banner for Selected Type */}
-          {selectedType && (
-            <div className={`mt-2.5 p-2.5 sm:p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs ${t.cardSubtleBg}`}>
-              <div className="flex items-center gap-2">
-                <VehicleIcon type={selectedType.icon} className="w-4 h-4 text-emerald-500 shrink-0" />
-                <span className={`font-semibold ${t.textHeading}`}>{selectedType.name} Rates:</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
-                <span className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-0.5 rounded-md whitespace-nowrap font-bold">
-                  1st 60m:{' '}
-                  <strong>
-                    {formatCurrency(selectedType.rates.firstHour, settings.currencySymbol, settings.currencyPosition)}
-                  </strong>
-                </span>
-                <span className="bg-teal-500/10 text-teal-500 border border-teal-500/20 px-2 py-0.5 rounded-md whitespace-nowrap font-bold">
-                  Every +30m:{' '}
-                  <strong>
-                    +{formatCurrency(selectedType.rates.every30Min ?? selectedType.rates.next30Min ?? 0, settings.currencySymbol, settings.currencyPosition)}
-                  </strong>
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ================= STEP 2: Vehicle Serial Number ================= */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 ${t.textHeading}`}>
-              <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
-                2
-              </span>
-              Vehicle Serial Number
-            </label>
             <button
               type="button"
-              id="btn-toggle-custom-serial"
-              onClick={() => {
-                setCustomSerialMode(!customSerialMode);
-                setSelectedSerial('');
-              }}
-              className="text-[11px] text-emerald-500 hover:underline font-semibold cursor-pointer"
+              onClick={() => setQrScanNotice(null)}
+              className="text-emerald-400 hover:text-white transition"
             >
-              {customSerialMode ? '← Pick from dropdown list' : '+ Key-in custom serial'}
+              <X className="w-4 h-4" />
             </button>
           </div>
+        )}
 
-          {!customSerialMode ? (
-            <div className="relative">
-              {availableVehicles.length > 0 ? (
-                <>
-                  <select
-                    id="select-vehicle-serial"
-                    value={selectedSerial}
-                    onChange={(e) => setSelectedSerial(e.target.value)}
-                    className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-mono font-bold transition appearance-none cursor-pointer pr-10 shadow-xs ${t.dropdownInput}`}
-                  >
-                    <option value="" className="bg-slate-900 text-slate-400">
-                      -- Select Vehicle Serial Number --
-                    </option>
-                    {availableVehicles.map((v) => (
-                      <option key={v.id} value={v.serialNumber} className="bg-slate-900 text-white">
-                        {v.serialNumber} {v.modelName ? `— ${v.modelName}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-indigo-400">
-                    <ChevronDown className="w-4 h-4" />
-                  </div>
-                </>
-              ) : (
-                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Info className="w-4 h-4 shrink-0" />
-                    <span>
-                      {selectedTypeId
-                        ? `No ${selectedType?.name || 'vehicle'} is currently available (checked against active fleet).`
-                        : 'Please select a Vehicle Category first.'}
-                    </span>
-                  </div>
-                  {selectedTypeId && (
-                    <button
-                      type="button"
-                      onClick={() => setCustomSerialMode(true)}
-                      className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 rounded-lg text-[11px] font-bold transition self-start sm:self-auto cursor-pointer"
-                    >
-                      Enter Custom Serial
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="relative">
-              <input
-                id="input-custom-serial"
-                type="text"
-                placeholder="e.g. BIKE-105 or MOTO-205"
-                value={selectedSerial}
-                onChange={(e) => setSelectedSerial(e.target.value.toUpperCase())}
-                className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-mono font-bold uppercase pr-10 ${t.textInput}`}
-                autoFocus
-              />
-              <div className={`pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 ${t.textMuted}`}>
-                <Hash className="w-4 h-4" />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ================= STEP 3: Customer Details ================= */}
-        <div className={`space-y-3 pt-3 border-t ${t.divider}`}>
-          
-          {/* ================= FIND / SEARCH BAR: NIC Search (Cyan Theme) ================= */}
-          <div className="relative" ref={suggestionsRef}>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-cyan-500 flex items-center gap-1.5">
-                <Search className="w-3.5 h-3.5" />
-                <span>Find Customer Search Bar (NIC / Passport)</span>
-              </label>
-              <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${t.searchBadge}`}>
-                Search Bar
+        {/* ================= STEP 1: FIND & ENTER CUSTOMER DETAILS ================= */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${t.textHeading}`}>
+              <span className="w-4 h-4 rounded-full bg-cyan-500 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
+                1
               </span>
-            </div>
+              <span>Find / Enter Customer Details</span>
+            </label>
+            <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${t.searchBadge}`}>
+              Customer Step
+            </span>
+          </div>
 
+          {/* FIND / SEARCH BAR: NIC Search (Cyan Theme) */}
+          <div className="relative" ref={suggestionsRef}>
             <div className="relative">
               <input
                 id="input-customer-nic"
@@ -680,54 +698,35 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
                       <span className="font-mono font-medium">{matchedCustomer.dob}</span>
                     </div>
                   )}
-                  {matchedCustomer.groups && matchedCustomer.groups.length > 0 && (
-                    <div className="sm:col-span-3 flex items-center gap-1 flex-wrap">
-                      <span className="text-slate-400 text-[10px]">Groups:</span>
-                      {matchedCustomer.groups.map((g) => (
-                        <span key={g} className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 text-[10px] font-semibold border border-slate-700">
-                          {g}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {matchedCustomer.address && (
-                    <div className="sm:col-span-3">
-                      <span className="text-slate-400 block text-[10px]">Address:</span>
-                      <span className="font-medium">{matchedCustomer.address}</span>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
           </div>
 
-          {/* ================= USER KEY-IN TEXTBOXES (Name, Phone, Deposit) ================= */}
+          {/* Customer Name & Phone Key-in Textboxes */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            
-            {/* Customer Name Key-in Textbox */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className={`text-xs font-semibold flex items-center gap-1 ${t.textHeading}`}>
                   <User className="w-3.5 h-3.5 text-slate-400" />
-                  Customer Name (Key-in)
+                  Customer Full Name
                 </label>
               </div>
               <input
                 id="input-customer-name"
                 type="text"
-                placeholder="Type customer full name..."
+                placeholder="Customer full name..."
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 className={`w-full rounded-xl px-3 py-2.5 text-xs ${t.textInput}`}
               />
             </div>
 
-            {/* Customer Phone Key-in Textbox */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className={`text-xs font-semibold flex items-center gap-1 ${t.textHeading}`}>
                   <Phone className="w-3.5 h-3.5 text-slate-400" />
-                  Phone Number (Key-in)
+                  Phone / WhatsApp Number
                 </label>
               </div>
               <input
@@ -742,105 +741,334 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
           </div>
         </div>
 
-        {/* Automated WhatsApp Dispatch Options - Always Active & Visible */}
-        <div className="pt-2 px-1 space-y-2">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={sendWelcomeWhatsApp}
-                onChange={(e) => setSendWelcomeWhatsApp(e.target.checked)}
-                className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
-              />
-              <span className="flex items-center gap-1.5 font-medium">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Send WhatsApp start message (Welcome & Confirmation)</span>
+        {/* ================= STEP 2: SELECT / SCAN VEHICLE ================= */}
+        <div className={`space-y-3 pt-4 border-t ${t.divider}`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <label className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${t.textHeading}`}>
+              <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
+                2
               </span>
+              <span>Select or Scan Vehicle</span>
             </label>
 
-            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={sendEndWhatsApp}
-                onChange={(e) => setSendEndWhatsApp(e.target.checked)}
-                className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
-              />
-              <span className="flex items-center gap-1.5 font-medium">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Send WhatsApp end message (Return Receipt & Thank You)</span>
-              </span>
-            </label>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                id="btn-scan-qr-vehicle"
+                onClick={() => setIsQRScannerOpen(true)}
+                className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer active:scale-95"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Scan Vehicle QR</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-toggle-custom-serial"
+                onClick={() => {
+                  setCustomSerialMode(!customSerialMode);
+                  setSelectedSerial('');
+                }}
+                className="text-[11px] text-emerald-500 hover:underline font-semibold cursor-pointer"
+              >
+                {customSerialMode ? '← Pick from list' : '+ Key-in custom'}
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Custom Start Time Option - Strictly Admin Only */}
-        {isAdmin && (
-          <div className="pt-2 px-1">
-            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={isCustomStartTime}
-                onChange={(e) => setIsCustomStartTime(e.target.checked)}
-                className="w-4 h-4 rounded text-indigo-500 focus:ring-indigo-500 bg-slate-900 border-slate-700 cursor-pointer"
-              />
-              <span className="flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Specify Custom Start Time (backdate if customer started earlier)</span>
-              </span>
-            </label>
+          {/* Vehicle Category Dropdown */}
+          <div className="relative">
+            <select
+              id="select-vehicle-type"
+              value={selectedTypeId}
+              onChange={(e) => {
+                setSelectedTypeId(e.target.value);
+                setSelectedSerial('');
+                setIsStartedViaQR(false);
+              }}
+              className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-semibold transition appearance-none cursor-pointer pr-10 shadow-xs ${t.dropdownInput}`}
+            >
+              <option value="" className="bg-slate-900 text-slate-400">
+                -- Select Vehicle Category --
+              </option>
+              {sortedVehicleTypes.map((type) => {
+                const availCount = vehicles.filter(
+                  (v) =>
+                    v.typeId === type.id &&
+                    v.status === 'available' &&
+                    !activeRentedSerials.has(v.serialNumber.toUpperCase())
+                ).length;
+                return (
+                  <option key={type.id} value={type.id} className="bg-slate-900 text-white">
+                    {type.name} — ({availCount} Available in Fleet) {type.rentalStartMethod ? `[${type.rentalStartMethod.toUpperCase()}]` : ''}
+                  </option>
+                );
+              })}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-indigo-400">
+              <ChevronDown className="w-4 h-4" />
+            </div>
+          </div>
 
-            {isCustomStartTime && (
-              <div className="mt-2.5 p-3 rounded-xl border border-indigo-500/40 bg-indigo-950/30 flex flex-col sm:flex-row sm:items-center gap-2.5">
-                <span className="text-[11px] font-semibold text-indigo-200 shrink-0">
-                  Rental Started At:
+          {/* Quick Rate Structure Banner for Selected Type */}
+          {selectedType && (
+            <div className={`p-2.5 sm:p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs ${t.cardSubtleBg}`}>
+              <div className="flex items-center gap-2">
+                <VehicleIcon type={selectedType.icon} className="w-4 h-4 text-emerald-500 shrink-0" />
+                <span className={`font-semibold ${t.textHeading}`}>{selectedType.name} Rates:</span>
+                {selectedType.rentalStartMethod && (
+                  <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                    Method: {selectedType.rentalStartMethod}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
+                <span className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-0.5 rounded-md whitespace-nowrap font-bold">
+                  1st 60m:{' '}
+                  <strong>
+                    {formatCurrency(selectedType.rates.firstHour, settings.currencySymbol, settings.currencyPosition)}
+                  </strong>
                 </span>
-                <input
-                  type="datetime-local"
-                  value={customStartTimeInput}
-                  onChange={(e) => {
-                    setCustomStartTimeInput(e.target.value);
-                    setErrorMsg(null);
-                  }}
-                  className={`rounded-xl px-3 py-1.5 text-xs font-mono ${t.textInput} flex-1`}
-                />
-                <span className="text-[10px] text-indigo-300/70">
-                  Duration will count from this time
+                <span className="bg-teal-500/10 text-teal-500 border border-teal-500/20 px-2 py-0.5 rounded-md whitespace-nowrap font-bold">
+                  Every +30m:{' '}
+                  <strong>
+                    +{formatCurrency(selectedType.rates.every30Min ?? selectedType.rates.next30Min ?? 0, settings.currencySymbol, settings.currencyPosition)}
+                  </strong>
                 </span>
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
 
-        {/* Start Rental Primary Action Button */}
-        <div className="pt-2">
-          {matchedCustomer && isCustomerSuspendedOrBlocked(matchedCustomer) ? (
-            <div className="p-3 bg-rose-500/20 border border-rose-500/50 rounded-xl text-center space-y-1">
-              <span className="font-bold text-sm text-rose-300 flex items-center justify-center gap-2">
-                <AlertCircle className="w-4 h-4" />
-                <span>Rental Restricted: Customer is {matchedCustomer.status?.toUpperCase()}</span>
-              </span>
-              <p className="text-xs text-rose-200">
-                Cannot start rental while customer status is suspended or blocked.
-              </p>
+          {/* Vehicle Serial Number Selector */}
+          {!customSerialMode ? (
+            <div className="relative">
+              {availableVehicles.length > 0 ? (
+                <>
+                  <select
+                    id="select-vehicle-serial"
+                    value={selectedSerial}
+                    onChange={(e) => {
+                      setSelectedSerial(e.target.value);
+                      setIsStartedViaQR(false);
+                    }}
+                    className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-mono font-bold transition appearance-none cursor-pointer pr-10 shadow-xs ${t.dropdownInput}`}
+                  >
+                    <option value="" className="bg-slate-900 text-slate-400">
+                      -- Select Vehicle Serial Number --
+                    </option>
+                    {availableVehicles.map((v) => (
+                      <option key={v.id} value={v.serialNumber} className="bg-slate-900 text-white">
+                        {v.serialNumber} {v.modelName ? `— ${v.modelName}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-indigo-400">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </>
+              ) : (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Info className="w-4 h-4 shrink-0" />
+                    <span>
+                      {selectedTypeId
+                        ? `No ${selectedType?.name || 'vehicle'} is currently available (checked against active fleet).`
+                        : 'Please select a Vehicle Category first or use Scan QR.'}
+                    </span>
+                  </div>
+                  {selectedTypeId && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomSerialMode(true)}
+                      className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 rounded-lg text-[11px] font-bold transition self-start sm:self-auto cursor-pointer"
+                    >
+                      Enter Custom Serial
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
-            <button
-              id="btn-start-rental"
-              type="submit"
-              disabled={!selectedSerial && !customSerialMode}
-              className={`w-full py-3.5 px-4 sm:px-6 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed font-bold text-sm sm:text-base flex items-center justify-center gap-2 sm:gap-3 transition cursor-pointer active:scale-[0.99] min-h-[48px] shadow-lg ${t.primaryBtn}`}
-            >
-              <Play className="w-5 h-5 fill-white shrink-0" />
-              <span>Start Rental #{nextRentalNumber}</span>
-              {selectedSerial && (
-                <span className="font-mono text-xs bg-black/30 text-white px-2 py-0.5 rounded border border-white/20 truncate max-w-[120px]">
-                  {selectedSerial}
-                </span>
-              )}
-            </button>
+            <div className="relative">
+              <input
+                id="input-custom-serial"
+                type="text"
+                placeholder="e.g. BIKE-105 or MOTO-205"
+                value={selectedSerial}
+                onChange={(e) => {
+                  setSelectedSerial(e.target.value.toUpperCase());
+                  setIsStartedViaQR(false);
+                }}
+                className={`w-full rounded-xl px-4 py-3 text-xs sm:text-sm font-mono font-bold uppercase pr-10 ${t.textInput}`}
+                autoFocus
+              />
+              <div className={`pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 ${t.textMuted}`}>
+                <Hash className="w-4 h-4" />
+              </div>
+            </div>
           )}
         </div>
+
+        {/* ================= STEP 3: RENTAL DETAILS & START ================= */}
+        <div className={`space-y-3 pt-4 border-t ${t.divider}`}>
+          <label className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${t.textHeading}`}>
+            <span className="w-4 h-4 rounded-full bg-emerald-500 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
+              3
+            </span>
+            <span>Rental Details & Start</span>
+          </label>
+
+          {/* Deposit Amount & Notes */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className={`text-xs font-semibold block mb-1 ${t.textHeading}`}>
+                Deposit Amount ({settings.currencySymbol || 'LKR'}) <span className="text-[10px] text-slate-400">(Optional)</span>
+              </label>
+              <input
+                id="input-deposit-amount"
+                type="number"
+                step="any"
+                min="0"
+                placeholder="e.g. 1000"
+                value={depositAmount}
+                onChange={(e) => setDepositAmount(e.target.value)}
+                className={`w-full rounded-xl px-3 py-2.5 text-xs font-mono ${t.textInput}`}
+              />
+            </div>
+
+            <div>
+              <label className={`text-xs font-semibold block mb-1 ${t.textHeading}`}>
+                Rental Notes / Remarks <span className="text-[10px] text-slate-400">(Optional)</span>
+              </label>
+              <input
+                id="input-customer-notes"
+                type="text"
+                placeholder="e.g. Helmet issued, child seat..."
+                value={customerNotes}
+                onChange={(e) => setCustomerNotes(e.target.value)}
+                className={`w-full rounded-xl px-3 py-2.5 text-xs ${t.textInput}`}
+              />
+            </div>
+          </div>
+
+          {/* Automated WhatsApp Dispatch Options */}
+          <div className="pt-1 px-1 space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={sendWelcomeWhatsApp}
+                  onChange={(e) => setSendWelcomeWhatsApp(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
+                />
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Send WhatsApp start message (Welcome & Confirmation)</span>
+                </span>
+              </label>
+
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={sendEndWhatsApp}
+                  onChange={(e) => setSendEndWhatsApp(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
+                />
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Send WhatsApp return receipt</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* Custom Start Time Option - Strictly Admin Only */}
+          {isAdmin && (
+            <div className="pt-1 px-1">
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isCustomStartTime}
+                  onChange={(e) => setIsCustomStartTime(e.target.checked)}
+                  className="w-4 h-4 rounded text-indigo-500 focus:ring-indigo-500 bg-slate-900 border-slate-700 cursor-pointer"
+                />
+                <span className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Specify Custom Start Time (backdate if customer started earlier)</span>
+                </span>
+              </label>
+
+              {isCustomStartTime && (
+                <div className="mt-2 p-3 rounded-xl border border-indigo-500/40 bg-indigo-950/30 flex flex-col sm:flex-row sm:items-center gap-2.5">
+                  <span className="text-[11px] font-semibold text-indigo-200 shrink-0">
+                    Rental Started At:
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={customStartTimeInput}
+                    onChange={(e) => {
+                      setCustomStartTimeInput(e.target.value);
+                      setErrorMsg(null);
+                    }}
+                    className={`rounded-xl px-3 py-1.5 text-xs font-mono ${t.textInput} flex-1`}
+                  />
+                  <span className="text-[10px] text-indigo-300/70">
+                    Duration will count from this time
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Start Rental Primary Action Button */}
+          <div className="pt-2">
+            {matchedCustomer && isCustomerSuspendedOrBlocked(matchedCustomer) ? (
+              <div className="p-3 bg-rose-500/20 border border-rose-500/50 rounded-xl text-center space-y-1">
+                <span className="font-bold text-sm text-rose-300 flex items-center justify-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  <span>Rental Restricted: Customer is {matchedCustomer.status?.toUpperCase()}</span>
+                </span>
+                <p className="text-xs text-rose-200">
+                  Cannot start rental while customer status is suspended or blocked.
+                </p>
+              </div>
+            ) : (
+              <button
+                id="btn-start-rental"
+                type="submit"
+                disabled={!selectedSerial && !customSerialMode}
+                className={`w-full py-3.5 px-4 sm:px-6 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed font-bold text-sm sm:text-base flex items-center justify-center gap-2 sm:gap-3 transition cursor-pointer active:scale-[0.99] min-h-[48px] shadow-lg ${t.primaryBtn}`}
+              >
+                <Play className="w-5 h-5 fill-white shrink-0" />
+                <span>Start Rental #{nextRentalNumber}</span>
+                {selectedSerial && (
+                  <span className="font-mono text-xs bg-black/30 text-white px-2 py-0.5 rounded border border-white/20 truncate max-w-[120px]">
+                    {selectedSerial}
+                  </span>
+                )}
+                {isStartedViaQR && (
+                  <span className="bg-emerald-400 text-slate-900 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <QrCode className="w-3 h-3" />
+                    QR
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
       </form>
+
+      {/* QR Scanner Modal */}
+      <QRScannerModal
+        isOpen={isQRScannerOpen}
+        onClose={() => setIsQRScannerOpen(false)}
+        onScan={handleQRScan}
+        themeMode={themeMode}
+        accent={accent}
+        title="Scan Vehicle QR"
+        subtitle="Point camera at vehicle QR tag to auto-select or detect active rental"
+      />
     </div>
   );
 };
+

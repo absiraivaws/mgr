@@ -20,7 +20,7 @@ export async function fetchSupabaseData(): Promise<{
   if (!supabase) return null;
 
   try {
-    const [typesRes, vehiclesRes, customersRes, rentalsRes, settingsRes, usersRes, rolesRes, groupsRes] = await Promise.all([
+    const [typesRes, vehiclesRes, customersRes, rentalsRes, settingsRes, usersRes, rolesRes, groupsRes, incomeRes] = await Promise.all([
       supabase.from('vehicle_types').select('*'),
       supabase.from('vehicles').select('*'),
       supabase.from('customers').select('*'),
@@ -29,6 +29,7 @@ export async function fetchSupabaseData(): Promise<{
       supabase.from('user_accounts').select('*'),
       supabase.from('user_roles').select('*'),
       supabase.from('customer_groups').select('*'),
+      supabase.from('income_expenses').select('*').order('date', { ascending: false }),
     ]);
 
     if (rentalsRes.error) {
@@ -45,6 +46,7 @@ export async function fetchSupabaseData(): Promise<{
       userAccounts?: UserAccount[];
       roles?: RoleDefinition[];
       customerGroups?: CustomerGroup[];
+      incomeEntries?: import('../types').IncomeEntry[];
     } = {};
 
     if (typesRes.data && typesRes.data.length > 0) {
@@ -55,6 +57,7 @@ export async function fetchSupabaseData(): Promise<{
         description: row.description,
         color: row.color,
         rates: row.rates,
+        rentalStartMethod: row.rental_start_method || 'both',
       }));
     }
 
@@ -160,8 +163,26 @@ export async function fetchSupabaseData(): Promise<{
         email: row.email,
         phone: row.phone || undefined,
         role: row.role,
-        password: row.password_hash || '123456',
+        status: row.status || 'active',
         createdAt: row.created_at ? Number(row.created_at) : Date.now(),
+      }));
+    }
+
+    if (incomeRes && incomeRes.data && incomeRes.data.length > 0) {
+      result.incomeEntries = incomeRes.data.map((row: any) => ({
+        id: row.id,
+        date: row.date,
+        description: row.description,
+        type: row.type,
+        amount: Number(row.amount || 0),
+        category: row.category || 'Other',
+        who: row.who || 'Staff',
+        createdAt: row.created_at ? Number(row.created_at) : Date.now(),
+        cashierName: row.cashier_name || '',
+        reference: row.reference || undefined,
+        paymentMethod: row.payment_method || undefined,
+        remarks: row.remarks || undefined,
+        enteredBy: row.who || row.cashier_name || 'Staff',
       }));
     }
 
@@ -376,6 +397,7 @@ export async function syncVehicleTypeToSupabase(type: VehicleType) {
       description: type.description,
       color: type.color,
       rates: type.rates,
+      rental_start_method: type.rentalStartMethod || 'both',
     }, { onConflict: 'id' });
   } catch (err) {
     console.error('Failed to sync vehicle type to Supabase:', err);
@@ -455,7 +477,7 @@ export async function syncUserAccountToSupabase(user: UserAccount) {
       email: user.email,
       phone: user.phone || null,
       role: user.role,
-      password_hash: user.password || null,
+      status: user.status || 'active',
       created_at: user.createdAt || Date.now(),
     }, { onConflict: 'id' });
   } catch (err) {
@@ -477,7 +499,7 @@ export async function syncAllUsersToSupabase(users: UserAccount[]) {
       email: u.email,
       phone: u.phone || null,
       role: u.role,
-      password_hash: u.password || null,
+      status: u.status || 'active',
       created_at: u.createdAt || Date.now(),
     }));
 
@@ -801,9 +823,12 @@ export async function syncIncomeEntryToSupabase(entry: import('../types').Income
       type: entry.type,
       amount: entry.amount,
       category: entry.category || 'Other',
-      who: entry.who || 'Staff',
+      who: entry.who || entry.enteredBy || 'Staff',
       created_at: entry.createdAt,
       cashier_name: entry.cashierName || '',
+      reference: entry.reference || null,
+      payment_method: entry.paymentMethod || null,
+      remarks: entry.remarks || null,
     };
 
     await supabase.from('income_expenses').upsert(payload, { onConflict: 'id' });

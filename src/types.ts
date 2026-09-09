@@ -8,6 +8,8 @@ export interface PricingRates {
 
 export type VehicleIconType = 'bicycle' | 'motorcycle' | 'scooter' | 'electric-bike' | 'quad' | 'other';
 
+export type RentalStartMethod = 'manual' | 'qr' | 'both';
+
 export interface VehicleType {
   id: string;
   name: string;
@@ -15,6 +17,7 @@ export interface VehicleType {
   description?: string;
   rates: PricingRates;
   color?: string; // Tailwind color theme for badges
+  rentalStartMethod?: RentalStartMethod; // Admin setting: manual, qr, or both
 }
 
 export type VehicleStatus = 'available' | 'rented' | 'maintenance';
@@ -131,7 +134,39 @@ export interface IncomeEntry {
   category?: string;
   createdAt: number;      // epoch ms
   cashierName?: string;
-  who?: string;           // Person responsible: Mark, Jenis, Beni, etc.
+  who?: string;           // Person responsible: staff name
+  reference?: string;     // Unique finance reference, e.g. RENT-000145
+  paymentMethod?: 'cash' | 'card' | 'bank_transfer' | 'qr_transfer' | 'other';
+  remarks?: string;
+  enteredBy?: string;
+}
+
+export type FinanceTransaction = IncomeEntry;
+
+export interface FinanceCategoryConfig {
+  incomeCategories: string[];
+  expenseCategories: string[];
+}
+
+export type AuditActionType =
+  | 'Password Reset Requested'
+  | 'Rental Started by QR'
+  | 'Rental Stopped by QR'
+  | 'Manual Rental Started'
+  | 'Finance Transaction Added'
+  | 'Finance Transaction Edited'
+  | 'Finance Transaction Deleted';
+
+export interface AuditLogEntry {
+  id: string;
+  user: string;
+  userEmail?: string;
+  date: string;
+  time: string;
+  action: AuditActionType;
+  reference: string;
+  details?: string;
+  createdAt: number;
 }
 
 export type MessageTemplateCategory = 

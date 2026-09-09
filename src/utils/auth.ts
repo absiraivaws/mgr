@@ -5,6 +5,7 @@
 
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { getSupabaseCredentials, getSupabase, isSupabaseConfigured } from '../lib/supabase';
+import { recordAuditLog } from './audit';
 
 let supabaseInstance: SupabaseClient | null = null;
 
@@ -29,7 +30,8 @@ export interface RolePermissionSet {
   accessMessages?: boolean;  // "Messages"
   accessUsers: boolean;      // "Users & Role"
   accessSettings: boolean;   // "Rates & Inventory"
-  accessIncome?: boolean;    // "Income & Expenses"
+  accessIncome?: boolean;    // Legacy "Income & Expenses" fallback
+  accessFinance?: boolean;   // "Finance"
 
   // Functional operational privileges
   canRent: boolean;
@@ -39,6 +41,14 @@ export interface RolePermissionSet {
   canEditFleet: boolean;
   canManageUsers: boolean;
   canManageRoles: boolean;
+
+  // Finance Privileges
+  canAddFinanceTransaction?: boolean;
+  canEditFinanceTransaction?: boolean;
+  canDeleteFinanceTransaction?: boolean;
+  canViewPL?: boolean;
+  canViewStatement?: boolean;
+  canExportFinanceReports?: boolean;
 }
 
 export interface RoleDefinition {
@@ -54,9 +64,10 @@ export interface UserAccount {
   id: string;
   name: string;
   email: string;
-  password: string;
+  password?: string; // Optional: never stored in plaintext or used as DB auth authority
   role: UserRole;
   phone?: string;
+  status?: 'active' | 'suspended' | 'inactive';
   createdAt: number;
   avatarColor?: string;
 }
@@ -81,6 +92,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       accessUsers: true,
       accessSettings: true,
       accessIncome: true,
+      accessFinance: true,
       canRent: true,
       canSettle: true,
       canExportReports: true,
@@ -88,6 +100,12 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       canEditFleet: true,
       canManageUsers: true,
       canManageRoles: true,
+      canAddFinanceTransaction: true,
+      canEditFinanceTransaction: true,
+      canDeleteFinanceTransaction: true,
+      canViewPL: true,
+      canViewStatement: true,
+      canExportFinanceReports: true,
     },
   },
   {
@@ -105,6 +123,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       accessUsers: false,
       accessSettings: true,
       accessIncome: true,
+      accessFinance: true,
       canRent: true,
       canSettle: true,
       canExportReports: true,
@@ -112,6 +131,12 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       canEditFleet: true,
       canManageUsers: false,
       canManageRoles: false,
+      canAddFinanceTransaction: true,
+      canEditFinanceTransaction: true,
+      canDeleteFinanceTransaction: false,
+      canViewPL: true,
+      canViewStatement: true,
+      canExportFinanceReports: true,
     },
   },
   {
@@ -129,6 +154,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       accessUsers: false,
       accessSettings: false,
       accessIncome: false,
+      accessFinance: false,
       canRent: true,
       canSettle: true,
       canExportReports: false,
@@ -136,6 +162,12 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       canEditFleet: false,
       canManageUsers: false,
       canManageRoles: false,
+      canAddFinanceTransaction: false,
+      canEditFinanceTransaction: false,
+      canDeleteFinanceTransaction: false,
+      canViewPL: false,
+      canViewStatement: false,
+      canExportFinanceReports: false,
     },
   },
   {
@@ -312,6 +344,13 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
       accessUsers: true,
       accessSettings: true,
       accessIncome: true,
+      accessFinance: true,
+      canAddFinanceTransaction: true,
+      canEditFinanceTransaction: true,
+      canDeleteFinanceTransaction: true,
+      canViewPL: true,
+      canViewStatement: true,
+      canExportFinanceReports: true,
       canRent: true,
       canSettle: true,
       canExportReports: true,
@@ -338,6 +377,13 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
     accessUsers: false,
     accessSettings: false,
     accessIncome: false,
+    accessFinance: false,
+    canAddFinanceTransaction: false,
+    canEditFinanceTransaction: false,
+    canDeleteFinanceTransaction: false,
+    canViewPL: false,
+    canViewStatement: false,
+    canExportFinanceReports: false,
     canRent: true,
     canSettle: true,
     canExportReports: false,
@@ -346,6 +392,18 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
     canManageUsers: false,
     canManageRoles: false,
   };
+}
+
+export function hasPermission(
+  user: UserAccount | null | undefined,
+  permission: keyof RolePermissionSet
+): boolean {
+  if (!user) return false;
+  if (user.role === 'admin' || user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase()) {
+    return true;
+  }
+  const perms = getUserPermissions(user);
+  return Boolean(perms[permission]);
 }
 
 export function createCustomRole(params: {
@@ -429,8 +487,8 @@ export const DEFAULT_USER: UserAccount = {
   id: 'user-default-admin',
   name: 'Absir Aiva',
   email: 'absiraiva@gmail.com',
-  password: 'Ab@12345',
   role: 'admin',
+  status: 'active',
   phone: '+94 77 123 4567',
   createdAt: 1700000000000,
   avatarColor: 'emerald',
@@ -441,8 +499,8 @@ export const MGR_INITIAL_ACCOUNTS: UserAccount[] = [
     id: 'user-mgr-passenger',
     name: 'Sivaranjan K (Passenger)',
     email: 'passenger@mannargreenride.lk',
-    password: 'passenger123',
     role: 'passenger',
+    status: 'active',
     phone: '+94 77 345 6789',
     createdAt: 1700000000000,
     avatarColor: 'emerald',
@@ -451,8 +509,8 @@ export const MGR_INITIAL_ACCOUNTS: UserAccount[] = [
     id: 'user-mgr-owner',
     name: 'Mohamed Farook (Fleet Owner)',
     email: 'owner@mannargreenride.lk',
-    password: 'owner123',
     role: 'owner',
+    status: 'active',
     phone: '+94 77 123 4567',
     createdAt: 1700000000000,
     avatarColor: 'cyan',
@@ -461,8 +519,8 @@ export const MGR_INITIAL_ACCOUNTS: UserAccount[] = [
     id: 'user-mgr-admin',
     name: 'MGR Transport Admin',
     email: 'admin@mannargreenride.lk',
-    password: 'admin123',
     role: 'admin',
+    status: 'active',
     phone: '+94 77 987 6543',
     createdAt: 1700000000000,
     avatarColor: 'purple',
@@ -496,14 +554,17 @@ export function getStoredUsers(): UserAccount[] {
       try {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          validUsers = parsed.filter(
-            (u): u is UserAccount => Boolean(u && typeof u === 'object' && typeof u.email === 'string' && u.email.trim().length > 0)
-          );
+          validUsers = parsed
+            .filter((u): u is UserAccount => Boolean(u && typeof u === 'object' && typeof u.email === 'string' && u.email.trim().length > 0))
+            .map((u) => {
+              // Strip plaintext passwords from local caches
+              const { password: _, ...rest } = u;
+              return { ...rest, status: rest.status || 'active' };
+            });
         }
       } catch {}
     }
 
-    // Ensure default admin user and MGR transport demo users are always present and up to date
     let updatedUsers = [...validUsers];
     let needsUpdate = false;
 
@@ -513,15 +574,7 @@ export function getStoredUsers(): UserAccount[] {
         (u) => u.email && u.email.toLowerCase() === standardUser.email.toLowerCase()
       );
       if (idx === -1) {
-        updatedUsers.push(standardUser);
-        needsUpdate = true;
-      } else if (updatedUsers[idx].password !== standardUser.password) {
-        updatedUsers[idx] = {
-          ...updatedUsers[idx],
-          password: standardUser.password,
-          role: standardUser.role,
-          name: standardUser.name,
-        };
+        updatedUsers.push({ ...standardUser });
         needsUpdate = true;
       }
     }
@@ -537,7 +590,12 @@ export function getStoredUsers(): UserAccount[] {
 
 export function saveStoredUsers(users: UserAccount[]): void {
   try {
-    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
+    // Strip passwords before persisting to localStorage
+    const sanitized = users.map((u) => {
+      const { password: _, ...clean } = u;
+      return clean;
+    });
+    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(sanitized));
   } catch (err) {
     console.error('Failed to save users to localStorage', err);
   }
@@ -553,15 +611,16 @@ export function getCurrentUser(): UserAccount | null {
         const users = getStoredUsers();
         const found = users.find((u) => u.email.toLowerCase() === parsed.email.toLowerCase());
         if (found) {
-          return found;
+          const { password: _, ...cleanFound } = found;
+          return cleanFound;
         }
         return {
           id: parsed.id || DEFAULT_USER.id,
           name: parsed.name || DEFAULT_USER.name,
           email: parsed.email || DEFAULT_USER.email,
-          password: parsed.password || DEFAULT_USER.password,
           role: parsed.role || DEFAULT_USER.role,
           phone: parsed.phone || DEFAULT_USER.phone,
+          status: parsed.status || 'active',
           createdAt: parsed.createdAt || DEFAULT_USER.createdAt,
           avatarColor: parsed.avatarColor || DEFAULT_USER.avatarColor,
         };
@@ -577,7 +636,8 @@ export function getCurrentUser(): UserAccount | null {
 export function setCurrentUserSession(user: UserAccount | null): void {
   try {
     if (user && user.email) {
-      localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(user));
+      const { password: _, ...cleanUser } = user;
+      localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(cleanUser));
     } else {
       localStorage.removeItem(STORAGE_CURRENT_USER_KEY);
     }
@@ -592,67 +652,88 @@ export async function authenticateUser(email: string, password: string): Promise
   if (normalizedEmail === 'owner') normalizedEmail = 'owner@mannargreenride.lk';
   if (normalizedEmail === 'admin') normalizedEmail = 'admin@mannargreenride.lk';
 
-  // 1. PRIMARY AUTHORITATIVE CHECK: Supabase user_accounts table password_hash
+  // 1. PRIMARY AUTHORITATIVE CHECK: Supabase Auth is single source of truth for passwords
   if (isSupabaseConfigured()) {
-    const supa = getSupabase();
-    if (supa) {
+    const supaAuth = getSupabaseAuth();
+    if (supaAuth) {
       try {
-        let { data: supaRow } = await supa
-          .from('user_accounts')
-          .select('*')
-          .ilike('email', normalizedEmail)
-          .maybeSingle();
+        const { data: authData, error: authError } = await supaAuth.auth.signInWithPassword({
+          email: normalizedEmail,
+          password: password,
+        });
 
-        if (!supaRow) {
-          const { data: altRow } = await supa
-            .from('user_accounts')
-            .select('*')
-            .or(`name.ilike.${normalizedEmail},phone.eq.${normalizedEmail}`)
-            .maybeSingle();
-          supaRow = altRow;
+        if (authError) {
+          return {
+            success: false,
+            error: authError.message || 'Incorrect password. Please verify and try again.',
+          };
         }
 
-        if (supaRow) {
-          const expectedHash = (supaRow.password_hash || '').trim();
-
-          // If no password_hash exists in database or passwords do not match: REJECT IMMEDIATELY
-          if (!expectedHash || expectedHash !== password) {
-            return { 
-              success: false, 
-              error: 'Incorrect password. Please verify and try again.' 
-            };
+        if (authData?.user) {
+          // Successfully authenticated with Supabase Auth!
+          // Retrieve staff profile from user_accounts table without password
+          const supa = getSupabase();
+          let profileRow: any = null;
+          if (supa) {
+            const { data: row } = await supa
+              .from('user_accounts')
+              .select('*')
+              .ilike('email', normalizedEmail)
+              .maybeSingle();
+            profileRow = row;
           }
 
-          // Password strictly matches Supabase user_accounts password_hash
-          const syncedUser: UserAccount = {
-            id: supaRow.id,
-            name: supaRow.name || 'User',
-            email: supaRow.email,
-            phone: supaRow.phone || undefined,
-            role: supaRow.role || 'cashier',
-            password: expectedHash,
-            createdAt: supaRow.created_at ? Number(supaRow.created_at) : Date.now(),
+          const isRootEmail = normalizedEmail === DEFAULT_USER.email.toLowerCase() || normalizedEmail === 'admin@mannargreenride.lk';
+          const resolvedRole = profileRow?.role || (isRootEmail ? 'admin' : (authData.user.user_metadata?.role || 'staff'));
+          const resolvedName = profileRow?.name || authData.user.user_metadata?.name || (isRootEmail ? DEFAULT_USER.name : 'Staff Member');
+          const resolvedPhone = profileRow?.phone || authData.user.user_metadata?.phone || undefined;
+          const resolvedStatus = profileRow?.status || 'active';
+
+          const authenticatedUser: UserAccount = {
+            id: profileRow?.id || authData.user.id,
+            name: resolvedName,
+            email: authData.user.email || normalizedEmail,
+            phone: resolvedPhone,
+            role: resolvedRole,
+            status: resolvedStatus,
+            createdAt: profileRow?.created_at ? Number(profileRow.created_at) : Date.now(),
             avatarColor: 'emerald',
           };
 
-          // Synchronize localStorage stored users so stale passwords are eliminated
-          const users = getStoredUsers();
-          const cleanUsers = users.filter(
-            (u) => u && u.id !== syncedUser.id && u.email?.toLowerCase() !== (syncedUser.email || '').toLowerCase()
-          );
-          saveStoredUsers([syncedUser, ...cleanUsers]);
-          setCurrentUserSession(syncedUser);
-          return { success: true, user: syncedUser };
+          // Save / update user_accounts in Supabase (NO passwords, only profile fields)
+          if (supa && !profileRow) {
+            try {
+              await supa.from('user_accounts').upsert({
+                id: authenticatedUser.id,
+                name: authenticatedUser.name,
+                email: authenticatedUser.email,
+                phone: authenticatedUser.phone || null,
+                role: authenticatedUser.role,
+                status: authenticatedUser.status,
+                created_at: authenticatedUser.createdAt,
+              }, { onConflict: 'id' });
+            } catch (err) {
+              console.warn('[Auth] Error inserting user_accounts profile:', err);
+            }
+          }
+
+          // Cache in local storage WITHOUT password
+          const users = getStoredUsers().filter(u => u.email.toLowerCase() !== normalizedEmail);
+          saveStoredUsers([authenticatedUser, ...users]);
+          setCurrentUserSession(authenticatedUser);
+
+          return { success: true, user: authenticatedUser };
         }
-      } catch (err) {
-        console.warn('[Auth] Supabase user_accounts check error:', err);
+      } catch (err: any) {
+        console.warn('[Auth] Supabase Auth signInWithPassword error:', err);
+        return { success: false, error: err.message || 'Authentication error occurred.' };
       }
     }
   }
 
-  // 2. OFFLINE / FALLBACK: Only if Supabase user_accounts was unreachable or account not found
+  // 2. OFFLINE / LOCAL FALLBACK: ONLY if Supabase is NOT configured
   const users = getStoredUsers();
-  let found = users.find(
+  const found = users.find(
     (u) =>
       u &&
       ((u.email && u.email.toLowerCase() === normalizedEmail) ||
@@ -661,24 +742,19 @@ export async function authenticateUser(email: string, password: string): Promise
   );
 
   if (!found) {
-    found = MGR_INITIAL_ACCOUNTS.find(
-      (u) =>
-        u &&
-        ((u.email && u.email.toLowerCase() === normalizedEmail) ||
-         (u.name && u.name.toLowerCase() === normalizedEmail))
-    );
-  }
-
-  if (!found) {
     return { success: false, error: 'No account found with this email address.' };
   }
 
-  if (found.password !== password) {
+  if (found.password && found.password !== password) {
     return { success: false, error: 'Incorrect password. Please verify and try again.' };
   }
 
-  setCurrentUserSession(found);
-  return { success: true, user: found };
+  const cleanSessionUser: UserAccount = {
+    ...found,
+    password: undefined,
+  };
+  setCurrentUserSession(cleanSessionUser);
+  return { success: true, user: cleanSessionUser };
 }
 
 export async function registerNewUser(params: {
@@ -783,7 +859,7 @@ export async function registerNewUser(params: {
           email: newUser.email,
           phone: newUser.phone || null,
           role: newUser.role,
-          password_hash: newUser.password,
+          status: newUser.status || 'active',
           created_at: newUser.createdAt,
         }, { onConflict: 'id' });
       } catch (err) {
@@ -795,92 +871,63 @@ export async function registerNewUser(params: {
   return { success: true, user: newUser };
 }
 
-export async function resetUserPassword(email: string, newPassword?: string): Promise<{ success: boolean; error?: string }> {
+/**
+ * Admin action: Send Supabase password recovery email to a staff user
+ */
+export async function sendStaffPasswordResetEmail(
+  email: string, 
+  adminUser?: UserAccount
+): Promise<{ success: boolean; error?: string }> {
   const normalizedEmail = (email || '').trim().toLowerCase();
 
   if (!normalizedEmail || !normalizedEmail.includes('@')) {
-    return { success: false, error: 'Please enter a valid registered email address.' };
+    return { success: false, error: 'Please provide a valid registered email address.' };
   }
 
-  if (newPassword) {
-    if (newPassword.length < 6) {
-      return { success: false, error: 'New password must be at least 6 characters.' };
-    }
-
-    // 1. Update in localStorage
-    const users = getStoredUsers();
-    const idx = users.findIndex((u) => u && u.email && u.email.toLowerCase() === normalizedEmail);
-
-    if (idx !== -1) {
-      users[idx] = {
-        ...users[idx],
-        password: newPassword,
-      };
-      saveStoredUsers(users);
-
-      // If current logged-in user is this one, update session too
-      const current = getCurrentUser();
-      if (current && current.email && current.email.toLowerCase() === normalizedEmail) {
-        setCurrentUserSession(users[idx]);
-      }
-    }
-
-    // 2. Update directly in Supabase user_accounts table
-    if (isSupabaseConfigured()) {
-      const supa = getSupabase();
-      if (supa) {
-        try {
-          await supa
-            .from('user_accounts')
-            .update({ password_hash: newPassword })
-            .eq('email', normalizedEmail);
-        } catch (err) {
-          console.warn('Failed to update password in Supabase user_accounts:', err);
-        }
-      }
-    }
-
-    // 3. Update in Supabase Auth if session active
-    const supaAuth = getSupabaseAuth();
-    if (supaAuth) {
-      try {
-        await supaAuth.auth.updateUser({
-          password: newPassword,
-        });
-      } catch (e) {
-        // Active Supabase Auth session might not be present, ignore
-      }
-    }
-
-    return { success: true };
-  }
-
-  // If no newPassword provided, send reset link via Supabase Auth
   const supaAuth = getSupabaseAuth();
   if (supaAuth) {
     try {
-      const { error } = await supaAuth.auth.resetPasswordForEmail(email, {
-        redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+      const redirectUrl = typeof window !== 'undefined' ? window.location.origin : undefined;
+      const { error } = await supaAuth.auth.resetPasswordForEmail(normalizedEmail, {
+        redirectTo: redirectUrl,
       });
+
       if (error) {
         return { success: false, error: error.message };
       }
+
+      // Record in audit log
+      recordAuditLog({
+        user: adminUser?.name || 'Admin',
+        userEmail: adminUser?.email,
+        action: 'Password Reset Requested',
+        reference: normalizedEmail,
+        details: `Password recovery email triggered for ${normalizedEmail}`,
+      });
+
       return { success: true };
-    } catch (e) {
-      return { success: false, error: 'Failed to send password reset email. Please try again.' };
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Failed to send password reset email. Please try again.' };
     }
   }
 
-  return { success: true };
+  return { success: false, error: 'Supabase authentication is not configured.' };
 }
 
 /**
- * Admin action: Update a user's role and details
+ * Legacy reset password helper
+ */
+export async function resetUserPassword(email: string, newPassword?: string): Promise<{ success: boolean; error?: string }> {
+  return sendStaffPasswordResetEmail(email);
+}
+
+/**
+ * Admin action: Update a user's role and details (NO passwords stored in user_accounts)
  */
 export function updateUserRoleAndDetails(
   userId: string, 
   newRole: UserRole,
-  updatedData?: Partial<Pick<UserAccount, 'name' | 'phone' | 'password'>>
+  updatedData?: Partial<Pick<UserAccount, 'name' | 'phone' | 'status'>>
 ): { success: boolean; user?: UserAccount; error?: string } {
   const users = getStoredUsers();
   const idx = users.findIndex((u) => u.id === userId);
@@ -899,12 +946,12 @@ export function updateUserRoleAndDetails(
     role: newRole,
     name: updatedData?.name?.trim() || users[idx].name,
     phone: updatedData?.phone !== undefined ? updatedData.phone.trim() : users[idx].phone,
-    password: updatedData?.password || users[idx].password,
+    status: updatedData?.status || users[idx].status || 'active',
   };
 
   saveStoredUsers(users);
 
-  // Sync to Supabase user_accounts table
+  // Sync to Supabase user_accounts table (profile fields only, NO passwords)
   if (isSupabaseConfigured()) {
     const supa = getSupabase();
     if (supa) {
@@ -914,7 +961,7 @@ export function updateUserRoleAndDetails(
         email: users[idx].email,
         phone: users[idx].phone || null,
         role: users[idx].role,
-        password_hash: users[idx].password,
+        status: users[idx].status || 'active',
       }, { onConflict: 'id' }).then(() => {});
     }
   }
