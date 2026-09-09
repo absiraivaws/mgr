@@ -304,11 +304,36 @@ export default function App() {
       if (hash.includes('type=recovery') || hash.includes('access_token=')) {
         setIsPasswordResetModalOpen(true);
         setIsForcedPasswordChange(false);
+
+        try {
+          const hashParams = new URLSearchParams(hash.startsWith('#') ? hash.substring(1) : hash);
+          const accessToken = hashParams.get('access_token');
+          const refreshToken = hashParams.get('refresh_token');
+
+          if (accessToken) {
+            const parts = accessToken.split('.');
+            if (parts.length === 3) {
+              const payload = JSON.parse(atob(parts[1]));
+              if (payload?.email) {
+                setResetModalEmail(payload.email);
+              }
+            }
+            if (isSupabaseConfigured()) {
+              const supa = getSupabase();
+              if (supa && refreshToken) {
+                supa.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[App] Error parsing recovery token:', e);
+        }
       }
 
-      // Check if user has temporary password flag active
+      // Check if user has temporary password flag active (and not yet retired)
       const mustChange = localStorage.getItem('v_rental_must_change_password') === 'true';
-      if (mustChange) {
+      const isInitialRetired = localStorage.getItem('v_rental_admin_initial_password_retired') === 'true';
+      if (mustChange && !isInitialRetired) {
         setIsPasswordResetModalOpen(true);
         setIsForcedPasswordChange(true);
         setResetModalEmail('absiraiva@gmail.com');

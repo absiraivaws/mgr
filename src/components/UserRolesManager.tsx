@@ -1322,7 +1322,8 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                 const assignedRole = selectedRoles[user.id] || user.role;
                 const hasChanged = assignedRole !== user.role;
                 const isSaved = savedUserIds[user.id];
-                const isDefaultAdmin = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+                const isDefaultAdmin = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || user.email.toLowerCase() === 'absiraiva@gmail.com';
+                const isAdminUser = user.role === 'admin' || isDefaultAdmin;
 
                 return (
                   <tr key={user.id} className="hover:bg-slate-500/5 transition">
@@ -1387,8 +1388,8 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                     {/* Save Button, Reset Password, & User Deletion */}
                     <td className="px-4 py-3.5 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {/* Send Reset Password Button */}
-                        {isAdmin && (
+                        {/* Send Reset Password Button - Hidden for admin users */}
+                        {isAdmin && !isAdminUser && (
                           <button
                             id={`btn-reset-pw-${user.id}`}
                             type="button"

@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Lock, Eye, EyeOff, CheckCircle2, AlertCircle, Sparkles, Key, ShieldCheck } from 'lucide-react';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
-import { getSupabaseAuth, resetUserPassword } from '../utils/auth';
+import { getSupabaseAuth, resetUserPassword, retireInitialAdminPassword, getStoredUsers, saveStoredUsers } from '../utils/auth';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { recordAuditLog } from '../utils/audit';
 
@@ -35,6 +35,47 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [effectiveEmail, setEffectiveEmail] = useState(userEmail || '');
+
+  useEffect(() => {
+    if (userEmail) {
+      setEffectiveEmail(userEmail);
+    }
+    // If opened from a recovery URL with hash tokens, extract and establish session
+    if (typeof window !== 'undefined' && window.location.hash) {
+      try {
+        const hash = window.location.hash.startsWith('#') ? window.location.hash.substring(1) : window.location.hash;
+        const params = new URLSearchParams(hash);
+        const accessToken = params.get('access_token');
+        const refreshToken = params.get('refresh_token');
+
+        if (accessToken) {
+          const parts = accessToken.split('.');
+          if (parts.length === 3) {
+            const payload = JSON.parse(atob(parts[1]));
+            if (payload?.email && !userEmail) {
+              setEffectiveEmail(payload.email);
+            }
+          }
+          if (isSupabaseConfigured()) {
+            const supaAuth = getSupabaseAuth();
+            if (supaAuth) {
+              supaAuth.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken || '',
+              }).then(({ data, error }) => {
+                if (!error && data?.user?.email && !userEmail) {
+                  setEffectiveEmail(data.user.email);
+                }
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[PasswordResetModal] Hash token parse error:', e);
+      }
+    }
+  }, [userEmail]);
 
   if (!isOpen) return null;
 
@@ -81,8 +122,8 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
         }
       }
 
-      // 2. Fallback if userEmail is known
-      const targetEmail = userEmail || 'absiraiva@gmail.com';
+      // 2. Fallback if target email is known
+      const targetEmail = effectiveEmail || userEmail || 'absiraiva@gmail.com';
       if (!updated && targetEmail) {
         const res = await resetUserPassword(targetEmail, newPassword);
         if (res.success) {
@@ -95,8 +136,23 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
       }
 
       if (updated) {
-        // Clear temporary password flag
+        // Permanently retire the temporary initial password so Ab@12345 cannot be used again
+        retireInitialAdminPassword();
         localStorage.removeItem('v_rental_must_change_password');
+
+        // Clean any residual stored password in storedUsers for this account
+        try {
+          const stored = getStoredUsers();
+          const updatedUsers = stored.map(u => {
+            if (u.email.toLowerCase() === targetEmail.toLowerCase()) {
+              return { ...u, password: newPassword };
+            }
+            return u;
+          });
+          saveStoredUsers(updatedUsers);
+        } catch (e) {
+          console.warn('[PasswordReset] Failed to update storedUsers:', e);
+        }
 
         // Clear recovery hash from URL
         if (typeof window !== 'undefined' && window.location.hash) {
@@ -114,7 +170,7 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
             : 'User successfully completed password recovery via reset link',
         });
 
-        setSuccessMsg('Your password has been successfully updated! Supabase Auth is now updated.');
+        setSuccessMsg('Your password has been successfully updated and confirmed! The temporary initial password has been permanently disabled.');
         setTimeout(() => {
           onSuccess?.();
           onClose();
@@ -150,10 +206,10 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
           </div>
         </div>
 
-        {userEmail && (
+        {(effectiveEmail || userEmail) && (
           <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs flex items-center justify-between">
             <span className="text-slate-400 font-medium">Account Email:</span>
-            <span className="font-mono font-bold text-amber-400">{userEmail}</span>
+            <span className="font-mono font-bold text-amber-400">{effectiveEmail || userEmail}</span>
           </div>
         )}
 

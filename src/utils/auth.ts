@@ -643,6 +643,20 @@ export function setCurrentUserSession(user: UserAccount | null): void {
   }
 }
 
+export const ADMIN_INITIAL_PW_RETIRED_KEY = 'v_rental_admin_initial_password_retired';
+
+export function isInitialAdminPasswordRetired(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem(ADMIN_INITIAL_PW_RETIRED_KEY) === 'true';
+}
+
+export function retireInitialAdminPassword(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(ADMIN_INITIAL_PW_RETIRED_KEY, 'true');
+    localStorage.removeItem('v_rental_must_change_password');
+  }
+}
+
 export async function authenticateUser(
   email: string,
   password: string
@@ -652,31 +666,17 @@ export async function authenticateUser(
   if (normalizedEmail === 'owner') normalizedEmail = 'owner@mannargreenride.lk';
   if (normalizedEmail === 'admin') normalizedEmail = 'admin@mannargreenride.lk';
 
-  // 1. TEMPORARY ADMIN LOGIN: If absiraiva@gmail.com enters Ab@12345, allow login and force password change
   const isRootAdmin = normalizedEmail === 'absiraiva@gmail.com' || normalizedEmail === DEFAULT_USER.email.toLowerCase();
-  if (isRootAdmin && password === 'Ab@12345') {
-    const adminUser: UserAccount = {
-      id: DEFAULT_USER.id,
-      name: DEFAULT_USER.name,
-      email: 'absiraiva@gmail.com',
-      role: 'admin',
-      phone: DEFAULT_USER.phone,
-      status: 'active',
-      createdAt: Date.now(),
-      avatarColor: 'emerald',
-    };
-    setCurrentUserSession(adminUser);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('v_rental_must_change_password', 'true');
-    }
+
+  // GUARD: If the temporary initial password Ab@12345 is used after the admin already changed their password, strictly block it
+  if (isRootAdmin && password === 'Ab@12345' && isInitialAdminPasswordRetired()) {
     return {
-      success: true,
-      user: adminUser,
-      requiresPasswordChange: true,
+      success: false,
+      error: 'The temporary initial password (Ab@12345) has expired. Please enter your new updated password.',
     };
   }
 
-  // 2. PRIMARY CHECK: Supabase Auth is single source of truth for passwords
+  // 1. PRIMARY CHECK: Supabase Auth is single source of truth for passwords
   let supabaseAuthError: string | null = null;
   if (isSupabaseConfigured()) {
     const supaAuth = getSupabaseAuth();
@@ -690,6 +690,11 @@ export async function authenticateUser(
         if (!authError && authData?.user) {
           if (typeof window !== 'undefined') {
             localStorage.removeItem('v_rental_must_change_password');
+          }
+
+          // If root admin successfully authenticates with their password in Supabase Auth, permanently retire temporary password
+          if (isRootAdmin) {
+            retireInitialAdminPassword();
           }
 
           // Successfully authenticated with Supabase Auth!
@@ -753,6 +758,37 @@ export async function authenticateUser(
     }
   }
 
+  // 2. TEMPORARY ADMIN LOGIN (ONLY BEFORE FIRST PASSWORD CHANGE):
+  // If absiraiva@gmail.com enters Ab@12345 for the very first time, allow login and force password change
+  if (isRootAdmin && password === 'Ab@12345') {
+    if (isInitialAdminPasswordRetired()) {
+      return {
+        success: false,
+        error: 'The temporary initial password (Ab@12345) has expired. Please enter your new updated password.',
+      };
+    }
+
+    const adminUser: UserAccount = {
+      id: DEFAULT_USER.id,
+      name: DEFAULT_USER.name,
+      email: 'absiraiva@gmail.com',
+      role: 'admin',
+      phone: DEFAULT_USER.phone,
+      status: 'active',
+      createdAt: Date.now(),
+      avatarColor: 'emerald',
+    };
+    setCurrentUserSession(adminUser);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('v_rental_must_change_password', 'true');
+    }
+    return {
+      success: true,
+      user: adminUser,
+      requiresPasswordChange: true,
+    };
+  }
+
   // 3. PREVIOUS PASSWORDS / STORED USERS FALLBACK:
   // Allows users with previous passwords or local accounts to authenticate seamlessly
   const users = getStoredUsers();
@@ -765,6 +801,14 @@ export async function authenticateUser(
   );
 
   if (found) {
+    // If root admin temporary password is retired, never allow Ab@12345 from stored passwords
+    if (isRootAdmin && isInitialAdminPasswordRetired() && (password === 'Ab@12345' || found.password === 'Ab@12345')) {
+      return {
+        success: false,
+        error: 'The temporary initial password (Ab@12345) has expired. Please enter your new updated password.',
+      };
+    }
+
     const isPersonaMatch =
       (normalizedEmail.includes('passenger') && password === 'passenger') ||
       (normalizedEmail.includes('owner') && password === 'owner') ||
