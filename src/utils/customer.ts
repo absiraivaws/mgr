@@ -371,7 +371,7 @@ export const DEFAULT_CUSTOMER_GROUPS: CustomerGroup[] = [
   { id: 'grp-student', name: 'Student', color: 'blue', description: 'Local school and university students with discounts', isActive: true, createdAt: 1700000000000 },
   { id: 'grp-corporate', name: 'Corporate', color: 'indigo', description: 'Business clients and corporate retreat participants', isActive: true, createdAt: 1700000000000 },
   { id: 'grp-fitness', name: 'Fitness Member', color: 'rose', description: 'Morning cycling and endurance training members', isActive: true, createdAt: 1700000000000 },
-  { id: 'grp-staff', name: 'Staff', color: 'pink', description: 'Internal team, guides, and store personnel', isActive: true, createdAt: 1700000000000 },
+  { id: 'grp-directory-identity', name: 'Customer Directory & Identity Records', color: 'indigo', description: 'Verified identity and official KYC customer records directory', isActive: true, createdAt: 1700000000000 },
   { id: 'grp-other', name: 'Other', color: 'slate', description: 'General and unclassified customer group', isActive: true, createdAt: 1700000000000 },
 ];
 

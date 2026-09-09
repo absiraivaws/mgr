@@ -168,6 +168,43 @@ export const CustomerGroupsModal: React.FC<CustomerGroupsModalProps> = ({
         {/* Modal Content */}
         <div className="p-4 sm:p-6 space-y-6 overflow-y-auto flex-1">
           
+          {/* Quick Option to Create 'Customer Directory & Identity Records' Group */}
+          {!groups.some((g) => g.name.toLowerCase() === 'customer directory & identity records') && isAdmin && (
+            <div className="p-3.5 rounded-xl border border-indigo-500/40 bg-indigo-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-indigo-500 text-white flex items-center justify-center shrink-0 font-bold mt-0.5 shadow-sm">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-indigo-300 block">
+                    Create "Customer Directory & Identity Records" Group
+                  </span>
+                  <p className="text-[11px] text-indigo-200/80 mt-0.5">
+                    Recommended group for officially verified customer identification records and KYC profiles.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const newGroup: CustomerGroup = {
+                    id: `grp-directory-identity-${Date.now()}`,
+                    name: 'Customer Directory & Identity Records',
+                    description: 'Verified identity and official KYC customer records directory',
+                    color: 'indigo',
+                    isActive: true,
+                    createdAt: Date.now(),
+                  };
+                  onSaveGroup(newGroup);
+                }}
+                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shrink-0 transition flex items-center gap-1.5 shadow-md cursor-pointer self-start sm:self-auto"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Create Group</span>
+              </button>
+            </div>
+          )}
+
           {/* Create / Edit Group Form (Admin Only) */}
           {isAdmin ? (
             <form onSubmit={handleSave} className={`p-4 rounded-xl border ${t.cardSubtleBg} space-y-3`}>

@@ -64,6 +64,7 @@ import { CustomerManagementPanel } from './components/CustomerManagementPanel';
 import { CustomerMessagingTab } from './components/CustomerMessagingTab';
 import { CustomerGroupsModal } from './components/CustomerGroupsModal';
 import { AuthModal } from './components/AuthModal';
+import { PasswordResetModal } from './components/PasswordResetModal';
 import { LoginPage } from './components/LoginPage';
 import { 
   fetchSupabaseData, 
@@ -86,7 +87,7 @@ import {
 } from './lib/supabaseSync';
 import { getStoredMessageTemplates, saveStoredMessageTemplates, getStoredCustomerGroups, saveStoredCustomerGroups, getStoredMessageHistory, saveStoredMessageHistory } from './utils/customer';
 import { getNextRentalNumber } from './utils/pricing';
-import { isSupabaseConfigured } from './lib/supabase';
+import { isSupabaseConfigured, getSupabase } from './lib/supabase';
 import { MGRBookingHub } from './components/mgr-booking/MGRBookingHub';
 import { MGRTabType } from './types/mgrBooking';
 import { 
@@ -289,6 +290,51 @@ export default function App() {
 
   // Modal for managing customer groups from dedicated Messages tab
   const [isMessagesGroupsModalOpen, setIsMessagesGroupsModalOpen] = useState(false);
+
+  // Password Recovery and Forced Password Reset State
+  const [isPasswordResetModalOpen, setIsPasswordResetModalOpen] = useState(false);
+  const [isForcedPasswordChange, setIsForcedPasswordChange] = useState(false);
+  const [resetModalEmail, setResetModalEmail] = useState('');
+
+  // Listen for Supabase password recovery link (#type=recovery) or PASSWORD_RECOVERY event
+  useEffect(() => {
+    // 1. URL hash detection
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash || '';
+      if (hash.includes('type=recovery') || hash.includes('access_token=')) {
+        setIsPasswordResetModalOpen(true);
+        setIsForcedPasswordChange(false);
+      }
+
+      // Check if user has temporary password flag active
+      const mustChange = localStorage.getItem('v_rental_must_change_password') === 'true';
+      if (mustChange) {
+        setIsPasswordResetModalOpen(true);
+        setIsForcedPasswordChange(true);
+        setResetModalEmail('absiraiva@gmail.com');
+      }
+    }
+
+    // 2. Supabase Auth listener
+    if (isSupabaseConfigured()) {
+      const supa = getSupabase();
+      if (supa) {
+        const { data: authListener } = supa.auth.onAuthStateChange((event, session) => {
+          if (event === 'PASSWORD_RECOVERY') {
+            setIsPasswordResetModalOpen(true);
+            setIsForcedPasswordChange(false);
+            if (session?.user?.email) {
+              setResetModalEmail(session.user.email);
+            }
+          }
+        });
+
+        return () => {
+          authListener?.subscription?.unsubscribe();
+        };
+      }
+    }
+  }, []);
 
   // Sync to localStorage
   useEffect(() => {
@@ -928,21 +974,45 @@ export default function App() {
   // If user explicitly navigated to full login page or no active session in bicycle_pos
   if (isFullLoginPage || (systemMode === 'bicycle_pos' && !currentUser)) {
     return (
-      <LoginPage
-        onLoginSuccess={(user) => {
-          setCurrentUser(user);
-          setCurrentUserSession(user);
-          setIsFullLoginPage(false);
-          setSidebarCollapsed(true);
-          setSettings((prev) => ({ ...prev, cashierName: user.name }));
-          setActiveTab('rentals');
-        }}
-        settings={settings}
-        themeMode={themeMode}
-        onToggleTheme={handleToggleTheme}
-        accent={accent}
-        onChangeAccent={handleChangeAccent}
-      />
+      <>
+        <LoginPage
+          onLoginSuccess={(user) => {
+            setCurrentUser(user);
+            setCurrentUserSession(user);
+            setIsFullLoginPage(false);
+            setSidebarCollapsed(true);
+            setSettings((prev) => ({ ...prev, cashierName: user.name }));
+            setActiveTab('rentals');
+            if (typeof window !== 'undefined' && localStorage.getItem('v_rental_must_change_password') === 'true') {
+              setIsPasswordResetModalOpen(true);
+              setIsForcedPasswordChange(true);
+              setResetModalEmail(user.email);
+            }
+          }}
+          settings={settings}
+          themeMode={themeMode}
+          onToggleTheme={handleToggleTheme}
+          accent={accent}
+          onChangeAccent={handleChangeAccent}
+        />
+        <PasswordResetModal
+          isOpen={isPasswordResetModalOpen}
+          onClose={() => {
+            if (!isForcedPasswordChange) {
+              setIsPasswordResetModalOpen(false);
+            }
+          }}
+          isForcedChange={isForcedPasswordChange}
+          userEmail={resetModalEmail || 'absiraiva@gmail.com'}
+          themeMode={themeMode}
+          accent={accent}
+          onSuccess={() => {
+            setIsPasswordResetModalOpen(false);
+            setIsForcedPasswordChange(false);
+            localStorage.removeItem('v_rental_must_change_password');
+          }}
+        />
+      </>
     );
   }
 
@@ -1275,6 +1345,25 @@ export default function App() {
           onConfirmStopAndSettle={handleConfirmStopAndSettle}
         />
       )}
+
+      {/* Password Reset / Recovery / Forced Change Modal */}
+      <PasswordResetModal
+        isOpen={isPasswordResetModalOpen}
+        onClose={() => {
+          if (!isForcedPasswordChange) {
+            setIsPasswordResetModalOpen(false);
+          }
+        }}
+        isForcedChange={isForcedPasswordChange}
+        userEmail={resetModalEmail || activeUser.email}
+        themeMode={themeMode}
+        accent={accent}
+        onSuccess={() => {
+          setIsPasswordResetModalOpen(false);
+          setIsForcedPasswordChange(false);
+          localStorage.removeItem('v_rental_must_change_password');
+        }}
+      />
     </div>
   );
 }
