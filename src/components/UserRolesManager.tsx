@@ -85,6 +85,7 @@ interface UserRolesManagerProps {
   onUpdateSettings?: (updated: Partial<AppSettings>) => void;
   onUserListChange?: () => void;
   onRolePermissionsChange?: () => void;
+  onOpenPasswordReset?: (email?: string) => void;
 }
 
 export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
@@ -95,6 +96,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   onUpdateSettings,
   onUserListChange,
   onRolePermissionsChange,
+  onOpenPasswordReset,
 }) => {
   const [users, setUsers] = useState<UserAccount[]>(() => getStoredUsers());
   const [roles, setRoles] = useState<RoleDefinition[]>(() => getStoredRoles());
@@ -1388,21 +1390,41 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                     {/* Save Button, Reset Password, & User Deletion */}
                     <td className="px-4 py-3.5 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {/* Send Reset Password Button - Hidden for admin users */}
-                        {isAdmin && !isAdminUser && (
+                        {/* Password Management */}
+                        {user.email.toLowerCase() === currentUser.email.toLowerCase() ? (
                           <button
-                            id={`btn-reset-pw-${user.id}`}
+                            id={`btn-change-pw-${user.id}`}
                             type="button"
                             onClick={() => {
-                              setResetAlertMsg(null);
-                              setResetTargetUser(user);
+                              if (onOpenPasswordReset) {
+                                onOpenPasswordReset(user.email);
+                              } else {
+                                setResetAlertMsg(null);
+                                setResetTargetUser(user);
+                              }
                             }}
-                            className="px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition cursor-pointer"
-                            title={`Send Supabase password recovery email to ${user.email}`}
+                            className="px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition cursor-pointer"
+                            title="Change your admin password"
                           >
                             <Key className="w-3.5 h-3.5" />
-                            <span className="hidden xl:inline">Send Reset Password</span>
+                            <span className="hidden xl:inline">Change Password</span>
                           </button>
+                        ) : (
+                          isAdmin && (
+                            <button
+                              id={`btn-reset-pw-${user.id}`}
+                              type="button"
+                              onClick={() => {
+                                setResetAlertMsg(null);
+                                setResetTargetUser(user);
+                              }}
+                              className="px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition cursor-pointer"
+                              title={`Send Supabase password recovery email to ${user.email}`}
+                            >
+                              <Key className="w-3.5 h-3.5" />
+                              <span className="hidden xl:inline">Send Reset Password</span>
+                            </button>
+                          )
                         )}
 
                         {isSaved ? (

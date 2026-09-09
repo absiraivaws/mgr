@@ -28,6 +28,7 @@ import {
   Compass,
   FileText,
   Search,
+  Key,
 } from 'lucide-react';
 import { AppSettings, RentalRecord, Vehicle } from '../types';
 import { DEFAULT_USER, UserAccount, getUserPermissions, getMGRPersona } from '../utils/auth';
@@ -47,6 +48,7 @@ interface NavbarProps {
   onOpenAuthModal?: () => void;
   onOpenCashierModal?: () => void;
   onOpenUserRoles?: () => void;
+  onOpenPasswordReset?: () => void;
   onLogout?: () => void;
   themeMode: ThemeMode;
   onToggleTheme: () => void;
@@ -71,6 +73,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   onOpenAuthModal,
   onOpenCashierModal,
+  onOpenPasswordReset,
   onLogout,
   themeMode,
   onToggleTheme,
@@ -469,6 +472,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <User className="w-3.5 h-3.5" />
                     My Account
                   </button>
+                  {onOpenPasswordReset && (
+                    <button
+                      type="button"
+                      onClick={() => { onOpenPasswordReset(); setShowUserMenu(false); }}
+                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition cursor-pointer ${t.textMain} hover:bg-slate-500/10`}
+                    >
+                      <Key className="w-3.5 h-3.5 text-amber-500" />
+                      Change Password
+                    </button>
+                  )}
                   {onLogout && (
                     <button
                       type="button"

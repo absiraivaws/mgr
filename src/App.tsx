@@ -302,7 +302,17 @@ export default function App() {
     // 1. URL hash detection
     if (typeof window !== 'undefined') {
       const hash = window.location.hash || '';
-      if (hash.includes('type=recovery') || hash.includes('access_token=')) {
+      if (hash.includes('error=')) {
+        try {
+          const hashParams = new URLSearchParams(hash.startsWith('#') ? hash.substring(1) : hash);
+          const errorDesc = hashParams.get('error_description') || hashParams.get('error') || 'The authentication link is invalid or has expired.';
+          console.warn('[App] Supabase Auth error in URL hash:', errorDesc);
+          window.history.replaceState(null, '', window.location.pathname);
+          alert(`Password Reset Notice:\n\n${decodeURIComponent(errorDesc.replace(/\+/g, ' '))}\n\nThe recovery link has expired or was already used. Please request a new password reset link.`);
+        } catch (e) {
+          console.warn('[App] Error parsing auth error in hash:', e);
+        }
+      } else if (hash.includes('type=recovery') || hash.includes('access_token=')) {
         setIsPasswordResetModalOpen(true);
         setIsForcedPasswordChange(false);
 
@@ -1059,6 +1069,11 @@ export default function App() {
         onOpenUserRoles={() => {
           setActiveTab('users');
         }}
+        onOpenPasswordReset={() => {
+          setIsPasswordResetModalOpen(true);
+          setIsForcedPasswordChange(false);
+          setResetModalEmail(activeUser.email);
+        }}
         onLogout={handleLogout}
         themeMode={themeMode}
         accent={accent}
@@ -1271,6 +1286,11 @@ export default function App() {
               onRolePermissionsChange={() => {
                 const refreshed = getCurrentUser();
                 if (refreshed) setCurrentUser(refreshed);
+              }}
+              onOpenPasswordReset={(email) => {
+                setIsPasswordResetModalOpen(true);
+                setIsForcedPasswordChange(false);
+                setResetModalEmail(email || activeUser.email);
               }}
             />
           )}
