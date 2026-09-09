@@ -6,9 +6,8 @@
 import React, { useState, useEffect } from 'react';
 import { Lock, Eye, EyeOff, CheckCircle2, AlertCircle, Sparkles, Key, ShieldCheck } from 'lucide-react';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
-import { getSupabaseAuth, resetUserPassword, retireInitialAdminPassword, getStoredUsers, saveStoredUsers } from '../utils/auth';
+import { getSupabaseAuth, changePassword } from '../utils/auth';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { recordAuditLog } from '../utils/audit';
 
 interface PasswordResetModalProps {
   isOpen: boolean;
@@ -104,80 +103,24 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
     setLoading(true);
 
     try {
-      let updated = false;
+      const res = await changePassword(newPassword);
 
-      // 1. Try Supabase Auth updateUser (works for active sessions and recovery links)
-      if (isSupabaseConfigured()) {
-        const supaAuth = getSupabaseAuth();
-        if (supaAuth) {
-          const { data, error } = await supaAuth.auth.updateUser({
-            password: newPassword,
-          });
-
-          if (!error && data?.user) {
-            updated = true;
-          } else if (error) {
-            console.warn('[PasswordReset] updateUser failed, attempting fallback reset:', error.message);
-          }
-        }
+      if (!res.success) {
+        setErrorMsg(res.error || 'Failed to update password in Supabase Auth. Please ensure your session is active.');
+        setLoading(false);
+        return;
       }
 
-      // 2. Fallback if target email is known
-      const targetEmail = effectiveEmail || userEmail || 'absiraiva@gmail.com';
-      if (!updated && targetEmail) {
-        const res = await resetUserPassword(targetEmail, newPassword);
-        if (res.success) {
-          updated = true;
-        } else {
-          setErrorMsg(res.error || 'Failed to update password. Please try again.');
-          setLoading(false);
-          return;
-        }
+      // Clear recovery hash from URL if present
+      if (typeof window !== 'undefined' && window.location.hash) {
+        window.history.replaceState(null, '', window.location.pathname);
       }
 
-      if (updated) {
-        // Permanently retire the temporary initial password so Ab@12345 cannot be used again
-        retireInitialAdminPassword();
-        localStorage.removeItem('v_rental_must_change_password');
-
-        // Clean any residual stored password in storedUsers for this account
-        try {
-          const stored = getStoredUsers();
-          const updatedUsers = stored.map(u => {
-            if (u.email.toLowerCase() === targetEmail.toLowerCase()) {
-              return { ...u, password: newPassword };
-            }
-            return u;
-          });
-          saveStoredUsers(updatedUsers);
-        } catch (e) {
-          console.warn('[PasswordReset] Failed to update storedUsers:', e);
-        }
-
-        // Clear recovery hash from URL
-        if (typeof window !== 'undefined' && window.location.hash) {
-          window.history.replaceState(null, '', window.location.pathname);
-        }
-
-        // Record audit log
-        recordAuditLog({
-          user: targetEmail,
-          userEmail: targetEmail,
-          action: 'Password Reset Requested',
-          reference: 'PASS-RESET',
-          details: isForcedChange
-            ? 'User updated temporary password to permanent password'
-            : 'User successfully completed password recovery via reset link',
-        });
-
-        setSuccessMsg('Your password has been successfully updated and confirmed! The temporary initial password has been permanently disabled.');
-        setTimeout(() => {
-          onSuccess?.();
-          onClose();
-        }, 1500);
-      } else {
-        setErrorMsg('Unable to update password. Please ensure your session is active or request a new reset email.');
-      }
+      setSuccessMsg('Password successfully changed.');
+      setTimeout(() => {
+        onSuccess?.();
+        onClose();
+      }, 1500);
     } catch (err: any) {
       console.error('[PasswordReset] Error:', err);
       setErrorMsg(err.message || 'An unexpected error occurred.');

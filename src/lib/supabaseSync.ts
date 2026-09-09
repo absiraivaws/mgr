@@ -159,11 +159,13 @@ export async function fetchSupabaseData(): Promise<{
     if (usersRes.data && usersRes.data.length > 0) {
       result.userAccounts = usersRes.data.map((row) => ({
         id: row.id,
+        auth_user_id: row.auth_user_id || undefined,
         name: row.name,
         email: row.email,
         phone: row.phone || undefined,
         role: row.role,
         status: row.status || 'active',
+        must_change_password: row.must_change_password ?? false,
         createdAt: row.created_at ? Number(row.created_at) : Date.now(),
       }));
     }
@@ -473,11 +475,13 @@ export async function syncUserAccountToSupabase(user: UserAccount) {
   try {
     await supabase.from('user_accounts').upsert({
       id: user.id,
+      auth_user_id: user.auth_user_id || null,
       name: user.name,
       email: user.email,
       phone: user.phone || null,
       role: user.role,
       status: user.status || 'active',
+      must_change_password: Boolean(user.must_change_password),
       created_at: user.createdAt || Date.now(),
     }, { onConflict: 'id' });
   } catch (err) {
@@ -495,11 +499,13 @@ export async function syncAllUsersToSupabase(users: UserAccount[]) {
   try {
     const payload = users.map((u) => ({
       id: u.id,
+      auth_user_id: u.auth_user_id || null,
       name: u.name,
       email: u.email,
       phone: u.phone || null,
       role: u.role,
       status: u.status || 'active',
+      must_change_password: Boolean(u.must_change_password),
       created_at: u.createdAt || Date.now(),
     }));
 
@@ -851,28 +857,6 @@ export async function deleteIncomeEntryFromSupabase(id: string) {
   }
 }
 
-/**
- * Directly update a user's password in the Supabase user_accounts table
- */
-export async function updateUserPasswordInSupabase(email: string, newPassword: string): Promise<boolean> {
-  const supabase = getSupabase();
-  if (!supabase) return false;
-
-  try {
-    const { error } = await supabase
-      .from('user_accounts')
-      .update({ password_hash: newPassword })
-      .eq('email', email.trim().toLowerCase());
-    if (error) {
-      console.error('Failed to update password in Supabase user_accounts:', error);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error('Error updating user password in Supabase:', err);
-    return false;
-  }
-}
 
 /**
  * Fetch all message templates from Supabase

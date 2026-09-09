@@ -135,19 +135,24 @@ ALTER TABLE income_expenses ADD COLUMN IF NOT EXISTS payment_method TEXT;
 ALTER TABLE income_expenses ADD COLUMN IF NOT EXISTS remarks TEXT;
 ALTER TABLE income_expenses ENABLE ROW LEVEL SECURITY;
 
--- 7. USER ACCOUNTS TABLE (Profile info only; passwords managed by Supabase Auth)
+-- 7. USER ACCOUNTS TABLE (Profile info only; passwords managed exclusively by Supabase Auth)
 CREATE TABLE IF NOT EXISTS user_accounts (
   id TEXT PRIMARY KEY,
+  auth_user_id UUID,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   phone TEXT,
   role TEXT NOT NULL DEFAULT 'staff',
   status TEXT NOT NULL DEFAULT 'active',
+  must_change_password BOOLEAN DEFAULT false,
   created_at BIGINT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
+ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS auth_user_id UUID;
+ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false;
+ALTER TABLE user_accounts DROP COLUMN IF EXISTS password_hash;
 
 -- AUDIT LOGS TABLE
 CREATE TABLE IF NOT EXISTS audit_logs (

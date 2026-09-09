@@ -35,6 +35,7 @@ import {
   UserAccount, 
   authenticateUser, 
   resetUserPassword,
+  registerNewUser,
   getStoredUsers,
   saveStoredUsers,
   setCurrentUserSession
@@ -85,9 +86,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   // Forgot Password State
   const [forgotEmail, setForgotEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
 
   // Messages
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -130,40 +128,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
-    if (newPassword) {
-      if (newPassword.length < 6) {
-        setErrorMessage('New password must be at least 6 characters long.');
-        return;
-      }
-      if (newPassword !== confirmPassword) {
-        setErrorMessage('New password and confirmation do not match.');
-        return;
-      }
-
-      const res = await resetUserPassword(forgotEmail, newPassword);
-      if (res.success) {
-        setSuccessMessage('Password successfully updated and synced with Supabase! You can now log in.');
-        setTimeout(() => {
-          setView('login');
-          setEmail(forgotEmail);
-          setPassword(newPassword);
-          setNewPassword('');
-          setConfirmPassword('');
-          setSuccessMessage(null);
-        }, 1500);
-      } else {
-        setErrorMessage(res.error || 'Failed to update password.');
-      }
-      return;
-    }
-
     const res = await resetUserPassword(forgotEmail);
     if (res.success) {
-      setSuccessMessage('Password reset request processed. If Supabase email is active, check your inbox.');
+      setSuccessMessage('Password reset link sent! Check your inbox to reset your password via Supabase Auth.');
       setTimeout(() => {
         setView('login');
         setSuccessMessage(null);
-      }, 2000);
+      }, 3500);
     } else {
       setErrorMessage(res.error || 'Failed to send reset email. Please try again.');
     }
@@ -201,28 +172,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
 
     const assignedRole = regRole === 'driver' ? 'owner' : 'passenger';
-    const newUser: UserAccount = {
-      id: `user-${Date.now()}`,
+    const res = await registerNewUser({
       name: regName.trim(),
       email: regEmail.trim().toLowerCase(),
       password: regPassword,
       role: assignedRole,
       phone: regPhone.trim(),
-      createdAt: Date.now(),
-      avatarColor: regRole === 'driver' ? 'cyan' : 'emerald',
-    };
+    });
 
-    // Save user locally and establish active session immediately
-    const updatedUsers = [newUser, ...users];
-    saveStoredUsers(updatedUsers);
-    setCurrentUserSession(newUser);
-
-    // Sync user to Supabase user_accounts table
-    try {
-      await syncUserAccountToSupabase(newUser);
-    } catch (err) {
-      console.warn('Could not sync newly registered user to Supabase:', err);
+    if (!res.success || !res.user) {
+      setErrorMessage(res.error || 'Failed to register account with Supabase Auth.');
+      return;
     }
+
+    const newUser = res.user;
 
     // If driver, also create owner & vehicle (with status: 'pending' for admin approval)
     if (regRole === 'driver') {
@@ -815,11 +778,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </form>
         )}
 
-        {/* 2. FORGOT PASSWORD VIEW - Direct reset or Send reset email */}
+        {/* 2. FORGOT PASSWORD VIEW - Send reset email */}
         {view === 'forgot' && (
-          <form onSubmit={handleForgotSubmit} className="space-y-3.5">
+          <form onSubmit={handleForgotSubmit} className="space-y-4">
             <p className={`text-xs ${t.textMuted}`}>
-              Enter your registered email address and set your new password. This updates immediately and syncs with Supabase.
+              Enter your registered email address. We will send a secure Supabase password recovery link directly to your inbox.
             </p>
 
             <div>
@@ -842,49 +805,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className={`block text-xs font-semibold mb-1.5 ${t.textHeading}`}>
-                New Password (minimum 6 characters)
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  type={showNewPassword ? 'text' : 'password'}
-                  placeholder="Enter new secure password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className={`w-full pl-10 pr-10 py-2.5 text-sm rounded-xl font-medium ${t.textInput}`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowNewPassword(!showNewPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-200 cursor-pointer"
-                >
-                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className={`block text-xs font-semibold mb-1.5 ${t.textHeading}`}>
-                Confirm New Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  type={showNewPassword ? 'text' : 'password'}
-                  placeholder="Re-enter new password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className={`w-full pl-10 pr-3.5 py-2.5 text-sm rounded-xl font-medium ${t.textInput}`}
-                />
-              </div>
-            </div>
-
             <div className="flex items-center justify-between pt-2">
               <button
                 type="button"
@@ -898,8 +818,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 type="submit"
                 className={`py-2.5 px-5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg transition cursor-pointer ${t.primaryBtn}`}
               >
-                <Key className="w-4 h-4" />
-                <span>{newPassword ? 'Update & Sync Password' : 'Send Reset Link'}</span>
+                <Mail className="w-4 h-4" />
+                <span>Send Reset Link</span>
               </button>
             </div>
           </form>

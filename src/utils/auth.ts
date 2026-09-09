@@ -59,12 +59,13 @@ export interface RoleDefinition {
 
 export interface UserAccount {
   id: string;
+  auth_user_id?: string;
   name: string;
   email: string;
-  password?: string; // Optional: never stored in plaintext or used as DB auth authority
   role: UserRole;
   phone?: string;
   status?: 'active' | 'suspended' | 'inactive';
+  must_change_password?: boolean;
   createdAt: number;
   avatarColor?: string;
 }
@@ -643,20 +644,10 @@ export function setCurrentUserSession(user: UserAccount | null): void {
   }
 }
 
-export const ADMIN_INITIAL_PW_RETIRED_KEY = 'v_rental_admin_initial_password_retired';
-
-export function isInitialAdminPasswordRetired(): boolean {
-  if (typeof window === 'undefined') return false;
-  return localStorage.getItem(ADMIN_INITIAL_PW_RETIRED_KEY) === 'true';
-}
-
-export function retireInitialAdminPassword(): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(ADMIN_INITIAL_PW_RETIRED_KEY, 'true');
-    localStorage.removeItem('v_rental_must_change_password');
-  }
-}
-
+/**
+ * Authenticate user with Supabase Auth as the single source of truth.
+ * Passwords are never stored in localStorage, user_accounts table, or frontend memory.
+ */
 export async function authenticateUser(
   email: string,
   password: string
@@ -666,189 +657,197 @@ export async function authenticateUser(
   if (normalizedEmail === 'owner') normalizedEmail = 'owner@mannargreenride.lk';
   if (normalizedEmail === 'admin') normalizedEmail = 'admin@mannargreenride.lk';
 
-  const isRootAdmin = normalizedEmail === 'absiraiva@gmail.com' || normalizedEmail === DEFAULT_USER.email.toLowerCase();
-
-  // GUARD: If the temporary initial password Ab@12345 is used after the admin already changed their password, strictly block it
-  if (isRootAdmin && password === 'Ab@12345' && isInitialAdminPasswordRetired()) {
+  if (!isSupabaseConfigured()) {
+    // Offline / Demo mode fallback when Supabase credentials are not configured
+    const users = getStoredUsers();
+    const found = users.find(
+      (u) =>
+        u &&
+        ((u.email && u.email.toLowerCase() === normalizedEmail) ||
+         (u.name && u.name.toLowerCase() === normalizedEmail))
+    );
+    if (found) {
+      setCurrentUserSession(found);
+      return { success: true, user: found };
+    }
     return {
       success: false,
-      error: 'The temporary initial password (Ab@12345) has expired. Please enter your new updated password.',
+      error: 'Supabase authentication is not configured.',
     };
   }
 
-  // 1. PRIMARY CHECK: Supabase Auth is single source of truth for passwords
-  let supabaseAuthError: string | null = null;
+  // 1. PRIMARY CHECK: Supabase Auth is the ONLY password authority
+  const supaAuth = getSupabaseAuth();
+  if (!supaAuth) {
+    return {
+      success: false,
+      error: 'Supabase authentication client is not available.',
+    };
+  }
+
+  try {
+    const { data: authData, error: authError } = await supaAuth.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: password,
+    });
+
+    if (authError || !authData?.user) {
+      return {
+        success: false,
+        error: authError?.message || 'Invalid login credentials.',
+      };
+    }
+
+    // 2. Load user profile and authorization details from user_accounts
+    const supa = getSupabase();
+    let profileRow: any = null;
+    if (supa) {
+      const { data: row } = await supa
+        .from('user_accounts')
+        .select('*')
+        .or(`email.ilike.${normalizedEmail},auth_user_id.eq.${authData.user.id}`)
+        .maybeSingle();
+      profileRow = row;
+    }
+
+    const isRootEmail = normalizedEmail === DEFAULT_USER.email.toLowerCase() || normalizedEmail === 'admin@mannargreenride.lk';
+    const resolvedRole = profileRow?.role || (isRootEmail ? 'admin' : (authData.user.user_metadata?.role || 'staff'));
+    const resolvedName = profileRow?.name || authData.user.user_metadata?.name || (isRootEmail ? DEFAULT_USER.name : (authData.user.email?.split('@')[0] || 'Staff Member'));
+    const resolvedPhone = profileRow?.phone || authData.user.user_metadata?.phone || undefined;
+    const resolvedStatus = profileRow?.status || 'active';
+    const mustChange = Boolean(profileRow?.must_change_password || authData.user.user_metadata?.must_change_password);
+
+    const authenticatedUser: UserAccount = {
+      id: profileRow?.id || `supa-${authData.user.id}`,
+      auth_user_id: authData.user.id,
+      name: resolvedName,
+      email: authData.user.email || normalizedEmail,
+      phone: resolvedPhone,
+      role: resolvedRole,
+      status: resolvedStatus,
+      must_change_password: mustChange,
+      createdAt: profileRow?.created_at ? Number(profileRow.created_at) : Date.now(),
+      avatarColor: 'emerald',
+    };
+
+    // Save profile to user_accounts table if not yet present (NO password or password_hash!)
+    if (supa && !profileRow) {
+      try {
+        await supa.from('user_accounts').upsert({
+          id: authenticatedUser.id,
+          auth_user_id: authData.user.id,
+          name: authenticatedUser.name,
+          email: authenticatedUser.email,
+          phone: authenticatedUser.phone || null,
+          role: authenticatedUser.role,
+          status: authenticatedUser.status,
+          must_change_password: mustChange,
+          created_at: authenticatedUser.createdAt,
+        }, { onConflict: 'id' });
+      } catch (err) {
+        console.warn('[Auth] Error syncing profile to user_accounts:', err);
+      }
+    } else if (supa && profileRow && !profileRow.auth_user_id) {
+      try {
+        await supa.from('user_accounts').update({ auth_user_id: authData.user.id }).eq('id', profileRow.id);
+      } catch {}
+    }
+
+    // Cache profile in localStorage WITHOUT password
+    const users = getStoredUsers().filter(u => u.email.toLowerCase() !== normalizedEmail);
+    saveStoredUsers([authenticatedUser, ...users]);
+    setCurrentUserSession(authenticatedUser);
+
+    return {
+      success: true,
+      user: authenticatedUser,
+      requiresPasswordChange: mustChange,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Authentication failed. Please verify credentials.',
+    };
+  }
+}
+
+/**
+ * Change password for the current authenticated user using Supabase Auth.
+ * Explicitly validates the result and does not report false successes.
+ */
+export async function changePassword(newPassword: string): Promise<{ success: boolean; error?: string }> {
+  if (!newPassword || newPassword.length < 6) {
+    return { success: false, error: 'Password must be at least 6 characters long.' };
+  }
+
+  const supaAuth = getSupabaseAuth();
+  if (!supaAuth) {
+    return { success: false, error: 'Supabase authentication is not configured.' };
+  }
+
+  try {
+    const { data, error } = await supaAuth.auth.updateUser({
+      password: newPassword,
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    if (!data?.user) {
+      return { success: false, error: 'Failed to update password. Please check your session.' };
+    }
+
+    // Clear must_change_password flag if set
+    const current = getCurrentUser();
+    if (current) {
+      current.must_change_password = false;
+      setCurrentUserSession(current);
+
+      if (isSupabaseConfigured()) {
+        const supa = getSupabase();
+        if (supa) {
+          await supa
+            .from('user_accounts')
+            .update({ must_change_password: false })
+            .ilike('email', current.email);
+        }
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('v_rental_must_change_password');
+    }
+
+    recordAuditLog({
+      user: current?.name || 'User',
+      userEmail: current?.email,
+      action: 'Password Reset Requested',
+      reference: 'AUTH-PW-UPDATE',
+      details: 'User password successfully changed in Supabase Auth',
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'An error occurred while updating password.' };
+  }
+}
+
+/**
+ * Logout current user: explicitly calls supabase.auth.signOut() and clears session
+ */
+export async function logoutUser(): Promise<void> {
   if (isSupabaseConfigured()) {
     const supaAuth = getSupabaseAuth();
     if (supaAuth) {
       try {
-        const { data: authData, error: authError } = await supaAuth.auth.signInWithPassword({
-          email: normalizedEmail,
-          password: password,
-        });
-
-        if (!authError && authData?.user) {
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('v_rental_must_change_password');
-          }
-
-          // If root admin successfully authenticates with their password in Supabase Auth, permanently retire temporary password
-          if (isRootAdmin) {
-            retireInitialAdminPassword();
-          }
-
-          // Successfully authenticated with Supabase Auth!
-          const supa = getSupabase();
-          let profileRow: any = null;
-          if (supa) {
-            const { data: row } = await supa
-              .from('user_accounts')
-              .select('*')
-              .ilike('email', normalizedEmail)
-              .maybeSingle();
-            profileRow = row;
-          }
-
-          const isRootEmail = normalizedEmail === DEFAULT_USER.email.toLowerCase() || normalizedEmail === 'admin@mannargreenride.lk';
-          const resolvedRole = profileRow?.role || (isRootEmail ? 'admin' : (authData.user.user_metadata?.role || 'staff'));
-          const resolvedName = profileRow?.name || authData.user.user_metadata?.name || (isRootEmail ? DEFAULT_USER.name : 'Staff Member');
-          const resolvedPhone = profileRow?.phone || authData.user.user_metadata?.phone || undefined;
-          const resolvedStatus = profileRow?.status || 'active';
-
-          const authenticatedUser: UserAccount = {
-            id: profileRow?.id || authData.user.id,
-            name: resolvedName,
-            email: authData.user.email || normalizedEmail,
-            phone: resolvedPhone,
-            role: resolvedRole,
-            status: resolvedStatus,
-            createdAt: profileRow?.created_at ? Number(profileRow.created_at) : Date.now(),
-            avatarColor: 'emerald',
-          };
-
-          // Save / update user_accounts in Supabase (NO passwords, only profile fields)
-          if (supa && !profileRow) {
-            try {
-              await supa.from('user_accounts').upsert({
-                id: authenticatedUser.id,
-                name: authenticatedUser.name,
-                email: authenticatedUser.email,
-                phone: authenticatedUser.phone || null,
-                role: authenticatedUser.role,
-                status: authenticatedUser.status,
-                created_at: authenticatedUser.createdAt,
-              }, { onConflict: 'id' });
-            } catch (err) {
-              console.warn('[Auth] Error inserting user_accounts profile:', err);
-            }
-          }
-
-          // Cache in local storage WITHOUT password
-          const users = getStoredUsers().filter(u => u.email.toLowerCase() !== normalizedEmail);
-          saveStoredUsers([authenticatedUser, ...users]);
-          setCurrentUserSession(authenticatedUser);
-
-          return { success: true, user: authenticatedUser };
-        } else if (authError) {
-          supabaseAuthError = authError.message;
-        }
-      } catch (err: any) {
-        supabaseAuthError = err.message;
+        await supaAuth.auth.signOut();
+      } catch (err) {
+        console.warn('[Auth] SignOut error:', err);
       }
     }
   }
-
-  // 2. TEMPORARY ADMIN LOGIN (ONLY BEFORE FIRST PASSWORD CHANGE):
-  // If absiraiva@gmail.com enters Ab@12345 for the very first time, allow login and force password change
-  if (isRootAdmin && password === 'Ab@12345') {
-    if (isInitialAdminPasswordRetired()) {
-      return {
-        success: false,
-        error: 'The temporary initial password (Ab@12345) has expired. Please enter your new updated password.',
-      };
-    }
-
-    const adminUser: UserAccount = {
-      id: DEFAULT_USER.id,
-      name: DEFAULT_USER.name,
-      email: 'absiraiva@gmail.com',
-      role: 'admin',
-      phone: DEFAULT_USER.phone,
-      status: 'active',
-      createdAt: Date.now(),
-      avatarColor: 'emerald',
-    };
-    setCurrentUserSession(adminUser);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('v_rental_must_change_password', 'true');
-    }
-    return {
-      success: true,
-      user: adminUser,
-      requiresPasswordChange: true,
-    };
-  }
-
-  // 3. PREVIOUS PASSWORDS / STORED USERS FALLBACK:
-  // Allows users with previous passwords or local accounts to authenticate seamlessly
-  const users = getStoredUsers();
-  const found = users.find(
-    (u) =>
-      u &&
-      ((u.email && u.email.toLowerCase() === normalizedEmail) ||
-       (u.name && u.name.toLowerCase() === normalizedEmail) ||
-       (u.phone && u.phone.trim() === normalizedEmail))
-  );
-
-  if (found) {
-    // If root admin temporary password is retired, never allow Ab@12345 from stored passwords
-    if (isRootAdmin && isInitialAdminPasswordRetired() && (password === 'Ab@12345' || found.password === 'Ab@12345')) {
-      return {
-        success: false,
-        error: 'The temporary initial password (Ab@12345) has expired. Please enter your new updated password.',
-      };
-    }
-
-    const isPersonaMatch =
-      (normalizedEmail.includes('passenger') && password === 'passenger') ||
-      (normalizedEmail.includes('owner') && password === 'owner') ||
-      (normalizedEmail.includes('admin') && password === 'admin');
-
-    const isStoredPassMatch = Boolean(found.password && found.password === password);
-
-    if (isPersonaMatch || isStoredPassMatch) {
-      const cleanSessionUser: UserAccount = {
-        ...found,
-        password: undefined,
-      };
-      setCurrentUserSession(cleanSessionUser);
-
-      // Attempt to register or sync this user into Supabase Auth with this password so future logins use Supabase Auth
-      if (isSupabaseConfigured()) {
-        const supaAuth = getSupabaseAuth();
-        if (supaAuth) {
-          supaAuth.auth.signUp({
-            email: found.email,
-            password: password,
-            options: {
-              data: {
-                name: found.name,
-                role: found.role,
-                phone: found.phone || '',
-              }
-            }
-          }).catch(() => {});
-        }
-      }
-
-      return { success: true, user: cleanSessionUser };
-    }
-  }
-
-  return {
-    success: false,
-    error: supabaseAuthError || 'Incorrect email or password. Please verify and try again.',
-  };
+  setCurrentUserSession(null);
 }
 
 export async function registerNewUser(params: {
@@ -860,7 +859,7 @@ export async function registerNewUser(params: {
 }): Promise<{ success: boolean; user?: UserAccount; error?: string }> {
   const normalizedEmail = (params.email || '').trim().toLowerCase();
 
-  // Try Supabase Auth first if configured
+  // Register in Supabase Auth
   const supaAuth = getSupabaseAuth();
   if (supaAuth) {
     try {
@@ -871,10 +870,17 @@ export async function registerNewUser(params: {
           data: {
             name: params.name.trim(),
             role: params.role || 'cashier',
+            phone: params.phone?.trim() || '',
+            must_change_password: true,
           },
         },
       });
-      if (!error && data.user) {
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      if (data.user) {
         const users = getStoredUsers();
         const existing = users.find(
           (u) => u && u.email && u.email.toLowerCase() === data.user.email?.toLowerCase()
@@ -883,44 +889,50 @@ export async function registerNewUser(params: {
           setCurrentUserSession(existing);
           return { success: true, user: existing };
         }
+
         const newUser: UserAccount = {
           id: `supa-${data.user.id}`,
+          auth_user_id: data.user.id,
           name: data.user.user_metadata?.name || params.name.trim(),
           email: data.user.email || normalizedEmail,
           role: params.role || 'cashier',
-          password: params.password,
           phone: params.phone?.trim() || undefined,
+          status: 'active',
+          must_change_password: true,
           createdAt: Date.now(),
           avatarColor: 'emerald',
         };
+
         const usersUpdated = [newUser, ...users];
         saveStoredUsers(usersUpdated);
         setCurrentUserSession(newUser);
-        // Also save to user_accounts table
+
+        // Also save profile to user_accounts table (NO password_hash!)
         if (isSupabaseConfigured()) {
           const supa = getSupabase();
           if (supa) {
             await supa.from('user_accounts').upsert({
               id: newUser.id,
+              auth_user_id: data.user.id,
               name: newUser.name,
               email: newUser.email,
               phone: newUser.phone || null,
               role: newUser.role,
-              password_hash: newUser.password,
+              status: 'active',
+              must_change_password: true,
               created_at: newUser.createdAt,
             }, { onConflict: 'id' });
           }
         }
         return { success: true, user: newUser };
       }
-    } catch (e) {
-      // Supabase Auth not available or error, fall through to localStorage
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Failed to register account with Supabase Auth.' };
     }
   }
 
-  // Fallback to localStorage-based registration
+  // Fallback to local profile (only if Supabase Auth is not configured)
   const users = getStoredUsers();
-
   if (users.some((u) => u && u.email && u.email.toLowerCase() === normalizedEmail)) {
     return { success: false, error: 'An account with this email already exists. Please sign in.' };
   }
@@ -932,9 +944,10 @@ export async function registerNewUser(params: {
     id: `user-${Date.now()}`,
     name: params.name.trim(),
     email: normalizedEmail,
-    password: params.password,
     role: params.role || 'cashier',
     phone: params.phone?.trim() || '',
+    status: 'active',
+    must_change_password: false,
     createdAt: Date.now(),
     avatarColor,
   };
@@ -942,31 +955,11 @@ export async function registerNewUser(params: {
   const updatedUsers = [...users, newUser];
   saveStoredUsers(updatedUsers);
 
-  // Sync to Supabase user_accounts table if configured
-  if (isSupabaseConfigured()) {
-    const supa = getSupabase();
-    if (supa) {
-      try {
-        await supa.from('user_accounts').upsert({
-          id: newUser.id,
-          name: newUser.name,
-          email: newUser.email,
-          phone: newUser.phone || null,
-          role: newUser.role,
-          status: newUser.status || 'active',
-          created_at: newUser.createdAt,
-        }, { onConflict: 'id' });
-      } catch (err) {
-        console.warn('Failed to sync new user to Supabase:', err);
-      }
-    }
-  }
-
   return { success: true, user: newUser };
 }
 
 /**
- * Admin action: Send Supabase password recovery email to a staff user
+ * Admin action: Send Supabase password recovery email to a user
  */
 export async function sendStaffPasswordResetEmail(
   email: string, 
@@ -981,7 +974,7 @@ export async function sendStaffPasswordResetEmail(
   const supaAuth = getSupabaseAuth();
   if (supaAuth) {
     try {
-      const redirectUrl = typeof window !== 'undefined' ? window.location.origin : undefined;
+      const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/#type=recovery` : undefined;
       const { error } = await supaAuth.auth.resetPasswordForEmail(normalizedEmail, {
         redirectTo: redirectUrl,
       });
@@ -996,7 +989,7 @@ export async function sendStaffPasswordResetEmail(
         userEmail: adminUser?.email,
         action: 'Password Reset Requested',
         reference: normalizedEmail,
-        details: `Password recovery email triggered for ${normalizedEmail}`,
+        details: `Password recovery email dispatched via Supabase Auth for ${normalizedEmail}`,
       });
 
       return { success: true };
@@ -1009,9 +1002,9 @@ export async function sendStaffPasswordResetEmail(
 }
 
 /**
- * Legacy reset password helper
+ * Request password recovery email via Supabase Auth
  */
-export async function resetUserPassword(email: string, newPassword?: string): Promise<{ success: boolean; error?: string }> {
+export async function resetUserPassword(email: string): Promise<{ success: boolean; error?: string }> {
   return sendStaffPasswordResetEmail(email);
 }
 

@@ -108,7 +108,8 @@ import {
   getStoredRoles,
   saveStoredUsers,
   saveStoredRoles,
-  getMGRPersona
+  getMGRPersona,
+  logoutUser
 } from './utils/auth';
 
 export default function App() {
@@ -330,13 +331,15 @@ export default function App() {
         }
       }
 
-      // Check if user has temporary password flag active (and not yet retired)
+      // Check if user has temporary password flag active
       const mustChange = localStorage.getItem('v_rental_must_change_password') === 'true';
-      const isInitialRetired = localStorage.getItem('v_rental_admin_initial_password_retired') === 'true';
-      if (mustChange && !isInitialRetired) {
+      if (mustChange) {
         setIsPasswordResetModalOpen(true);
         setIsForcedPasswordChange(true);
-        setResetModalEmail('absiraiva@gmail.com');
+        const curr = getCurrentUser();
+        if (curr?.email) {
+          setResetModalEmail(curr.email);
+        }
       }
     }
 
@@ -959,8 +962,8 @@ export default function App() {
     localStorage.clear();
   };
 
-  const handleLogout = () => {
-    setCurrentUserSession(null);
+  const handleLogout = async () => {
+    await logoutUser();
     setCurrentUser(null);
     setIsFullLoginPage(true);
     try {
@@ -1008,7 +1011,7 @@ export default function App() {
             setSidebarCollapsed(true);
             setSettings((prev) => ({ ...prev, cashierName: user.name }));
             setActiveTab('rentals');
-            if (typeof window !== 'undefined' && localStorage.getItem('v_rental_must_change_password') === 'true') {
+            if (user.must_change_password || (typeof window !== 'undefined' && localStorage.getItem('v_rental_must_change_password') === 'true')) {
               setIsPasswordResetModalOpen(true);
               setIsForcedPasswordChange(true);
               setResetModalEmail(user.email);
@@ -1353,6 +1356,11 @@ export default function App() {
         }}
         onOpenUserRoles={() => {
           setActiveTab('users');
+        }}
+        onOpenPasswordReset={() => {
+          setIsPasswordResetModalOpen(true);
+          setIsForcedPasswordChange(false);
+          setResetModalEmail(activeUser.email);
         }}
         settings={settings}
         themeMode={themeMode}
