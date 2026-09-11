@@ -39,6 +39,7 @@ import {
   VehicleScheduleItem,
 } from '../../types/mgrBooking';
 import { UserAccount } from '../../utils/auth';
+import { formatVehicleCode } from '../../utils/mgrUniqueId';
 
 interface MGRFleetViewProps {
   vehicles: TransportVehicle[];
@@ -86,6 +87,7 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
   const [schedStartTime, setSchedStartTime] = useState<string>('06:00 AM');
   const [schedEndTime, setSchedEndTime] = useState<string>('09:30 AM');
   const [schedTotalSeats, setSchedTotalSeats] = useState<number>(12);
+  const [schedReservedSeats, setSchedReservedSeats] = useState<number>(0);
   const [schedAvailSeats, setSchedAvailSeats] = useState<number>(12);
   const [schedPricePerSeat, setSchedPricePerSeat] = useState<number>(1200);
 
@@ -318,13 +320,22 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
     setAvailabilityVehicle(vehicle);
     setTempTripDates(vehicle.availableDates ? [...vehicle.availableDates] : []);
     setTempSchedules(vehicle.schedules ? [...vehicle.schedules] : []);
-    setSchedTotalSeats(vehicle.totalSeats || 12);
-    setSchedAvailSeats(vehicle.totalSeats || 12);
+    const totSeats = vehicle.totalSeats || 12;
+    setSchedTotalSeats(totSeats);
+    setSchedReservedSeats(0);
+    setSchedAvailSeats(totSeats);
     setSchedPricePerSeat(vehicle.pricePerSeat || 1200);
     setCalMonthOffset(0);
   };
 
   const handleToggleTripDate = (dateStr: string) => {
+    // Cross-Type Date Conflict Validation (MD Section 6):
+    // Check if vehicle is already scheduled for a Planned Trip on this date
+    if (availabilityVehicle?.schedules && availabilityVehicle.schedules.some(s => s.date === dateStr)) {
+      alert(`This vehicle is already listed as a Planned Trip Schedule for ${dateStr}. Please remove or change the schedule before setting Vehicle Available for this date.`);
+      return;
+    }
+
     setTempTripDates(prev => {
       if (prev.includes(dateStr)) {
         return prev.filter(d => d !== dateStr);
@@ -350,6 +361,24 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
       alert('Please fill in Date, Starting Location, and Ending Location.');
       return;
     }
+
+    // Cross-Type Date Conflict Validation (MD Section 6):
+    // 1. Check if vehicle is already listed as Vehicle Available for this date
+    if (availabilityVehicle?.availableDates && availabilityVehicle.availableDates.includes(schedDate)) {
+      alert(`This vehicle is already listed as Vehicle Available for ${schedDate}. Please remove or change the existing availability before creating a Planned Trip for this date.`);
+      return;
+    }
+
+    // 2. Prevent duplicate schedule for same vehicle + same date
+    if (tempSchedules.some(s => s.date === schedDate)) {
+      alert(`A Planned Trip Schedule is already registered for this vehicle on ${schedDate}. Duplicate trips on the same date for the same vehicle are not allowed.`);
+      return;
+    }
+
+    const allSeats = Number(availabilityVehicle?.totalSeats || schedTotalSeats);
+    const reserved = Number(schedReservedSeats || 0);
+    const available = Math.max(0, allSeats - reserved);
+
     const newSchedule: VehicleScheduleItem = {
       id: `SCH-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       date: schedDate,
@@ -357,8 +386,9 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
       startTime: schedStartTime,
       toLocation: schedTo,
       endTime: schedEndTime,
-      totalSeats: Number(schedTotalSeats),
-      availableSeats: Number(schedAvailSeats),
+      totalSeats: allSeats,
+      reservedSeats: reserved,
+      availableSeats: available,
       pricePerSeat: Number(schedPricePerSeat),
       createdAt: Date.now(),
     };
@@ -507,6 +537,7 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
         <table className="w-full text-left border-collapse text-xs">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
+              <th className="py-3.5 px-4">Unique Number</th>
               <th onClick={() => handleSort('registrationNumber')} className="py-3.5 px-4 cursor-pointer hover:bg-slate-100 transition select-none">
                 <div className="flex items-center gap-1.5">
                   <span>Reg # & Type</span>
@@ -581,14 +612,22 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                 </td>
               </tr>
             ) : (
-              paginatedVehicles.map(vehicle => {
+              paginatedVehicles.map((vehicle, vIdx) => {
                 const insAlert = checkExpiryWarning(vehicle.insuranceExpiry);
                 const revAlert = checkExpiryWarning(vehicle.revenueLicenceExpiry);
                 const typeInfo = getTypeLabel(vehicle.type);
                 const oneDayRate = vehicle.oneDayPrice || vehicle.basePrice || 25000;
+                const uniqueCode = formatVehicleCode((currentPage - 1) * pageSize + vIdx + 1, vehicle.id);
 
                 return (
                   <tr key={vehicle.id} className="hover:bg-slate-50/80 transition-colors">
+                    {/* Unique Number */}
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <span className="font-mono font-extrabold text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-[11px]">
+                        {uniqueCode}
+                      </span>
+                    </td>
+
                     {/* Reg # & Type */}
                     <td className="py-3 px-4 break-words">
                       <div className="font-mono font-bold text-slate-900 break-words">{vehicle.registrationNumber}</div>
@@ -805,77 +844,150 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
         )}
       </div>
 
-      {/* VIEW VEHICLE MODAL */}
+      {/* VIEW VEHICLE MODAL (Displaying ALL details without omitting) */}
       {viewingVehicle && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-2xl border border-slate-200">
+          <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
             <div className="flex items-center justify-between border-b pb-3">
-              <div>
-                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-extrabold px-2.5 py-1 rounded bg-slate-100 border border-slate-200 text-slate-800">
+                  {formatVehicleCode(1, viewingVehicle.id)}
+                </span>
+                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
                   {viewingVehicle.registrationNumber}
                 </span>
-                <h3 className="text-base font-bold text-slate-900 mt-1">
-                  {viewingVehicle.make} {viewingVehicle.model} ({viewingVehicle.year})
-                </h3>
+                <span className="capitalize font-bold text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                  {viewingVehicle.type.replace('_', ' ')}
+                </span>
               </div>
               <button
                 type="button"
                 onClick={() => setViewingVehicle(null)}
-                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-bold uppercase text-emerald-800 block">One Day Vehicle Price</span>
-                  <span className="text-slate-600">Fixed rate set by driver/owner</span>
+            {/* Vehicle Photos Gallery */}
+            {viewingVehicle.photos && viewingVehicle.photos.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Vehicle Photos ({viewingVehicle.photos.length})</span>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {viewingVehicle.photos.map((photo, pIdx) => (
+                    <img
+                      key={pIdx}
+                      src={photo}
+                      alt={`${viewingVehicle.make} ${pIdx + 1}`}
+                      className="w-24 h-16 rounded-xl object-cover border border-slate-200 shrink-0 shadow-xs"
+                    />
+                  ))}
                 </div>
-                <span className="text-base font-extrabold text-emerald-800">
-                  Rs. {(viewingVehicle.oneDayPrice || viewingVehicle.basePrice).toLocaleString()} / Day
-                </span>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {/* Make, Model, Year, Rates */}
+              <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    {viewingVehicle.make} {viewingVehicle.model} ({viewingVehicle.year})
+                  </h3>
+                  <span className="text-[11px] text-slate-600">
+                    Color: <strong>{viewingVehicle.color}</strong> • Fuel: <strong className="capitalize">{viewingVehicle.fuelType || 'Diesel'}</strong>
+                  </span>
+                </div>
+                <div className="text-right">
+                  <div className="text-base font-extrabold text-emerald-800">
+                    Rs. {(viewingVehicle.oneDayPrice || viewingVehicle.basePrice).toLocaleString()}
+                  </div>
+                  <span className="text-[10px] text-slate-500">/ Day (Fixed)</span>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400 block text-[10px] uppercase">Vehicle Type</span>
-                  <strong className="text-slate-800 capitalize">{viewingVehicle.type.replace('_', ' ')}</strong>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400 block text-[10px] uppercase">Total Capacity</span>
+              {/* Specifications Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                <div className="p-2.5 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Total Seats</span>
                   <strong className="text-slate-800">{viewingVehicle.totalSeats} Passengers</strong>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400 block text-[10px] uppercase">Driver Option</span>
+                <div className="p-2.5 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Driver Option</span>
                   <strong className="text-slate-800 capitalize">
                     {viewingVehicle.driverOption === 'both' ? 'Discuss' : viewingVehicle.driverOption.replace('_', ' ')}
                   </strong>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400 block text-[10px] uppercase">Air Conditioning</span>
+                <div className="p-2.5 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Air Conditioning</span>
                   <strong className="text-slate-800">{viewingVehicle.hasAC ? 'Yes (AC)' : 'Non-AC'}</strong>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400 block text-[10px] uppercase">Insurance Expiry</span>
-                  <strong className="text-slate-800">{viewingVehicle.insuranceExpiry}</strong>
+                <div className="p-2.5 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Booking Mode</span>
+                  <strong className="text-indigo-700 capitalize">{viewingVehicle.bookingType || 'trip'}</strong>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400 block text-[10px] uppercase">Revenue Licence Expiry</span>
-                  <strong className="text-slate-800">{viewingVehicle.revenueLicenceExpiry}</strong>
+                <div className="p-2.5 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Status</span>
+                  <strong className="capitalize text-slate-800">{viewingVehicle.status.replace('_', ' ')}</strong>
+                </div>
+                <div className="p-2.5 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Luggage Capacity</span>
+                  <strong className="text-slate-800">{viewingVehicle.luggageCapacity || 'Standard'}</strong>
                 </div>
               </div>
 
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-slate-400 block text-[10px] uppercase">Owner / Operator</span>
-                <strong className="text-slate-800">{viewingVehicle.ownerName} ({viewingVehicle.ownerId})</strong>
+              {/* Documents & Compliance */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="p-2.5 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Insurance Expiry</span>
+                  <strong className="text-slate-800 font-mono">{viewingVehicle.insuranceExpiry}</strong>
+                </div>
+                <div className="p-2.5 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Revenue Licence Expiry</span>
+                  <strong className="text-slate-800 font-mono">{viewingVehicle.revenueLicenceExpiry}</strong>
+                </div>
               </div>
 
+              {/* Owner Info */}
+              <div className="p-2.5 bg-slate-50 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Assigned Owner / Operator</span>
+                  <strong className="text-slate-800">{viewingVehicle.ownerName || 'Operator'}</strong>
+                </div>
+                <span className="font-mono text-[11px] text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                  {viewingVehicle.ownerId}
+                </span>
+              </div>
+
+              {/* Boat Specifics */}
+              {viewingVehicle.type === 'boat' && viewingVehicle.boatDetails && (
+                <div className="p-3 bg-cyan-50/60 border border-cyan-200 rounded-xl space-y-2">
+                  <span className="text-cyan-900 block text-[10px] uppercase font-extrabold">Boat Marine Details</span>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Boat Name:</span>
+                      <strong>{viewingVehicle.boatDetails.boatName || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Captain Name:</span>
+                      <strong>{viewingVehicle.boatDetails.captainName || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Life Jackets:</span>
+                      <strong>{viewingVehicle.boatDetails.lifeJacketsAvailable ? 'Yes' : 'No'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Safety Cert Expiry:</span>
+                      <strong className="font-mono">{viewingVehicle.boatDetails.safetyCertificateExpiry || 'N/A'}</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Description */}
               {viewingVehicle.description && (
                 <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400 block text-[10px] uppercase">Description</span>
-                  <p className="text-slate-700 mt-1">{viewingVehicle.description}</p>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Description & Notes</span>
+                  <p className="text-slate-700 mt-0.5">{viewingVehicle.description}</p>
                 </div>
               )}
             </div>
@@ -884,7 +996,7 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
               <button
                 type="button"
                 onClick={() => setViewingVehicle(null)}
-                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold"
+                className="px-5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
               >
                 Close
               </button>
@@ -893,74 +1005,150 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
         </div>
       )}
 
-      {/* EDIT VEHICLE MODAL (ADMIN ONLY) */}
+      {/* EDIT VEHICLE MODAL (Modifying ALL details) */}
       {editingVehicle && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-2xl border border-slate-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-900">Admin Mode</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900">Admin Mode</span>
                 <h3 className="text-base font-bold text-slate-900">Edit Vehicle: {editingVehicle.registrationNumber}</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setEditingVehicle(null)}
-                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveEdit} className="space-y-3 text-xs">
+            <form onSubmit={handleSaveEdit} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Make</label>
+                  <label className="block font-bold text-slate-700 mb-1">Make *</label>
                   <input
                     type="text"
                     required
                     value={editingVehicle.make}
                     onChange={e => setEditingVehicle({ ...editingVehicle, make: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-semibold"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Model</label>
+                  <label className="block font-bold text-slate-700 mb-1">Model *</label>
                   <input
                     type="text"
                     required
                     value={editingVehicle.model}
                     onChange={e => setEditingVehicle({ ...editingVehicle, model: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-semibold"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Year</label>
+                  <input
+                    type="number"
+                    required
+                    value={editingVehicle.year}
+                    onChange={e => setEditingVehicle({ ...editingVehicle, year: Number(e.target.value) })}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Color</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingVehicle.color}
+                    onChange={e => setEditingVehicle({ ...editingVehicle, color: e.target.value })}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Fuel Type</label>
+                  <select
+                    value={editingVehicle.fuelType || 'diesel'}
+                    onChange={e => setEditingVehicle({ ...editingVehicle, fuelType: e.target.value as any })}
+                    className="w-full px-2 py-1.5 rounded-xl border border-slate-300"
+                  >
+                    <option value="diesel">Diesel</option>
+                    <option value="petrol">Petrol</option>
+                    <option value="hybrid">Hybrid</option>
+                    <option value="ev">Electric</option>
+                  </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">One Day Vehicle Price (Rs.) *</label>
+                  <label className="block font-bold text-slate-700 mb-1">One Day Rate (Rs.) *</label>
                   <input
                     type="number"
                     required
                     value={editingVehicle.oneDayPrice || editingVehicle.basePrice}
-                    onChange={e => setEditingVehicle({ ...editingVehicle, oneDayPrice: Number(e.target.value) })}
+                    onChange={e => setEditingVehicle({ ...editingVehicle, oneDayPrice: Number(e.target.value), basePrice: Number(e.target.value) })}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 font-bold text-emerald-700"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Total Seats</label>
+                  <label className="block font-bold text-slate-700 mb-1">Total Seats *</label>
                   <input
                     type="number"
                     required
+                    min={1}
                     value={editingVehicle.totalSeats}
                     onChange={e => setEditingVehicle({ ...editingVehicle, totalSeats: Number(e.target.value) })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-bold"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Driver Option</label>
+                  <select
+                    value={editingVehicle.driverOption}
+                    onChange={e => setEditingVehicle({ ...editingVehicle, driverOption: e.target.value as any })}
+                    className="w-full px-2 py-1.5 rounded-xl border border-slate-300"
+                  >
+                    <option value="with_driver">With Driver</option>
+                    <option value="without_driver">Self-Drive</option>
+                    <option value="both">Both (Discuss)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">AC Option</label>
+                  <select
+                    value={editingVehicle.hasAC ? 'yes' : 'no'}
+                    onChange={e => setEditingVehicle({ ...editingVehicle, hasAC: e.target.value === 'yes' })}
+                    className="w-full px-2 py-1.5 rounded-xl border border-slate-300"
+                  >
+                    <option value="yes">AC</option>
+                    <option value="no">Non-AC</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Status</label>
+                  <select
+                    value={editingVehicle.status}
+                    onChange={e => setEditingVehicle({ ...editingVehicle, status: e.target.value as any })}
+                    className="w-full px-2 py-1.5 rounded-xl border border-slate-300 capitalize font-bold"
+                  >
+                    <option value="active">Active</option>
+                    <option value="pending">Pending</option>
+                    <option value="maintenance">Maintenance</option>
+                    <option value="suspended">Suspended</option>
+                  </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Insurance Expiry</label>
+                  <label className="block font-bold text-slate-700 mb-1">Insurance Expiry *</label>
                   <input
                     type="date"
                     required
@@ -970,7 +1158,7 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Revenue Licence Expiry</label>
+                  <label className="block font-bold text-slate-700 mb-1">Revenue Licence Expiry *</label>
                   <input
                     type="date"
                     required
@@ -995,13 +1183,13 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setEditingVehicle(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold"
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs cursor-pointer"
                 >
                   Save Changes
                 </button>
@@ -1598,7 +1786,7 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Starting Time</label>
                   <input
@@ -1607,7 +1795,7 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                     placeholder="06:00 AM"
                     value={schedStartTime}
                     onChange={e => setSchedStartTime(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white"
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs"
                   />
                 </div>
                 <div>
@@ -1618,32 +1806,54 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                     placeholder="09:30 AM"
                     value={schedEndTime}
                     onChange={e => setSchedEndTime(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white"
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">All Seats</label>
+                  <div className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-100 font-bold text-slate-800 text-center text-xs">
+                    {availabilityVehicle.totalSeats} Seats
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Reserved Seats</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={availabilityVehicle.totalSeats}
+                    required
+                    value={schedReservedSeats}
+                    onChange={e => {
+                      const val = Math.min(availabilityVehicle.totalSeats, Math.max(0, Number(e.target.value)));
+                      setSchedReservedSeats(val);
+                      setSchedAvailSeats(availabilityVehicle.totalSeats - val);
+                    }}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-amber-300 bg-amber-50/50 font-bold text-amber-900 text-xs"
                   />
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Available Seats</label>
-                  <input
-                    type="number"
-                    required
-                    min={1}
-                    max={availabilityVehicle.totalSeats}
-                    value={schedAvailSeats}
-                    onChange={e => setSchedAvailSeats(Number(e.target.value))}
-                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white font-bold"
-                  />
+                  <div className="w-full px-2.5 py-1.5 rounded-xl border border-emerald-300 bg-emerald-50/70 font-extrabold text-emerald-800 text-center text-xs" title="Available = All Seats - Reserved Seats">
+                    {Math.max(0, availabilityVehicle.totalSeats - schedReservedSeats)}
+                  </div>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Per Seat Amount (Rs.)</label>
+                  <label className="block font-bold text-slate-700 mb-1">Per Seat (Rs.)</label>
                   <input
                     type="number"
                     required
                     placeholder="1200"
                     value={schedPricePerSeat}
                     onChange={e => setSchedPricePerSeat(Number(e.target.value))}
-                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white font-bold text-indigo-700"
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white font-bold text-indigo-700 text-xs"
                   />
                 </div>
+              </div>
+
+              {/* Live formula reminder */}
+              <div className="text-[11px] text-slate-500 bg-slate-100/80 px-3 py-1.5 rounded-lg flex items-center justify-between font-mono">
+                <span>Formula: Available ({Math.max(0, availabilityVehicle.totalSeats - schedReservedSeats)}) = All ({availabilityVehicle.totalSeats}) − Reserved ({schedReservedSeats})</span>
+                <span className="text-emerald-700 font-bold">{Math.max(0, availabilityVehicle.totalSeats - schedReservedSeats)} bookable by passengers</span>
               </div>
 
               <div className="flex justify-end pt-1">
@@ -1676,7 +1886,8 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                         <th className="py-2 px-3">Date</th>
                         <th className="py-2 px-3">Route</th>
                         <th className="py-2 px-3">Times</th>
-                        <th className="py-2 px-3 text-center">Seats</th>
+                        <th className="py-2 px-3 text-center">Available / All</th>
+                        <th className="py-2 px-3 text-center">Reserved</th>
                         <th className="py-2 px-3 text-right">Per Seat</th>
                         <th className="py-2 px-3 text-center">Action</th>
                       </tr>
@@ -1687,7 +1898,12 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                           <td className="py-2 px-3 font-mono font-bold text-slate-800">{sch.date}</td>
                           <td className="py-2 px-3 font-medium text-slate-700">{sch.fromLocation} ➔ {sch.toLocation}</td>
                           <td className="py-2 px-3 text-slate-500">{sch.startTime} – {sch.endTime}</td>
-                          <td className="py-2 px-3 text-center font-bold text-indigo-700">{sch.availableSeats} / {sch.totalSeats}</td>
+                          <td className="py-2 px-3 text-center font-bold text-indigo-700">
+                            <span className="text-emerald-700 font-extrabold">{sch.availableSeats}</span> / {sch.totalSeats}
+                          </td>
+                          <td className="py-2 px-3 text-center font-mono font-bold text-amber-800">
+                            {sch.reservedSeats || 0}
+                          </td>
                           <td className="py-2 px-3 text-right font-extrabold text-emerald-700">Rs. {sch.pricePerSeat.toLocaleString()}</td>
                           <td className="py-2 px-3 text-center">
                             <button

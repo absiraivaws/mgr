@@ -29,6 +29,7 @@ import {
   FileText,
   Search,
   Key,
+  UserCheck,
 } from 'lucide-react';
 import { AppSettings, RentalRecord, Vehicle } from '../types';
 import { DEFAULT_USER, UserAccount, getUserPermissions, getMGRPersona } from '../utils/auth';
@@ -247,6 +248,14 @@ export const Navbar: React.FC<NavbarProps> = ({
       badge: null as number | null,
       show: !isPassenger, // Blocked for Passenger
       activeClass: 'bg-indigo-50 text-indigo-800 border border-indigo-300 font-bold shadow-xs',
+    },
+    {
+      id: 'mgr-customers' as const,
+      label: 'Customers',
+      icon: <UserCheck className="w-4 h-4 shrink-0" />,
+      badge: null as number | null,
+      show: !isPassenger, // Blocked for Passenger
+      activeClass: 'bg-amber-50 text-amber-800 border border-amber-300 font-bold shadow-xs',
     },
     {
       id: 'mgr-owners' as const,

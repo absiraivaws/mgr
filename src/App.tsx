@@ -168,7 +168,7 @@ export default function App() {
       if (systemMode !== 'mgr_booking') {
         setSystemMode('mgr_booking');
       }
-      if (isPassenger && ['mgr-dashboard', 'mgr-fleet', 'mgr-routes', 'mgr-owners', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
+      if (isPassenger && ['mgr-dashboard', 'mgr-fleet', 'mgr-customers', 'mgr-routes', 'mgr-owners', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
         setMgrActiveTab('mgr-search');
       }
       if (isOwner && ['mgr-dashboard', 'mgr-search', 'mgr-routes', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
@@ -523,8 +523,15 @@ export default function App() {
 
         if (cloudData.roles && cloudData.roles.length > 0) {
           saveStoredRoles(cloudData.roles);
+          const refreshed = getCurrentUser();
+          if (refreshed) setCurrentUser({ ...refreshed });
         } else {
           syncAllRolesToSupabase(getStoredRoles());
+        }
+
+        if (cloudData.messageTemplates && cloudData.messageTemplates.length > 0) {
+          setMessageTemplates(cloudData.messageTemplates);
+          saveStoredMessageTemplates(cloudData.messageTemplates);
         }
 
         // Load customer groups from Supabase
@@ -1105,6 +1112,10 @@ export default function App() {
               setActiveTab={setMgrActiveTab}
               themeMode="light"
               currentUser={activeUser}
+              customers={customers}
+              onAddCustomer={handleAddCustomer}
+              onEditCustomer={handleUpdateCustomer}
+              onDeleteCustomer={handleDeleteCustomer}
             />
           ) : (
             <>
@@ -1281,11 +1292,11 @@ export default function App() {
               }}
               onUserListChange={() => {
                 const refreshed = getCurrentUser();
-                if (refreshed) setCurrentUser(refreshed);
+                if (refreshed) setCurrentUser({ ...refreshed });
               }}
               onRolePermissionsChange={() => {
                 const refreshed = getCurrentUser();
-                if (refreshed) setCurrentUser(refreshed);
+                if (refreshed) setCurrentUser({ ...refreshed });
               }}
               onOpenPasswordReset={(email) => {
                 setIsPasswordResetModalOpen(true);
@@ -1331,12 +1342,22 @@ export default function App() {
                 }
               }}
               onUpdateEntry={(updated) => {
+                const isAdmin = activeUser.role === 'admin' || activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+                if (!isAdmin) {
+                  console.warn('[Finance] Action rejected: Only administrators can update finance records.');
+                  return;
+                }
                 setIncomeEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
                 if (isSupabaseConfigured()) {
                   syncIncomeEntryToSupabase(updated);
                 }
               }}
               onDeleteEntry={(id) => {
+                const isAdmin = activeUser.role === 'admin' || activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+                if (!isAdmin) {
+                  console.warn('[Finance] Action rejected: Only administrators can delete finance records.');
+                  return;
+                }
                 setIncomeEntries((prev) => prev.filter((e) => e.id !== id));
                 if (isSupabaseConfigured()) {
                   deleteIncomeEntryFromSupabase(id);

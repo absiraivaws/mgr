@@ -22,6 +22,7 @@ export type TransportPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
  */
 export interface TransportV2Listing {
   id: string; // e.g. LST-001
+  uniqueCode?: string; // e.g. MGR-VEH-0000001 or MGR-SCH-0000001
   vehicleId: string;
   vehicleName: string;
   vehicleType: TransportType;

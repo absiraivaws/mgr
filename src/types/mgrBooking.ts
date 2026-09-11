@@ -42,7 +42,8 @@ export type PricingMethod = 'fixed' | 'per_km' | 'per_hour' | 'per_day' | 'per_s
 
 // Owner Account
 export interface TransportOwner {
-  id: string; // e.g. OWN-MGR-00001
+  id: string; // e.g. OWN-MGR-00001 or MGR-OWN-0000001
+  uniqueCode?: string; // e.g. MGR-OWN-0000001
   fullName: string;
   nicPassport: string;
   address: string;
@@ -64,6 +65,7 @@ export type VehicleBookingType = 'trip' | 'schedule';
 
 export interface VehicleScheduleItem {
   id: string;
+  uniqueCode?: string; // e.g. MGR-SCH-0000001
   date: string; // YYYY-MM-DD
   fromLocation: string;
   from?: string;
@@ -72,6 +74,7 @@ export interface VehicleScheduleItem {
   to?: string;
   endTime: string; // e.g. 09:30 AM or 09:30
   totalSeats: number;
+  reservedSeats?: number;
   availableSeats: number;
   pricePerSeat: number; // Rs.
   createdAt?: number;
@@ -80,6 +83,7 @@ export interface VehicleScheduleItem {
 // Vehicle & Boat
 export interface TransportVehicle {
   id: string; // e.g. MGR-CAR-00001, MGR-BOAT-00001
+  uniqueCode?: string; // e.g. MGR-VEH-0000001
   ownerId: string;
   ownerName?: string;
   type: TransportType;
@@ -126,7 +130,8 @@ export interface TransportVehicle {
 
 // Driver / Boat Captain
 export interface TransportDriver {
-  id: string; // e.g. DRV-MGR-00001
+  id: string; // e.g. DRV-MGR-00001 or MGR-DRV-0000001
+  uniqueCode?: string; // e.g. MGR-DRV-0000001
   ownerId: string;
   fullName: string;
   nic: string;
@@ -180,6 +185,7 @@ export interface TransportSchedule {
 // Bookings
 export interface TransportBooking {
   id: string;
+  uniqueCode?: string; // e.g. MGR-BK-0000001
   bookingNumber: string; // MGR-BK-00101
   bookingType: 'whole_vehicle' | 'seat';
   vehicleId: string;
@@ -264,6 +270,7 @@ export type MGRTabType =
   | 'mgr-search'
   | 'mgr-bookings'
   | 'mgr-fleet'
+  | 'mgr-customers'
   | 'mgr-owners'
   | 'mgr-settings'
   | 'mgr-routes'

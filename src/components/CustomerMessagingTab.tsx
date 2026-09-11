@@ -52,7 +52,8 @@ import {
   cleanWhatsAppPhoneNumber, 
   isCustomerSuspendedOrBlocked, 
   getCustomerStatusBadge,
-  DEFAULT_MESSAGE_TEMPLATES
+  DEFAULT_MESSAGE_TEMPLATES,
+  resolveTemplatePlaceholders
 } from '../utils/customer';
 
 interface CustomerMessagingTabProps {
@@ -409,21 +410,21 @@ export const CustomerMessagingTab: React.FC<CustomerMessagingTabProps> = ({
   const renderPreviewText = (text: string = '', cust: Customer | null) => {
     const raw = String(text || '');
     if (!cust) return raw;
-    const name = cust.fullName || cust.name || 'Valued Customer';
-    const nic = cust.nicPassport || 'N/A';
-    const phone = cust.whatsappNumber || cust.phone || '';
-    const nowStr = new Date().toLocaleDateString();
-
-    return raw
-      .replace(/{customer_name}/g, name)
-      .replace(/{name}/g, name)
-      .replace(/{phone}/g, phone)
-      .replace(/{nic}/g, nic)
-      .replace(/{date}/g, nowStr)
-      .replace(/{shop_name}/g, shopName)
-      .replace(/{vehicle_serial}/g, 'CY-101')
-      .replace(/{duration}/g, '2 hrs')
-      .replace(/{total_amount}/g, 'Rs. 1,200');
+    return resolveTemplatePlaceholders(raw, {
+      customer: cust,
+      shopName,
+      currencySymbol: settings?.currencySymbol || 'LKR',
+      extra: {
+        vehicle_serial: 'CY-101',
+        vehicle_name: 'Standard City Bicycle',
+        rental_number: 'REN-101',
+        start_time: '10:00 AM',
+        end_time: '12:00 PM',
+        duration: '2 hrs',
+        amount: '1,200',
+        balance: '0',
+      },
+    });
   };
 
   // WhatsApp Gateway / Webhook configuration state

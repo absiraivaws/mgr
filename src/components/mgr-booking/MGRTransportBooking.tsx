@@ -40,6 +40,7 @@ import {
 } from '../../types/mgrTransportV2';
 import { triggerLifecycleNotifications, getWhatsAppUrl } from '../../utils/mgrTransportNotifications';
 import { UserAccount, getMGRPersona } from '../../utils/auth';
+import { formatVehicleCode, formatBookingCode, formatScheduleCode } from '../../utils/mgrUniqueId';
 
 export interface MGRTransportBookingProps {
   view: 'search' | 'requests' | 'owner-listings';
@@ -68,8 +69,8 @@ const createListingsFromVehicles = (
 ): TransportV2Listing[] => {
   const listings: TransportV2Listing[] = [];
 
-  for (const v of vehiclesList) {
-    if (v.status !== 'active') continue;
+  vehiclesList.forEach((v, vIdx) => {
+    if (v.status !== 'active') return;
 
     const matchedOwner = ownersList.find(o => o.id === v.ownerId);
     const ownerName = matchedOwner?.fullName || v.ownerName || 'MGR Transport Operator';
@@ -81,6 +82,8 @@ const createListingsFromVehicles = (
         ? v.photos
         : ['https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=600&q=80'];
 
+    const vehicleCode = v.uniqueCode || formatVehicleCode(vIdx + 1, v.id);
+
     // Determine booking type: 'trip' vs 'schedule'
     const isSchedule =
       v.bookingType === 'schedule' ||
@@ -89,9 +92,11 @@ const createListingsFromVehicles = (
     if (isSchedule) {
       // Schedule Booking Type: If defined schedules exist, create one listing per schedule item
       if (v.schedules && v.schedules.length > 0) {
-        for (const s of v.schedules) {
+        v.schedules.forEach((s, sIdx) => {
+          const scheduleCode = s.uniqueCode || formatScheduleCode(sIdx + 1, s.id);
           listings.push({
             id: `LST-${v.id}-${s.id}`,
+            uniqueCode: scheduleCode,
             vehicleId: v.id,
             vehicleName,
             vehicleType: v.type,
@@ -114,12 +119,13 @@ const createListingsFromVehicles = (
             createdAt: v.createdAt || Date.now(),
             updatedAt: Date.now(),
           });
-        }
+        });
       } else {
         // Default single schedule entry for today
         const todayStr = new Date().toISOString().split('T')[0];
         listings.push({
           id: `LST-${v.id}-DEFAULT`,
+          uniqueCode: vehicleCode,
           vehicleId: v.id,
           vehicleName,
           vehicleType: v.type,
@@ -150,6 +156,7 @@ const createListingsFromVehicles = (
 
       listings.push({
         id: `LST-${v.id}`,
+        uniqueCode: vehicleCode,
         vehicleId: v.id,
         vehicleName,
         vehicleType: v.type,
@@ -168,7 +175,7 @@ const createListingsFromVehicles = (
         updatedAt: Date.now(),
       });
     }
-  }
+  });
 
   return listings;
 };
@@ -304,7 +311,8 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   // 6. Delete Confirmation Modal (Requirement 11, Admin Only)
   const [deletingRequest, setDeletingRequest] = useState<TransportV2Request | null>(null);
 
-  // ─── FIFO SEAT CAPACITY CALCULATION ────────────────────────────────
+  // ─── FIFO SEAT CAPACITY CALCULATION (MD Section 3) ──────────────────
+  // Formula: Remaining Seats = Total Capacity - Confirmed Seats - Active FIFO Holds (15-min)
   const getRemainingSeatsForListing = (listing: TransportV2Listing): number => {
     const isSchedule = listing.listingMode === 'schedule' || listing.listingMode === 'planned_trip';
     if (!isSchedule) return listing.totalSeats || 4;
@@ -313,8 +321,21 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       .filter(r => r.listingId === listing.id && (r.paymentStatus === 'paid' || r.requestStatus === 'confirmed'))
       .reduce((acc, r) => acc + (r.seatCount || 1), 0);
 
-    const baseSeats = listing.availableSeats !== undefined ? listing.availableSeats : listing.totalSeats || 4;
-    return Math.max(0, baseSeats - confirmedSeats);
+    const now = Date.now();
+    const FIFOHoldMs = 15 * 60 * 1000;
+    const activeHolds = requests
+      .filter(r =>
+        r.listingId === listing.id &&
+        (r.requestStatus === 'pending_owner' || r.requestStatus === 'awaiting_payment') &&
+        r.paymentStatus !== 'paid' &&
+        r.requestStatus !== 'owner_rejected' &&
+        r.requestStatus !== 'cancelled' &&
+        ((r.holdExpiresAt && r.holdExpiresAt > now) || (now - (r.createdAt || 0) < FIFOHoldMs))
+      )
+      .reduce((acc, r) => acc + (r.seatCount || 1), 0);
+
+    const totalCapacity = listing.totalSeats || 30;
+    return Math.max(0, totalCapacity - confirmedSeats - activeHolds);
   };
 
   // ─── FILTER LISTINGS FOR SEARCH ────────────────────────────────────
@@ -502,7 +523,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     const adminCharge = Math.round(seatSubtotal * (convenienceFeePercentage / 100));
     const totalAmount = seatSubtotal + adminCharge;
 
-    const reqNum = `MGR-REQ-${Math.floor(1000 + Math.random() * 9000)}`;
+    const reqNum = formatBookingCode(requests.length + 1);
     const payRef = `PAY-MGR-${Math.floor(100000 + Math.random() * 900000)}`;
 
     const newRequest: TransportV2Request = {
@@ -542,17 +563,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       updatedAt: Date.now(),
     };
 
-    // Deduct seats immediately from inventory
-    setListings(prev =>
-      prev.map(l => {
-        if (l.id === requestingListing.id) {
-          const cur = l.availableSeats !== undefined ? l.availableSeats : l.totalSeats;
-          return { ...l, availableSeats: Math.max(0, cur - requestedSeats), updatedAt: Date.now() };
-        }
-        return l;
-      })
-    );
-
+    // Update requests state which reactively and accurately recalculates remaining seats via getRemainingSeatsForListing
     setRequests(prev => [newRequest, ...prev]);
 
     // Dispatch Lifecycle Notification
@@ -573,10 +584,22 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     e.preventDefault();
     if (!requestingListing) return;
 
+    // Strict double-booking conflict prevention
+    const conflict = requests.find(
+      r =>
+        r.vehicleId === requestingListing.vehicleId &&
+        r.travelDate === reqTravelDate &&
+        (r.requestStatus === 'confirmed' || r.requestStatus === 'pending_owner' || r.requestStatus === 'awaiting_payment')
+    );
+    if (conflict) {
+      alert(`Vehicle availability conflict: This vehicle already has a ${conflict.requestStatus === 'confirmed' ? 'confirmed booking' : 'pending reservation'} on ${reqTravelDate}. Double bookings are strictly prohibited.`);
+      return;
+    }
+
     const finalPassengerName = reqPassengerName || currentUser?.name || currentUser?.username || 'Passenger';
     const finalPassengerPhone = reqPassengerPhone || currentUser?.phone || '+94 77 123 4567';
 
-    const reqNum = `MGR-REQ-${Math.floor(1000 + Math.random() * 9000)}`;
+    const reqNum = formatBookingCode(requests.length + 1);
     const newRequest: TransportV2Request = {
       id: `REQ-V2-${Date.now()}`,
       requestNumber: reqNum,
@@ -604,6 +627,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       specialNotes: reqNotes,
       requestStatus: 'pending_owner',
       paymentStatus: 'pending',
+      holdExpiresAt: Date.now() + 15 * 60 * 1000, // 15-minute FIFO hold
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -956,8 +980,14 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
+                      {renderSortHeader('Ref ID', 'uniqueCode', searchSortField, searchSortDir, () =>
+                        handleSort('uniqueCode', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage)
+                      )}
                       {renderSortHeader('Vehicle & Photo', 'vehicleName', searchSortField, searchSortDir, () =>
                         handleSort('vehicleName', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage)
+                      )}
+                      {renderSortHeader('Mode', 'listingMode', searchSortField, searchSortDir, () =>
+                        handleSort('listingMode', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage)
                       )}
                       {renderSortHeader('Type', 'vehicleType', searchSortField, searchSortDir, () =>
                         handleSort('vehicleType', searchSortField, searchSortDir, setSearchSortField, setSearchSortDir, setSearchPage)
@@ -982,6 +1012,14 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                       const isSchedule = item.listingMode === 'schedule' || item.listingMode === 'planned_trip';
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                          {/* Dedicated Column: Ref ID / Unique Code */}
+                          <td className="py-3 px-4 break-words">
+                            <span className="font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-[11px] font-bold inline-block break-words">
+                              {item.uniqueCode || item.id}
+                            </span>
+                          </td>
+
+                          {/* Vehicle & Photo */}
                           <td className="py-3 px-4 break-words">
                             <div className="flex items-center gap-3">
                               {item.photos && item.photos.length > 0 ? (
@@ -997,18 +1035,23 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                               )}
                               <div className="break-words min-w-0">
                                 <span className="font-bold text-slate-900 block break-words">{item.vehicleName}</span>
-                                {/* Badge: Strictly 'Trip' or 'Schedule' (Requirement 1) */}
-                                <span
-                                  className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border inline-block mt-0.5 ${
-                                    !isSchedule
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                      : 'bg-blue-50 text-blue-800 border-blue-200'
-                                  }`}
-                                >
-                                  {!isSchedule ? 'Trip' : 'Schedule'}
-                                </span>
+                                <span className="text-[10px] text-slate-500 block break-words">{item.ownerName}</span>
                               </div>
                             </div>
+                          </td>
+
+                          {/* Dedicated Column: Mode (Trip / Schedule) */}
+                          <td className="py-3 px-4 break-words">
+                            <span
+                              className={`text-[10px] font-bold uppercase px-2 py-1 rounded-lg border inline-flex items-center gap-1 ${
+                                !isSchedule
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  : 'bg-blue-50 text-blue-800 border-blue-200'
+                              }`}
+                            >
+                              {!isSchedule ? <Car className="w-3 h-3" /> : <Calendar className="w-3 h-3" />}
+                              {!isSchedule ? 'Trip' : 'Schedule'}
+                            </span>
                           </td>
 
                           <td className="py-3 px-4 break-words">
@@ -1114,9 +1157,14 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                       <div>
                         {/* Header Badge */}
                         <div className="flex items-start justify-between gap-2">
-                          <span className="font-mono text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                            {item.registrationNumber}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono text-[10px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                              {item.uniqueCode || item.id}
+                            </span>
+                            <span className="font-mono text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                              {item.registrationNumber}
+                            </span>
+                          </div>
                           <span
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border ${
                               !isSchedule
@@ -1391,7 +1439,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                           <span className="font-mono text-[10px] text-slate-400 break-words">{req.registrationNumber}</span>
                         </td>
 
-                        {/* Passenger Column (Contact Privacy: Requirement 7) */}
+                        {/* Passenger Column (Contact Privacy: Requirement 7 & 8) */}
                         <td className="py-3 px-4 break-words">
                           {canViewPassengerContact ? (
                             <>
@@ -1400,10 +1448,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                             </>
                           ) : (
                             <div>
-                              <div className="font-bold text-slate-900 break-words">{req.passenger.name}</div>
+                              <div className="font-bold text-slate-500 italic break-words">*** (Passenger Masked)</div>
                               <div className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 text-[10px] font-bold">
                                 <Lock className="w-3 h-3 text-amber-600 shrink-0" />
-                                <span>Protected (Paid only)</span>
+                                <span>Protected until confirmed & paid</span>
                               </div>
                             </div>
                           )}
@@ -1597,15 +1645,77 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
         const adminCharge = Math.round(seatSubtotal * (convenienceFeePercentage / 100));
         const totalPayable = seatSubtotal + adminCharge;
 
+        // Generate upcoming 21 days for mini-calendar (Trip mode)
+        const calendarDays = (() => {
+          const days = [];
+          const today = new Date();
+          const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          for (let i = 0; i < 21; i++) {
+            const d = new Date(today);
+            d.setDate(today.getDate() + i);
+            const dateStr = d.toISOString().split('T')[0];
+            const dayNum = d.getDate();
+            const dayName = dayNames[d.getDay()];
+
+            // Conflict & availability rules
+            const matchingRequests = requests.filter(
+              r => r.vehicleId === requestingListing.vehicleId && r.travelDate === dateStr
+            );
+            let status: 'available' | 'pending' | 'confirmed' | 'unavailable' = 'available';
+            let statusTooltip = 'Available for hire';
+
+            if (matchingRequests.some(r => r.requestStatus === 'confirmed')) {
+              status = 'confirmed';
+              statusTooltip = 'Confirmed booking — Reserved';
+            } else if (matchingRequests.some(r => r.requestStatus === 'pending_owner' || r.requestStatus === 'awaiting_payment')) {
+              status = 'pending';
+              statusTooltip = 'Pending owner approval — Held';
+            } else if (
+              requestingListing.availableDates &&
+              requestingListing.availableDates.length > 0 &&
+              !requestingListing.availableDates.includes(dateStr)
+            ) {
+              status = 'unavailable';
+              statusTooltip = 'Operator not available on this date';
+            }
+
+            days.push({ dateStr, dayNum, dayName, status, statusTooltip });
+          }
+          return days;
+        })();
+
+        // Check selected date conflict status
+        const selectedTripDateStatus = (() => {
+          if (!reqTravelDate) return null;
+          const matchingRequests = requests.filter(
+            r => r.vehicleId === requestingListing.vehicleId && r.travelDate === reqTravelDate
+          );
+          if (matchingRequests.some(r => r.requestStatus === 'confirmed')) return 'confirmed';
+          if (matchingRequests.some(r => r.requestStatus === 'pending_owner' || r.requestStatus === 'awaiting_payment')) return 'pending';
+          if (
+            requestingListing.availableDates &&
+            requestingListing.availableDates.length > 0 &&
+            !requestingListing.availableDates.includes(reqTravelDate)
+          ) {
+            return 'unavailable';
+          }
+          return 'available';
+        })();
+
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-            <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
+            <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs max-h-[92vh] overflow-y-auto">
               <div className="flex items-center justify-between border-b pb-3">
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-800">
                       {requestingListing.registrationNumber}
                     </span>
+                    {requestingListing.uniqueCode && (
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                        {requestingListing.uniqueCode}
+                      </span>
+                    )}
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border ${
                         !isSchedule ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-blue-50 text-blue-800 border-blue-200'
@@ -1621,7 +1731,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 <button
                   type="button"
                   onClick={() => setRequestingListing(null)}
-                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
+                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1655,51 +1765,59 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                   </div>
                 </div>
 
-                {/* Route Information */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">
-                      {isSchedule ? 'Pickup Place *' : 'From Location *'}
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={reqRouteFrom}
-                      onChange={e => setReqRouteFrom(e.target.value)}
-                      placeholder="e.g. Mannar Town Stand"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">
-                      {isSchedule ? 'Drop-off Place *' : 'To Location *'}
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={reqRouteTo}
-                      onChange={e => setReqRouteTo(e.target.value)}
-                      placeholder="e.g. Jaffna City Bus Stand"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                    />
-                  </div>
-                </div>
+                {/* SCHEDULE: FIXED ROUTE DISPLAY (READ-ONLY) + PASSENGER PICKUP & DROP-OFF INPUTS */}
+                {isSchedule ? (
+                  <div className="space-y-3">
+                    {/* Locked Operator Fixed Route Card */}
+                    <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
+                          <Lock className="w-3.5 h-3.5 text-blue-600" />
+                          Operator Scheduled Route (Fixed)
+                        </span>
+                        <span className="text-[11px] font-semibold text-blue-800">
+                          📅 {requestingListing.plannedTripDate} at {requestingListing.departureTime || '08:00'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-white/90 p-2.5 rounded-lg border border-blue-100">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">From Location</span>
+                          <span className="font-bold text-slate-800 text-xs">{requestingListing.plannedFrom || 'Mannar Town'}</span>
+                        </div>
+                        <div className="bg-white/90 p-2.5 rounded-lg border border-blue-100">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">To Location</span>
+                          <span className="font-bold text-slate-800 text-xs">{requestingListing.plannedTo || 'Jaffna City'}</span>
+                        </div>
+                      </div>
+                    </div>
 
-                {/* Date, Time & Seats */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Travel Date *</label>
-                    <input
-                      type="date"
-                      required
-                      value={reqTravelDate}
-                      onChange={e => setReqTravelDate(e.target.value)}
-                      disabled={isSchedule}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 disabled:bg-slate-100"
-                    />
-                  </div>
+                    {/* Customer enters specific boarding and alighting location along the route */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Customer Pickup Location *</label>
+                        <input
+                          type="text"
+                          required
+                          value={reqRouteFrom}
+                          onChange={e => setReqRouteFrom(e.target.value)}
+                          placeholder="e.g. Mannar Town Stand / Specific Bus Stop"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Customer Drop-off Location *</label>
+                        <input
+                          type="text"
+                          required
+                          value={reqRouteTo}
+                          onChange={e => setReqRouteTo(e.target.value)}
+                          placeholder="e.g. Jaffna Hospital Junction / Drop point"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 font-medium text-slate-800"
+                        />
+                      </div>
+                    </div>
 
-                  {isSchedule ? (
+                    {/* Required Seats */}
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="font-bold text-slate-700">Required Seats *</label>
@@ -1716,42 +1834,184 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                           reqSeats > remaining ? 'border-rose-500 bg-rose-50 text-rose-900' : 'border-slate-300'
                         }`}
                       />
+                      {reqSeats > remaining && (
+                        <div className="p-2 rounded-lg bg-rose-50 border border-rose-200 text-[11px] text-rose-700 font-semibold flex items-center gap-1.5 mt-1.5 animate-fade-in">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+                          <span>Only {remaining} seats are currently available. Please reduce your requested seat count to continue.</span>
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Wanted Pickup Time</label>
-                      <input
-                        type="time"
-                        value={reqTravelTime}
-                        onChange={e => setReqTravelTime(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                      />
-                    </div>
-                  )}
-                </div>
 
-                {/* Schedule Live Price Breakdown & Direct Confirmation (Requirement 2) */}
-                {isSchedule && (
-                  <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-1.5 text-xs">
-                    <div className="flex justify-between text-slate-600">
-                      <span>Available Seats for Journey:</span>
-                      <strong className="text-slate-800">{remaining} Seats</strong>
+                    {/* Schedule Live Price Breakdown & Direct Confirmation */}
+                    <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-1.5 text-xs">
+                      <div className="flex justify-between text-slate-600">
+                        <span>Available Seats for Journey:</span>
+                        <strong className="text-slate-800">{remaining} Seats</strong>
+                      </div>
+                      <div className="flex justify-between text-slate-600">
+                        <span>Per Seat Amount:</span>
+                        <strong className="text-slate-800">Rs. {seatFare.toLocaleString()}</strong>
+                      </div>
+                      <div className="flex justify-between text-slate-600 pt-1 border-t border-blue-200/60">
+                        <span>Seat Amount ({reqSeats} × Rs. {seatFare.toLocaleString()}):</span>
+                        <strong className="text-slate-800">Rs. {seatSubtotal.toLocaleString()}</strong>
+                      </div>
+                      <div className="flex justify-between text-slate-600">
+                        <span>Admin Charge ({convenienceFeePercentage}%):</span>
+                        <strong className="text-slate-800">Rs. {adminCharge.toLocaleString()}</strong>
+                      </div>
+                      <div className="flex justify-between text-slate-900 font-extrabold text-sm pt-1.5 border-t border-blue-300">
+                        <span>Total Amount Payable:</span>
+                        <span className="text-emerald-700">Rs. {totalPayable.toLocaleString()}</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-slate-600">
-                      <span>Per Seat Amount:</span>
-                      <strong className="text-slate-800">Rs. {seatFare.toLocaleString()}</strong>
+                  </div>
+                ) : (
+                  /* TRIP: CUSTOM ROUTE & VEHICLE AVAILABILITY MINI-CALENDAR */
+                  <div className="space-y-3">
+                    {/* Route Information */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">From Location *</label>
+                        <input
+                          type="text"
+                          required
+                          value={reqRouteFrom}
+                          onChange={e => setReqRouteFrom(e.target.value)}
+                          placeholder="e.g. Mannar Town"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">To Location *</label>
+                        <input
+                          type="text"
+                          required
+                          value={reqRouteTo}
+                          onChange={e => setReqRouteTo(e.target.value)}
+                          placeholder="e.g. Colombo Fort / Islandwide"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 font-medium text-slate-800"
+                        />
+                      </div>
                     </div>
-                    <div className="flex justify-between text-slate-600 pt-1 border-t border-blue-200/60">
-                      <span>Seat Amount ({reqSeats} × Rs. {seatFare.toLocaleString()}):</span>
-                      <strong className="text-slate-800">Rs. {seatSubtotal.toLocaleString()}</strong>
-                    </div>
-                    <div className="flex justify-between text-slate-600">
-                      <span>Admin Charge ({convenienceFeePercentage}%):</span>
-                      <strong className="text-slate-800">Rs. {adminCharge.toLocaleString()}</strong>
-                    </div>
-                    <div className="flex justify-between text-slate-900 font-extrabold text-sm pt-1.5 border-t border-blue-300">
-                      <span>Total Amount Payable:</span>
-                      <span className="text-emerald-700">Rs. {totalPayable.toLocaleString()}</span>
+
+                    {/* Interactive Mini-Calendar for Vehicle Availability */}
+                    <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="flex items-center justify-between">
+                        <label className="font-bold text-slate-800 flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Vehicle Availability Calendar</span>
+                        </label>
+                        <span className="text-[10px] text-slate-500 font-semibold">
+                          Selected: <strong className="text-slate-800">{reqTravelDate || 'None'}</strong>
+                        </span>
+                      </div>
+
+                      {/* Color Legend */}
+                      <div className="flex items-center gap-3 text-[10px] font-semibold text-slate-600 flex-wrap pb-1.5 border-b border-slate-200">
+                        <div className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+                          <span>Available</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0"></span>
+                          <span>Pending Approval (Held)</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0"></span>
+                          <span>Confirmed Booked</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0"></span>
+                          <span>Unavailable</span>
+                        </div>
+                      </div>
+
+                      {/* Calendar Grid (Next 21 Days) */}
+                      <div className="grid grid-cols-7 gap-1 pt-1">
+                        {calendarDays.map(({ dateStr, dayNum, dayName, status, statusTooltip }) => {
+                          const isSelected = reqTravelDate === dateStr;
+                          const isAvailable = status === 'available';
+
+                          return (
+                            <button
+                              key={dateStr}
+                              type="button"
+                              disabled={!isAvailable}
+                              onClick={() => setReqTravelDate(dateStr)}
+                              title={`${dateStr}: ${statusTooltip}`}
+                              className={`p-1.5 rounded-lg text-center transition flex flex-col items-center justify-center relative ${
+                                isSelected ? 'ring-2 ring-emerald-600 font-bold shadow-xs' : ''
+                              } ${
+                                status === 'available'
+                                  ? 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100 cursor-pointer'
+                                  : status === 'pending'
+                                  ? 'bg-amber-50 text-amber-900 border border-amber-200 opacity-80 cursor-not-allowed'
+                                  : status === 'confirmed'
+                                  ? 'bg-rose-50 text-rose-900 border border-rose-200 opacity-80 cursor-not-allowed'
+                                  : 'bg-slate-100 text-slate-400 border border-slate-200 opacity-50 cursor-not-allowed'
+                              }`}
+                            >
+                              <span className="text-[9px] uppercase font-bold text-slate-500">{dayName}</span>
+                              <span className="text-xs font-extrabold">{dayNum}</span>
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full mt-0.5 ${
+                                  status === 'available'
+                                    ? 'bg-emerald-500'
+                                    : status === 'pending'
+                                    ? 'bg-amber-500'
+                                    : status === 'confirmed'
+                                    ? 'bg-rose-500'
+                                    : 'bg-slate-300'
+                                }`}
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Dynamic Conflict / Availability Warning Banner */}
+                      {selectedTripDateStatus === 'confirmed' && (
+                        <div className="p-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-semibold flex items-center gap-1.5 mt-2 animate-fade-in">
+                          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                          <span>This vehicle already has a confirmed booking on {reqTravelDate}. Please select another available green date.</span>
+                        </div>
+                      )}
+                      {selectedTripDateStatus === 'pending' && (
+                        <div className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-semibold flex items-center gap-1.5 mt-2 animate-fade-in">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>This vehicle has a pending reservation held on {reqTravelDate}. Double bookings are strictly prohibited.</span>
+                        </div>
+                      )}
+                      {selectedTripDateStatus === 'unavailable' && (
+                        <div className="p-2 rounded-lg bg-slate-100 border border-slate-300 text-slate-700 text-[11px] font-semibold flex items-center gap-1.5 mt-2 animate-fade-in">
+                          <AlertCircle className="w-4 h-4 text-slate-500 shrink-0" />
+                          <span>The operator is not scheduled for hire on {reqTravelDate}. Please choose an available green date.</span>
+                        </div>
+                      )}
+
+                      {/* Manual Date Input & Pickup Time */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-600 mb-1">Travel Date *</label>
+                          <input
+                            type="date"
+                            required
+                            value={reqTravelDate}
+                            onChange={e => setReqTravelDate(e.target.value)}
+                            className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-semibold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-600 mb-1">Wanted Pickup Time</label>
+                          <input
+                            type="time"
+                            value={reqTravelTime}
+                            onChange={e => setReqTravelTime(e.target.value)}
+                            className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-semibold"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1778,7 +2038,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                   </button>
 
                   {isSchedule ? (
-                    /* DIRECT PAYMENT & SEAT CONFIRMATION (Requirement 2) */
+                    /* DIRECT PAYMENT & SEAT CONFIRMATION */
                     <button
                       type="submit"
                       disabled={reqSeats > remaining || reqSeats < 1}
@@ -1791,9 +2051,11 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                     /* TRIP: SEND REQUEST TO OPERATOR */
                     <button
                       type="submit"
-                      className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer shadow-xs"
+                      disabled={selectedTripDateStatus !== 'available'}
+                      className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold cursor-pointer shadow-xs flex items-center gap-1.5"
                     >
-                      Send Request to Operator
+                      <Car className="w-4 h-4" />
+                      <span>Send Request to Operator</span>
                     </button>
                   )}
                 </div>
@@ -2050,7 +2312,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                     </>
                   ) : (
                     <div>
-                      <strong className="text-slate-800 text-sm block">{viewingRequest.passenger.name}</strong>
+                      <strong className="text-slate-500 text-sm block italic">*** (Passenger Name Masked)</strong>
                       <div className="flex items-center gap-1.5 py-1 text-amber-800 text-xs font-semibold">
                         <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                         <span>Passenger contact protected until booking confirmed & paid.</span>
@@ -2071,9 +2333,12 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                       <span>📞 {viewingRequest.ownerPhone}</span>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-1.5 py-1 text-amber-800 text-xs font-semibold">
-                      <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                      <span>Operator contact protected until booking confirmed & paid.</span>
+                    <div>
+                      <span className="text-slate-500 text-xs block italic">Operator: *** (Masked)</span>
+                      <div className="flex items-center gap-1.5 py-1 text-amber-800 text-xs font-semibold">
+                        <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>Operator contact protected until booking confirmed & paid.</span>
+                      </div>
                     </div>
                   )}
                 </div>

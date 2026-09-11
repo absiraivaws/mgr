@@ -1,6 +1,17 @@
 @import "tailwindcss";
 
 /* Ensure date input calendar picker indicator is clearly visible in dark and light modes */
+/* Remove up/down spinner arrows from all numeric input windows globally */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 input[type="date"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
   opacity: 0.95;

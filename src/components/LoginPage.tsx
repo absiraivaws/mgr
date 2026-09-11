@@ -442,6 +442,57 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </button>
               </p>
             </div>
+
+            {/* Quick Demo Personas for instant localhost testing */}
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 text-center">
+                ⚡ Quick Demo Sign-In (Localhost Testing)
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  id="btn-quick-admin"
+                  type="button"
+                  onClick={async () => {
+                    const res = await authenticateUser('admin@mannargreenride.lk', 'admin');
+                    if (res.success && res.user) {
+                      setSuccessMessage(`Welcome, ${res.user.name}!`);
+                      setTimeout(() => onLoginSuccess(res.user!), 300);
+                    }
+                  }}
+                  className={`py-2 px-2 rounded-xl border text-[11px] font-bold text-center transition cursor-pointer hover:border-emerald-500 hover:bg-emerald-500/10 ${t.cardSubtleBg} ${t.textHeading}`}
+                >
+                  👑 Admin
+                </button>
+                <button
+                  id="btn-quick-owner"
+                  type="button"
+                  onClick={async () => {
+                    const res = await authenticateUser('owner@mannargreenride.lk', 'owner');
+                    if (res.success && res.user) {
+                      setSuccessMessage(`Welcome, ${res.user.name}!`);
+                      setTimeout(() => onLoginSuccess(res.user!), 300);
+                    }
+                  }}
+                  className={`py-2 px-2 rounded-xl border text-[11px] font-bold text-center transition cursor-pointer hover:border-cyan-500 hover:bg-cyan-500/10 ${t.cardSubtleBg} ${t.textHeading}`}
+                >
+                  🚐 Owner
+                </button>
+                <button
+                  id="btn-quick-passenger"
+                  type="button"
+                  onClick={async () => {
+                    const res = await authenticateUser('passenger@mannargreenride.lk', 'passenger');
+                    if (res.success && res.user) {
+                      setSuccessMessage(`Welcome, ${res.user.name}!`);
+                      setTimeout(() => onLoginSuccess(res.user!), 300);
+                    }
+                  }}
+                  className={`py-2 px-2 rounded-xl border text-[11px] font-bold text-center transition cursor-pointer hover:border-blue-500 hover:bg-blue-500/10 ${t.cardSubtleBg} ${t.textHeading}`}
+                >
+                  👤 Passenger
+                </button>
+              </div>
+            </div>
           </form>
         )}
 

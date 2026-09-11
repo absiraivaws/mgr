@@ -32,14 +32,33 @@ import { MGRRoutesView } from './MGRRoutesView';
 import { MGRMarketplaceAdminView } from './MGRMarketplaceAdminView';
 import { MGRDashboardView } from './MGRDashboardView';
 import { MGRSettingsView } from './MGRSettingsView';
+import { MGRCustomersView } from './MGRCustomersView';
+import { Customer } from '../../types';
 import { UserAccount, getMGRPersona } from '../../utils/auth';
 import { ShieldCheck, Car } from 'lucide-react';
+import {
+  fetchMGRTransportData,
+  syncTransportVehicleToSupabase,
+  deleteTransportVehicleFromSupabase,
+  syncTransportOwnerToSupabase,
+  deleteTransportOwnerFromSupabase,
+  syncTransportDriverToSupabase,
+  deleteTransportDriverFromSupabase,
+  syncTransportRouteToSupabase,
+  deleteTransportRouteFromSupabase,
+  syncTransportBookingToSupabase,
+  syncMarketplaceSettingsToSupabase,
+} from '../../lib/supabaseSync';
 
 interface MGRBookingHubProps {
   activeTab: MGRTabType;
   setActiveTab: (tab: MGRTabType) => void;
   themeMode?: 'dark' | 'light';
   currentUser?: UserAccount;
+  customers?: Customer[];
+  onAddCustomer?: (newCustomer: Customer) => void;
+  onEditCustomer?: (updated: Customer) => void;
+  onDeleteCustomer?: (id: string) => void;
 }
 
 export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
@@ -47,6 +66,10 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
   setActiveTab,
   themeMode = 'light',
   currentUser,
+  customers = [],
+  onAddCustomer,
+  onEditCustomer,
+  onDeleteCustomer,
 }) => {
   const persona = getMGRPersona(currentUser);
   const isPassenger = persona === 'passenger';
@@ -66,17 +89,9 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
     try {
       const saved = localStorage.getItem('mgr_transport_vehicles');
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length >= 50) {
-          return parsed;
-        }
-        const existingIds = new Set(parsed.map((v: any) => v.id));
-        const combined = [...parsed, ...INITIAL_VEHICLES.filter((v) => !existingIds.has(v.id))];
-        localStorage.setItem('mgr_transport_vehicles', JSON.stringify(combined));
-        return combined;
+        return JSON.parse(saved);
       }
     } catch {}
-    localStorage.setItem('mgr_transport_vehicles', JSON.stringify(INITIAL_VEHICLES));
     return INITIAL_VEHICLES;
   });
 
@@ -126,18 +141,35 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
   }, [bookings]);
   useEffect(() => {
     localStorage.setItem('mgr_marketplace_settings', JSON.stringify(settings));
+    syncMarketplaceSettingsToSupabase(settings);
   }, [settings]);
 
-
-
-
+  // Initial load from Supabase if connected
+  useEffect(() => {
+    fetchMGRTransportData().then((remote) => {
+      if (!remote) return;
+      if (remote.owners && remote.owners.length > 0) setOwners(remote.owners);
+      if (remote.vehicles && remote.vehicles.length > 0) setVehicles(remote.vehicles);
+      if (remote.drivers && remote.drivers.length > 0) setDrivers(remote.drivers);
+      if (remote.routes && remote.routes.length > 0) setRoutes(remote.routes);
+      if (remote.schedules && remote.schedules.length > 0) setSchedules(remote.schedules);
+      if (remote.bookings && remote.bookings.length > 0) setBookings(remote.bookings);
+      if (remote.settings) setSettings(remote.settings);
+    });
+  }, []);
 
   const handleUpdateBookingStatus = (bookingId: string, newStatus: BookingStatus) => {
-    setBookings(prev => prev.map(b => (b.id === bookingId ? { ...b, status: newStatus } : b)));
+    setBookings(prev => {
+      const updated = prev.map(b => (b.id === bookingId ? { ...b, status: newStatus } : b));
+      const target = updated.find(b => b.id === bookingId);
+      if (target) syncTransportBookingToSupabase(target);
+      return updated;
+    });
   };
 
   const handleEditBooking = (updated: TransportBooking) => {
     setBookings(prev => prev.map(b => (b.id === updated.id ? updated : b)));
+    syncTransportBookingToSupabase(updated);
   };
 
   const handleDeleteBooking = (id: string) => {
@@ -146,66 +178,98 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
 
   const handleAddVehicle = (newVehicle: TransportVehicle) => {
     setVehicles(prev => [newVehicle, ...prev]);
+    syncTransportVehicleToSupabase(newVehicle);
   };
 
   const handleUpdateVehicleStatus = (vehicleId: string, status: TransportVehicle['status']) => {
-    setVehicles(prev => prev.map(v => (v.id === vehicleId ? { ...v, status } : v)));
+    setVehicles(prev => {
+      const updated = prev.map(v => (v.id === vehicleId ? { ...v, status } : v));
+      const target = updated.find(v => v.id === vehicleId);
+      if (target) syncTransportVehicleToSupabase(target);
+      return updated;
+    });
   };
 
   const handleEditVehicle = (updated: TransportVehicle) => {
     setVehicles(prev => prev.map(v => (v.id === updated.id ? updated : v)));
+    syncTransportVehicleToSupabase(updated);
   };
 
   const handleDeleteVehicle = (id: string) => {
     setVehicles(prev => prev.filter(v => v.id !== id));
+    deleteTransportVehicleFromSupabase(id);
   };
 
   const handleAddOwner = (newOwner: TransportOwner) => {
     setOwners(prev => [newOwner, ...prev]);
+    syncTransportOwnerToSupabase(newOwner);
   };
 
   const handleUpdateOwnerStatus = (ownerId: string, status: VerificationStatus) => {
-    setOwners(prev => prev.map(o => (o.id === ownerId ? { ...o, status } : o)));
+    setOwners(prev => {
+      const updated = prev.map(o => (o.id === ownerId ? { ...o, status } : o));
+      const target = updated.find(o => o.id === ownerId);
+      if (target) syncTransportOwnerToSupabase(target);
+      return updated;
+    });
   };
 
   const handleEditOwner = (updated: TransportOwner) => {
     setOwners(prev => prev.map(o => (o.id === updated.id ? updated : o)));
+    syncTransportOwnerToSupabase(updated);
   };
 
   const handleDeleteOwner = (id: string) => {
     setOwners(prev => prev.filter(o => o.id !== id));
+    deleteTransportOwnerFromSupabase(id);
   };
 
   const handleAddDriver = (newDriver: TransportDriver) => {
     setDrivers(prev => [newDriver, ...prev]);
+    syncTransportDriverToSupabase(newDriver);
   };
 
   const handleUpdateDriverStatus = (driverId: string, status: TransportDriver['status']) => {
-    setDrivers(prev => prev.map(d => (d.id === driverId ? { ...d, status } : d)));
+    setDrivers(prev => {
+      const updated = prev.map(d => (d.id === driverId ? { ...d, status } : d));
+      const target = updated.find(d => d.id === driverId);
+      if (target) syncTransportDriverToSupabase(target);
+      return updated;
+    });
   };
 
   const handleEditDriver = (updated: TransportDriver) => {
     setDrivers(prev => prev.map(d => (d.id === updated.id ? updated : d)));
+    syncTransportDriverToSupabase(updated);
   };
 
   const handleDeleteDriver = (id: string) => {
     setDrivers(prev => prev.filter(d => d.id !== id));
+    deleteTransportDriverFromSupabase(id);
   };
 
   const handleAddRoute = (newRoute: TransportRoute) => {
     setRoutes(prev => [newRoute, ...prev]);
+    syncTransportRouteToSupabase(newRoute);
   };
 
   const handleUpdateRouteStatus = (routeId: string, status: TransportRoute['status']) => {
-    setRoutes(prev => prev.map(r => (r.id === routeId ? { ...r, status } : r)));
+    setRoutes(prev => {
+      const updated = prev.map(r => (r.id === routeId ? { ...r, status } : r));
+      const target = updated.find(r => r.id === routeId);
+      if (target) syncTransportRouteToSupabase(target);
+      return updated;
+    });
   };
 
   const handleEditRoute = (updated: TransportRoute) => {
     setRoutes(prev => prev.map(r => (r.id === updated.id ? updated : r)));
+    syncTransportRouteToSupabase(updated);
   };
 
   const handleDeleteRoute = (id: string) => {
     setRoutes(prev => prev.filter(r => r.id !== id));
+    deleteTransportRouteFromSupabase(id);
   };
 
   const handleAddSchedule = (newSchedule: TransportSchedule) => {
@@ -314,6 +378,46 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
             onAddSchedule={handleAddSchedule}
             isAdmin={isAdminUser}
             themeMode="light"
+          />
+        )
+      )}
+
+      {activeTab === 'mgr-customers' && (
+        isPassenger ? (
+          <div className="p-8 rounded-2xl bg-white border border-slate-200 text-center space-y-3 shadow-xs">
+            <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
+              <Car className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900">Access Restricted</h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Customer and operator directories are restricted to operators and administrators.
+            </p>
+            <button
+              type="button"
+              onClick={() => setActiveTab('mgr-search')}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white shadow-xs hover:bg-emerald-700 cursor-pointer"
+            >
+              Go to Find Transport
+            </button>
+          </div>
+        ) : (
+          <MGRCustomersView
+            customers={customers || []}
+            owners={owners}
+            drivers={drivers}
+            vehicles={vehicles}
+            currentUser={currentUser}
+            isAdmin={isAdminUser}
+            onAddCustomer={onAddCustomer || (() => {})}
+            onEditCustomer={onEditCustomer || (() => {})}
+            onDeleteCustomer={onDeleteCustomer || (() => {})}
+            onAddOwner={handleAddOwner}
+            onEditOwner={handleEditOwner}
+            onDeleteOwner={handleDeleteOwner}
+            onAddDriver={handleAddDriver}
+            onEditDriver={handleEditDriver}
+            onDeleteDriver={handleDeleteDriver}
+            themeMode={themeMode}
           />
         )
       )}

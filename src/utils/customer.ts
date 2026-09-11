@@ -181,33 +181,109 @@ export function formatWhatsAppBirthdayMessage(customer: Customer, businessName: 
   return `🎉 *Happy Birthday ${name}!* 🎂🎈\n\nWishing you a wonderful celebration${ageStr} filled with happiness and joy from all of us at *${businessName}*! 🚴‍♂️✨\n\nAs a token of our appreciation, we invite you to enjoy a special birthday discount on your next ride with us. Have an incredible year ahead!\n\nWarm regards,\n*${businessName}* Team`;
 }
 
+export interface ResolvePlaceholderOptions {
+  customer?: Partial<Customer> | null;
+  rental?: Partial<RentalRecord> | null;
+  shopName?: string;
+  currencySymbol?: string;
+  extra?: Record<string, string | number | undefined | null>;
+}
+
+/**
+ * Universal placeholder resolver supporting all required variables:
+ * {customer_name}, {name}, {vehicle_serial}, {vehicle_name}, {rental_number},
+ * {start_time}, {end_time}, {duration}, {amount}, {balance}, {shop_name}, {phone}, {nic}, {date}
+ */
+export function resolveTemplatePlaceholders(
+  templateContent: string,
+  options: ResolvePlaceholderOptions = {}
+): string {
+  if (!templateContent) return '';
+  let text = templateContent;
+  const { customer, rental, shopName = 'Mannar Green Ride', currencySymbol = 'LKR', extra = {} } = options;
+
+  const customerName = customer?.fullName || customer?.name || rental?.customerName || 'Valued Customer';
+  const phone = customer?.whatsappNumber || customer?.phone || rental?.customerPhone || '';
+  const nic = customer?.nicPassport || rental?.customerNicPassport || '';
+  const dob = customer?.dob || '';
+  const vehicleSerial = rental?.vehicleSerialNumber || (extra?.vehicle_serial ? String(extra.vehicle_serial) : '');
+  const vehicleName = rental?.vehicleTypeName || (extra?.vehicle_name ? String(extra.vehicle_name) : 'Bicycle');
+  const rentalNumber = rental?.rentalNumber || (extra?.rental_number ? String(extra.rental_number) : '');
+
+  const formatTimestamp = (ts?: number) => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatDate = (ts?: number) => {
+    const d = ts ? new Date(ts) : new Date();
+    return d.toLocaleDateString();
+  };
+
+  const startTimeStr = rental?.startTime ? formatTimestamp(rental.startTime) : (extra?.start_time ? String(extra.start_time) : '');
+  const endTimeStr = rental?.endTime ? formatTimestamp(rental.endTime) : (extra?.end_time ? String(extra.end_time) : '');
+
+  let durationStr = '';
+  if (rental?.startTime) {
+    const end = rental.endTime || Date.now();
+    const diffMs = Math.max(0, end - rental.startTime);
+    const hours = Math.floor(diffMs / 3600000);
+    const mins = Math.floor((diffMs % 3600000) / 60000);
+    durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  } else if (extra?.duration) {
+    durationStr = String(extra.duration);
+  }
+
+  const rawAmt = rental?.totalAmount !== undefined ? Number(rental.totalAmount) : (extra?.amount !== undefined ? Number(extra.amount) : 0);
+  const amountStr = (rental?.totalAmount !== undefined || extra?.amount !== undefined) ? `${currencySymbol} ${rawAmt.toLocaleString()}` : '';
+
+  const rawDeposit = rental?.depositAmount !== undefined ? Number(rental.depositAmount) : 0;
+  const balanceVal = Math.max(0, rawAmt - rawDeposit);
+  const balanceStr = (rental?.totalAmount !== undefined || extra?.balance !== undefined)
+    ? (extra?.balance ? String(extra.balance) : `${currencySymbol} ${balanceVal.toLocaleString()}`)
+    : '';
+  const dateStr = formatDate(rental?.startTime);
+
+  text = text.replace(/\{customer_name\}/gi, customerName);
+  text = text.replace(/\{name\}/gi, customerName);
+  text = text.replace(/\{vehicle_serial\}/gi, vehicleSerial);
+  text = text.replace(/\{vehicle_name\}/gi, vehicleName);
+  text = text.replace(/\{rental_number\}/gi, rentalNumber);
+  text = text.replace(/\{start_time\}/gi, startTimeStr);
+  text = text.replace(/\{end_time\}/gi, endTimeStr);
+  text = text.replace(/\{duration\}/gi, durationStr);
+  text = text.replace(/\{amount\}/gi, amountStr);
+  text = text.replace(/\{total_amount\}/gi, amountStr);
+  text = text.replace(/\{balance\}/gi, balanceStr);
+  text = text.replace(/\{shop_name\}/gi, shopName);
+  text = text.replace(/\{phone\}/gi, phone);
+  text = text.replace(/\{nic_passport\}/gi, nic);
+  text = text.replace(/\{nic\}/gi, nic);
+  text = text.replace(/\{dob\}/gi, dob);
+  text = text.replace(/\{date\}/gi, dateStr);
+
+  if (extra) {
+    Object.entries(extra).forEach(([key, val]) => {
+      if (val !== undefined && val !== null) {
+        text = text.replace(new RegExp(`\\{${key}\\}`, 'gi'), String(val));
+      }
+    });
+  }
+
+  return text;
+}
+
 /**
  * Replace placeholders like {customer_name}, {shop_name}, {dob}, {nic_passport}, {phone}
+ * Backwards-compatible wrapper around resolveTemplatePlaceholders
  */
 export function formatWhatsAppCustomMessage(
   templateContent: string,
   customer: Customer,
   extra: Record<string, string> = {}
 ): string {
-  let text = templateContent;
-  const name = customer.fullName || customer.name || 'Customer';
-  const phone = customer.whatsappNumber || customer.phone || '';
-  const nic = customer.nicPassport || '';
-  const dob = customer.dob || '';
-
-  text = text.replace(/\{customer_name\}/gi, name);
-  text = text.replace(/\{name\}/gi, name);
-  text = text.replace(/\{phone\}/gi, phone);
-  text = text.replace(/\{nic_passport\}/gi, nic);
-  text = text.replace(/\{nic\}/gi, nic);
-  text = text.replace(/\{dob\}/gi, dob);
-
-  Object.entries(extra).forEach(([key, val]) => {
-    const reg = new RegExp(`\\{${key}\\}`, 'gi');
-    text = text.replace(reg, val);
-  });
-
-  return text;
+  return resolveTemplatePlaceholders(templateContent, { customer, extra });
 }
 
 /**

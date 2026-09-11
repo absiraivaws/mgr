@@ -66,7 +66,9 @@ import {
   syncAllRolesToSupabase,
   deleteRoleFromSupabase,
   syncMessageTemplateToSupabase,
+  syncAllMessageTemplatesToSupabase,
   deleteMessageTemplateFromSupabase,
+  fetchMessageTemplatesFromSupabase,
   syncSettingsToSupabase,
 } from '../lib/supabaseSync';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
@@ -75,6 +77,7 @@ import {
   DEFAULT_MESSAGE_TEMPLATES,
   getStoredMessageTemplates,
   saveStoredMessageTemplates,
+  resolveTemplatePlaceholders,
 } from '../utils/customer';
 
 interface UserRolesManagerProps {
@@ -336,39 +339,55 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   };
 
   // Save Role Level Tab Permissions
-  const handleSaveRolePermissions = (roleId: string) => {
+  const handleSaveRolePermissions = async (roleId: string) => {
     setErrorMessage(null);
     setSuccessMessage(null);
 
     const targetPerms = rolePermsState[roleId];
     if (!targetPerms) return;
 
-    const res = updateRolePermissions(roleId, targetPerms);
-    if (res.success) {
-      setSavedRoleIds((prev) => ({ ...prev, [roleId]: true }));
-      const roleObj = roles.find((r) => r.id === roleId);
-      if (roleObj && isSupabaseConfigured()) {
-        syncRoleToSupabase({ ...roleObj, permissions: targetPerms });
+    const roleObj = roles.find((r) => r.id === roleId);
+    if (!roleObj) return;
+
+    const updatedRole: RoleDefinition = { ...roleObj, permissions: targetPerms };
+
+    // 1. If Supabase is connected, sync first and verify database success
+    if (isSupabaseConfigured()) {
+      const syncRes = await syncRoleToSupabase(updatedRole);
+      if (!syncRes.success) {
+        setErrorMessage(`Failed to save permissions to Supabase: ${syncRes.error || 'Unknown error'}`);
+        return;
       }
-      setSuccessMessage(`Access permissions for user level "${roleObj?.name || roleId}" saved successfully.`);
-      refreshState();
-      setTimeout(() => {
-        setSavedRoleIds((prev) => ({ ...prev, [roleId]: false }));
-        setSuccessMessage(null);
-      }, 2500);
-    } else {
-      setErrorMessage(res.error || 'Failed to update role permissions.');
     }
+
+    // 2. Persist to local cache
+    const res = updateRolePermissions(roleId, targetPerms);
+    if (!res.success) {
+      setErrorMessage(res.error || 'Failed to update role permissions in local cache.');
+      return;
+    }
+
+    // 3. Mark saved, notify parent component, and show success
+    setSavedRoleIds((prev) => ({ ...prev, [roleId]: true }));
+    setSuccessMessage(`Access permissions for user level "${roleObj.name || roleId}" saved and synced successfully.`);
+    refreshState();
+    onRolePermissionsChange?.();
+
+    setTimeout(() => {
+      setSavedRoleIds((prev) => ({ ...prev, [roleId]: false }));
+      setSuccessMessage(null);
+    }, 2500);
   };
 
   // Save All Role Level Tab Permissions
-  const handleSaveAllRolePermissions = () => {
+  const handleSaveAllRolePermissions = async () => {
     setErrorMessage(null);
+    setSuccessMessage(null);
+
     let count = 0;
     const updatedRolesList: RoleDefinition[] = [];
     roles.forEach((r) => {
       if (r.id !== 'admin' && rolePermsState[r.id]) {
-        updateRolePermissions(r.id, rolePermsState[r.id]);
         updatedRolesList.push({ ...r, permissions: rolePermsState[r.id] });
         count++;
       } else {
@@ -377,10 +396,22 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     });
 
     if (isSupabaseConfigured()) {
-      syncAllRolesToSupabase(updatedRolesList);
+      const syncRes = await syncAllRolesToSupabase(updatedRolesList);
+      if (!syncRes.success) {
+        setErrorMessage(`Failed to save all role permissions to Supabase: ${syncRes.error || 'Database error'}`);
+        return;
+      }
     }
 
+    // Persist to local storage
+    roles.forEach((r) => {
+      if (r.id !== 'admin' && rolePermsState[r.id]) {
+        updateRolePermissions(r.id, rolePermsState[r.id]);
+      }
+    });
+
     refreshState();
+    onRolePermissionsChange?.();
     setSuccessMessage(`Updated tab access permissions for all ${count} user levels.`);
     setTimeout(() => setSuccessMessage(null), 3000);
   };
@@ -395,33 +426,50 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     setSavedUserIds((prev) => ({ ...prev, [userId]: false }));
   };
 
-  const handleSaveUserRole = (userId: string) => {
+  const handleSaveUserRole = async (userId: string) => {
     setErrorMessage(null);
     setSuccessMessage(null);
 
     const targetRole = selectedRoles[userId];
     if (!targetRole) return;
 
-    const res = updateUserRoleAndDetails(userId, targetRole);
-    if (res.success) {
-      if (res.user && isSupabaseConfigured()) {
-        syncUserAccountToSupabase(res.user);
+    const userObj = users.find((u) => u.id === userId);
+    if (!userObj) return;
+
+    const updatedUser: UserAccount = { ...userObj, role: targetRole };
+
+    // 1. If Supabase is connected, sync first and verify database success
+    if (isSupabaseConfigured()) {
+      const syncRes = await syncUserAccountToSupabase(updatedUser);
+      if (!syncRes.success) {
+        setErrorMessage(`Failed to save user role to Supabase: ${syncRes.error || 'Unknown error'}`);
+        return;
       }
-      setSavedUserIds((prev) => ({ ...prev, [userId]: true }));
-      const roleObj = roles.find((r) => r.id === targetRole);
-      setSuccessMessage(`User "${res.user?.name}" assigned to level "${roleObj?.name || targetRole}".`);
-      refreshState();
-      setTimeout(() => {
-        setSavedUserIds((prev) => ({ ...prev, [userId]: false }));
-        setSuccessMessage(null);
-      }, 2500);
-    } else {
-      setErrorMessage(res.error || 'Failed to update user role.');
     }
+
+    // 2. Persist to local cache
+    const res = updateUserRoleAndDetails(userId, targetRole);
+    if (!res.success) {
+      setErrorMessage(res.error || 'Failed to update user role in local cache.');
+      return;
+    }
+
+    setSavedUserIds((prev) => ({ ...prev, [userId]: true }));
+    const roleObj = roles.find((r) => r.id === targetRole);
+    setSuccessMessage(`User "${userObj.name}" assigned to level "${roleObj?.name || targetRole}".`);
+    refreshState();
+    onUserListChange?.();
+
+    setTimeout(() => {
+      setSavedUserIds((prev) => ({ ...prev, [userId]: false }));
+      setSuccessMessage(null);
+    }, 2500);
   };
 
-  const handleSaveAllUserRoles = () => {
+  const handleSaveAllUserRoles = async () => {
     setErrorMessage(null);
+    setSuccessMessage(null);
+
     const allUsers = getStoredUsers();
     let updatedCount = 0;
     const newSavedMap: Record<string, boolean> = {};
@@ -444,6 +492,14 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       return u;
     });
 
+    if (isSupabaseConfigured()) {
+      const syncRes = await syncAllUsersToSupabase(updatedUsers);
+      if (!syncRes.success) {
+        setErrorMessage(`Failed to save all user roles to Supabase: ${syncRes.error || 'Database error'}`);
+        return;
+      }
+    }
+
     saveStoredUsers(updatedUsers);
 
     // Update active session if logged in user's role changed
@@ -453,12 +509,9 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       if (found) setCurrentUserSession(found);
     }
 
-    if (isSupabaseConfigured()) {
-      syncAllUsersToSupabase(updatedUsers);
-    }
-
     setSavedUserIds(newSavedMap);
     refreshState();
+    onUserListChange?.();
 
     setSuccessMessage(
       updatedCount > 0
@@ -472,19 +525,24 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     }, 2500);
   };
 
-  const handleDeleteUser = (user: UserAccount) => {
+  const handleDeleteUser = async (user: UserAccount) => {
     if (user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase()) {
       alert('Cannot delete root administrator account.');
       return;
     }
     if (confirm(`Are you sure you want to delete user "${user.name}" (${user.email})?`)) {
+      if (isSupabaseConfigured()) {
+        const syncRes = await deleteUserAccountFromSupabase(user.id);
+        if (!syncRes.success) {
+          alert(`Failed to delete user from Supabase: ${syncRes.error || 'Unknown error'}`);
+          return;
+        }
+      }
       const res = deleteUserAccount(user.id);
       if (res.success) {
-        if (isSupabaseConfigured()) {
-          deleteUserAccountFromSupabase(user.id);
-        }
         setSuccessMessage(`User ${user.name} removed from system.`);
         refreshState();
+        onUserListChange?.();
         setTimeout(() => setSuccessMessage(null), 2500);
       } else {
         setErrorMessage(res.error || 'Failed to delete user.');
@@ -647,6 +705,17 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   const [templateSuccess, setTemplateSuccess] = useState<string | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (isSupabaseConfigured()) {
+      fetchMessageTemplatesFromSupabase().then((cloudTmpls) => {
+        if (cloudTmpls && cloudTmpls.length > 0) {
+          setTemplates(cloudTmpls);
+          saveStoredMessageTemplates(cloudTmpls);
+        }
+      });
+    }
+  }, []);
+
   const matchTemplateCategory = (tmplCat: string, filterCat: string): boolean => {
     if (filterCat === 'all') return true;
     const cat = (tmplCat || '').toLowerCase().trim();
@@ -721,7 +790,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     setIsTemplateModalOpen(true);
   };
 
-  const handleSaveTemplate = (e: React.FormEvent) => {
+  const handleSaveTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tmplTitle.trim()) {
       setTemplateError('Template title is required');
@@ -756,37 +825,49 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       updatedList = [targetTemplate, ...templates];
     }
 
-    setTemplates(updatedList);
-    saveStoredMessageTemplates(updatedList);
     if (isSupabaseConfigured()) {
-      syncMessageTemplateToSupabase(targetTemplate);
+      const syncRes = await syncMessageTemplateToSupabase(targetTemplate);
+      if (!syncRes.success) {
+        setTemplateError(`Failed to save template to Supabase: ${syncRes.error || 'Database error'}`);
+        return;
+      }
     }
 
+    setTemplates(updatedList);
+    saveStoredMessageTemplates(updatedList);
     setIsTemplateModalOpen(false);
     setTemplateSuccess(editingTemplateId ? 'Template updated successfully!' : 'New template created!');
     setTimeout(() => setTemplateSuccess(null), 3000);
   };
 
-  const handleDeleteTemplate = (id: string, title: string) => {
+  const handleDeleteTemplate = async (id: string, title: string) => {
     if (confirm(`Are you sure you want to delete template "${title}"?`)) {
+      if (isSupabaseConfigured()) {
+        const syncRes = await deleteMessageTemplateFromSupabase(id);
+        if (!syncRes.success) {
+          alert(`Failed to delete template from Supabase: ${syncRes.error || 'Database error'}`);
+          return;
+        }
+      }
       const updatedList = templates.filter((t) => t.id !== id);
       setTemplates(updatedList);
       saveStoredMessageTemplates(updatedList);
-      if (isSupabaseConfigured()) {
-        deleteMessageTemplateFromSupabase(id);
-      }
       setTemplateSuccess(`Template "${title}" deleted.`);
       setTimeout(() => setTemplateSuccess(null), 2500);
     }
   };
 
-  const handleResetDefaultTemplates = () => {
+  const handleResetDefaultTemplates = async () => {
     if (confirm('Reset to standard system default message templates? Custom changes may be replaced.')) {
+      if (isSupabaseConfigured()) {
+        const syncRes = await syncAllMessageTemplatesToSupabase(DEFAULT_MESSAGE_TEMPLATES);
+        if (!syncRes.success) {
+          alert(`Failed to reset templates in Supabase: ${syncRes.error || 'Database error'}`);
+          return;
+        }
+      }
       setTemplates(DEFAULT_MESSAGE_TEMPLATES);
       saveStoredMessageTemplates(DEFAULT_MESSAGE_TEMPLATES);
-      if (isSupabaseConfigured()) {
-        DEFAULT_MESSAGE_TEMPLATES.forEach((t) => syncMessageTemplateToSupabase(t));
-      }
       setTemplateSuccess('Templates reset to system defaults.');
       setTimeout(() => setTemplateSuccess(null), 3000);
     }
@@ -1844,12 +1925,18 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                 <div className="flex flex-wrap gap-1.5">
                   {[
                     { tag: '{customer_name}', label: 'Customer Name' },
+                    { tag: '{name}', label: 'Short Name' },
+                    { tag: '{vehicle_serial}', label: 'Vehicle Serial' },
+                    { tag: '{vehicle_name}', label: 'Vehicle Type' },
+                    { tag: '{rental_number}', label: 'Rental #' },
+                    { tag: '{start_time}', label: 'Start Time' },
+                    { tag: '{end_time}', label: 'End Time' },
+                    { tag: '{duration}', label: 'Duration' },
+                    { tag: '{amount}', label: 'Amount' },
+                    { tag: '{balance}', label: 'Balance' },
                     { tag: '{shop_name}', label: 'Shop Name' },
                     { tag: '{phone}', label: 'Phone' },
-                    { tag: '{nic_passport}', label: 'NIC / Passport' },
-                    { tag: '{vehicle_name}', label: 'Vehicle Name' },
-                    { tag: '{rental_number}', label: 'Rental Number' },
-                    { tag: '{amount}', label: 'Amount' },
+                    { tag: '{nic}', label: 'NIC' },
                     { tag: '{date}', label: 'Date' },
                   ].map((p) => (
                     <button
@@ -1857,6 +1944,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                       type="button"
                       onClick={() => handleInsertTag(p.tag)}
                       className="px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition cursor-pointer"
+                      title={p.label}
                     >
                       + {p.tag}
                     </button>
@@ -1872,7 +1960,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                 <textarea
                   rows={6}
                   required
-                  placeholder="Enter message text... You can use *bold*, _italics_, and placeholders."
+                  placeholder="Enter message text... You can use *bold*, _italics_, and placeholders like {customer_name} or {rental_number}."
                   value={tmplContent}
                   onChange={(e) => setTmplContent(e.target.value)}
                   className={`w-full rounded-xl p-3 text-xs font-mono ${t.textInput}`}
@@ -1881,11 +1969,31 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
 
               {/* Live Preview */}
               <div>
-                <span className={`block text-[11px] font-bold uppercase tracking-wider mb-1 text-emerald-400`}>
-                  Live Preview:
+                <span className="block text-[11px] font-bold uppercase tracking-wider mb-1 text-emerald-400">
+                  Live Resolved Preview:
                 </span>
-                <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-700 text-xs text-slate-200 font-mono whitespace-pre-wrap leading-relaxed">
-                  {tmplContent || <span className="text-slate-500 italic">Type message content above to see live preview...</span>}
+                <div className={`p-3 rounded-xl border text-xs font-mono whitespace-pre-wrap leading-relaxed ${
+                  themeMode === 'light' ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-slate-900/80 border-slate-700 text-slate-200'
+                }`}>
+                  {tmplContent ? (
+                    resolveTemplatePlaceholders(tmplContent, {
+                      customer: { fullName: 'Kamal Perera', whatsappNumber: '+94 77 123 4567', nicPassport: '199512345678' },
+                      shopName: settings?.businessName || 'Mannar Green Ride',
+                      currencySymbol: settings?.currencySymbol || 'LKR',
+                      extra: {
+                        vehicle_serial: 'CY-101',
+                        vehicle_name: 'Standard City Bicycle',
+                        rental_number: 'REN-101',
+                        start_time: '10:00 AM',
+                        end_time: '12:00 PM',
+                        duration: '2 hrs',
+                        amount: '1,200',
+                        balance: '0',
+                      },
+                    })
+                  ) : (
+                    <span className="text-slate-500 italic">Type message content above to see live preview...</span>
+                  )}
                 </div>
               </div>
 
