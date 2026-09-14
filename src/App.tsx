@@ -85,11 +85,32 @@ import {
   deleteRentalFromSupabase,
   fetchMessageTemplatesFromSupabase,
 } from './lib/supabaseSync';
-import { getStoredMessageTemplates, saveStoredMessageTemplates, getStoredCustomerGroups, saveStoredCustomerGroups, getStoredMessageHistory, saveStoredMessageHistory } from './utils/customer';
-import { getNextRentalNumber } from './utils/pricing';
+import { getStoredMessageTemplates, saveStoredMessageTemplates, getStoredCustomerGroups, saveStoredCustomerGroups, getStoredMessageHistory, saveStoredMessageHistory, DEFAULT_MESSAGE_TEMPLATES } from './utils/customer';
+import { getNextRentalNumber, formatRentalNumber } from './utils/pricing';
 import { isSupabaseConfigured, getSupabase } from './lib/supabase';
 import { MGRBookingHub } from './components/mgr-booking/MGRBookingHub';
 import { MGRTabType } from './types/mgrBooking';
+
+function sanitizeRentalRecordNumber(r: RentalRecord): RentalRecord {
+  if (!r || !r.rentalNumber) return r;
+  let rn = String(r.rentalNumber).trim();
+  if (/^[A-Z0-9]+-\d{7}$/i.test(rn)) {
+    return { ...r, rentalNumber: rn.toUpperCase() };
+  }
+  if (rn === 'REN-101' || rn === '101' || rn === 'REN-156' || rn === '156') rn = 'REN-0000001';
+  else if (rn === 'REN-102' || rn === '102') rn = 'REN-0000002';
+  else if (rn === 'REN-103' || rn === '103') rn = 'REN-0000003';
+  else {
+    const matches = rn.match(/\d+/g);
+    if (matches && matches.length > 0) {
+      const num = parseInt(matches[matches.length - 1], 10);
+      if (!isNaN(num)) {
+        rn = formatRentalNumber(num);
+      }
+    }
+  }
+  return { ...r, rentalNumber: rn };
+}
 import { 
   AccentColor, 
   ThemeMode, 
@@ -109,7 +130,9 @@ import {
   saveStoredUsers,
   saveStoredRoles,
   getMGRPersona,
-  logoutUser
+  logoutUser,
+  getUserPermissions,
+  hasPermission
 } from './utils/auth';
 
 export default function App() {
@@ -179,6 +202,44 @@ export default function App() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
+  // Dynamic permissions version to immediately reflect role & tab access changes across the entire app
+  const [permissionsVersion, setPermissionsVersion] = useState(0);
+
+  const handleRefreshPermissions = () => {
+    const refreshed = getCurrentUser();
+    if (refreshed) {
+      setCurrentUser({ ...refreshed });
+    } else {
+      setCurrentUser((prev) => (prev ? { ...prev } : { ...DEFAULT_USER }));
+    }
+    setPermissionsVersion((v) => v + 1);
+  };
+
+  // Route protection: automatically redirect if activeTab is not permitted after admin changes
+  useEffect(() => {
+    if (systemMode !== 'bicycle_pos') return;
+    const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+    const perms = getUserPermissions(activeUser);
+    const tabPermMap: Partial<Record<NavTabType, boolean>> = {
+      dashboard: perms.accessDashboard,
+      rentals: perms.accessRentals,
+      customers: perms.accessCustomers,
+      messages: perms.accessMessages,
+      history: perms.accessHistory,
+      users: perms.accessUsers || isRoot,
+      settings: perms.accessSettings,
+      finance: perms.accessFinance ?? perms.accessIncome,
+    };
+
+    if (activeTab in tabPermMap && tabPermMap[activeTab] === false) {
+      const allTabs: NavTabType[] = ['rentals', 'dashboard', 'customers', 'messages', 'history', 'finance', 'settings', 'users'];
+      const allowed = allTabs.find((t) => tabPermMap[t] !== false);
+      if (allowed) {
+        setActiveTab(allowed);
+      }
+    }
+  }, [activeUser, permissionsVersion, activeTab, systemMode]);
+
   // Income & Expenses entries
   const [incomeEntries, setIncomeEntries] = useState<IncomeEntry[]>(() => {
     try {
@@ -240,7 +301,8 @@ export default function App() {
   const [activeRentals, setActiveRentals] = useState<RentalRecord[]>(() => {
     try {
       const saved = localStorage.getItem('v_rental_active');
-      return saved ? JSON.parse(saved) : [];
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed.map(sanitizeRentalRecordNumber) : [];
     } catch {
       return [];
     }
@@ -253,14 +315,12 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((r: RentalRecord) =>
-            r.rentalNumber === 'REN-156' ? { ...r, rentalNumber: 'REN-101' } : r
-          );
+          return parsed.map(sanitizeRentalRecordNumber);
         }
       }
-      return INITIAL_COMPLETED_RENTALS;
+      return INITIAL_COMPLETED_RENTALS.map(sanitizeRentalRecordNumber);
     } catch {
-      return INITIAL_COMPLETED_RENTALS;
+      return INITIAL_COMPLETED_RENTALS.map(sanitizeRentalRecordNumber);
     }
   });
 
@@ -495,11 +555,9 @@ export default function App() {
         if (cloudData.vehicles && cloudData.vehicles.length > 0) setVehicles(cloudData.vehicles);
         if (cloudData.customers && cloudData.customers.length > 0) setCustomers(cloudData.customers);
         // Always load rentals from Supabase to ensure history is up to date
-        if (cloudData.activeRentals !== undefined) setActiveRentals(cloudData.activeRentals);
+        if (cloudData.activeRentals !== undefined) setActiveRentals(cloudData.activeRentals.map(sanitizeRentalRecordNumber));
         if (cloudData.completedRentals !== undefined) {
-          const sanitized = cloudData.completedRentals.map((r: RentalRecord) =>
-            r.rentalNumber === 'REN-156' ? { ...r, rentalNumber: 'REN-101' } : r
-          );
+          const sanitized = cloudData.completedRentals.map(sanitizeRentalRecordNumber);
           setCompletedRentals(sanitized);
         }
         if (cloudData.settings) {
@@ -530,8 +588,16 @@ export default function App() {
         }
 
         if (cloudData.messageTemplates && cloudData.messageTemplates.length > 0) {
-          setMessageTemplates(cloudData.messageTemplates);
-          saveStoredMessageTemplates(cloudData.messageTemplates);
+          const merged = new Map<string, MessageTemplate>();
+          for (const def of DEFAULT_MESSAGE_TEMPLATES) {
+            merged.set(def.id, def);
+          }
+          for (const ct of cloudData.messageTemplates) {
+            merged.set(ct.id, ct);
+          }
+          const fullList = Array.from(merged.values());
+          setMessageTemplates(fullList);
+          saveStoredMessageTemplates(fullList);
         }
 
         // Load customer groups from Supabase
@@ -547,9 +613,7 @@ export default function App() {
 
       // Reconcile rental history with income entries
       const effectiveRentals = cloudData?.completedRentals !== undefined
-        ? cloudData.completedRentals.map((r: RentalRecord) =>
-            r.rentalNumber === 'REN-156' ? { ...r, rentalNumber: 'REN-101' } : r
-          )
+        ? cloudData.completedRentals.map(sanitizeRentalRecordNumber)
         : completedRentals;
       const effectiveIncome = (cloudIncome && cloudIncome.length > 0) ? cloudIncome : incomeEntries;
 
@@ -1065,6 +1129,7 @@ export default function App() {
     <div className={`flex flex-col min-h-screen ${systemMode === 'mgr_booking' ? 'bg-slate-50 text-slate-900' : t.appBg} w-full overflow-auto font-sans transition-colors duration-300`}>
       {/* Top Navigation Bar with Theme Toggles, Palette Picker, Inactive Bordered Tabs & User Login */}
       <Navbar
+        key={`navbar-${permissionsVersion}-${activeUser.role}-${activeUser.email}`}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         activeRentals={activeRentals}
@@ -1290,14 +1355,8 @@ export default function App() {
                 const nextSettings = { ...settings, ...updated };
                 handleUpdateSettings(nextSettings);
               }}
-              onUserListChange={() => {
-                const refreshed = getCurrentUser();
-                if (refreshed) setCurrentUser({ ...refreshed });
-              }}
-              onRolePermissionsChange={() => {
-                const refreshed = getCurrentUser();
-                if (refreshed) setCurrentUser({ ...refreshed });
-              }}
+              onUserListChange={handleRefreshPermissions}
+              onRolePermissionsChange={handleRefreshPermissions}
               onOpenPasswordReset={(email) => {
                 setIsPasswordResetModalOpen(true);
                 setIsForcedPasswordChange(false);
@@ -1342,9 +1401,9 @@ export default function App() {
                 }
               }}
               onUpdateEntry={(updated) => {
-                const isAdmin = activeUser.role === 'admin' || activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
-                if (!isAdmin) {
-                  console.warn('[Finance] Action rejected: Only administrators can update finance records.');
+                const canEdit = hasPermission(activeUser, 'canEditFinanceTransaction');
+                if (!canEdit) {
+                  console.warn('[Finance] Action rejected: Active role does not have permission to update finance records.');
                   return;
                 }
                 setIncomeEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
@@ -1353,9 +1412,9 @@ export default function App() {
                 }
               }}
               onDeleteEntry={(id) => {
-                const isAdmin = activeUser.role === 'admin' || activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
-                if (!isAdmin) {
-                  console.warn('[Finance] Action rejected: Only administrators can delete finance records.');
+                const canDelete = hasPermission(activeUser, 'canDeleteFinanceTransaction');
+                if (!canDelete) {
+                  console.warn('[Finance] Action rejected: Active role does not have permission to delete finance records.');
                   return;
                 }
                 setIncomeEntries((prev) => prev.filter((e) => e.id !== id));

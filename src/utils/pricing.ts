@@ -82,14 +82,27 @@ export function formatCurrency(amount: number, symbol: string = '$', position: '
   return position === 'prefix' ? `${symbol}${formatted}` : `${formatted} ${symbol}`;
 }
 
+export const SRI_LANKA_TIMEZONE = 'Asia/Colombo';
+
 export function formatTime(timestamp: number): string {
   const d = new Date(timestamp);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+  return d.toLocaleTimeString('en-GB', {
+    timeZone: SRI_LANKA_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
 }
 
 export function formatDate(timestamp: number): string {
   const d = new Date(timestamp);
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString('en-GB', {
+    timeZone: SRI_LANKA_TIMEZONE,
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 export function formatDateTime(timestamp: number): string {
@@ -153,10 +166,19 @@ export function playSoundEffect(type: 'start' | 'stop' | 'click' | 'alert') {
 }
 
 /**
- * Computes the next rental number monotonically by inspecting all existing rental numbers.
- * Finds the highest integer suffix among all active & completed rentals.
- * Automatically sanitizes any legacy 'REN-156' (which was meant to be REN-101).
- * Starts at 101 if no rentals exist.
+ * Formats an integer rental number into the standard 7-digit zero-padded format:
+ * e.g. 1 -> 'REN-0000001', 2 -> 'REN-0000002'
+ */
+export function formatRentalNumber(num: number, prefix: string = 'REN'): string {
+  const cleanPrefix = (prefix || 'REN').trim();
+  const safeNum = Math.max(1, Math.floor(num));
+  return `${cleanPrefix}-${String(safeNum).padStart(7, '0')}`;
+}
+
+/**
+ * Computes the next rental number monotonically in 7-digit zero-padded format (e.g. REN-0000001, REN-0000002).
+ * Inspects all active and completed rentals to find the highest integer suffix.
+ * Starts at 1 (REN-0000001) if no rentals exist.
  */
 export function getNextRentalNumber(
   activeRentals: { rentalNumber?: string }[] = [],
@@ -164,26 +186,20 @@ export function getNextRentalNumber(
   prefix: string = 'REN'
 ): string {
   const all = [...(activeRentals || []), ...(completedRentals || [])];
-  let maxNum = 100;
+  let maxNum = 0;
 
   for (const r of all) {
     if (!r || !r.rentalNumber) continue;
-    let rn = String(r.rentalNumber).trim();
-    // Sanitize any legacy REN-156
-    if (rn === 'REN-156' || rn === '156') {
-      rn = 'REN-101';
-    }
-
+    const rn = String(r.rentalNumber).trim();
     const matches = rn.match(/\d+/g);
     if (matches && matches.length > 0) {
       const lastDigits = matches[matches.length - 1];
       const n = parseInt(lastDigits, 10);
-      if (!isNaN(n) && n < 100000 && n > maxNum) {
+      if (!isNaN(n) && n < 10000000 && n > maxNum) {
         maxNum = n;
       }
     }
   }
 
-  const cleanPrefix = (prefix || 'REN').trim();
-  return `${cleanPrefix}-${maxNum + 1}`;
+  return formatRentalNumber(maxNum + 1, prefix);
 }

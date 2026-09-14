@@ -351,7 +351,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
       user: activeUser.name || 'Staff',
       userEmail: activeUser.email,
       action: isStartedViaQR ? 'Rental Started by QR' : 'Manual Rental Started',
-      reference: `REN-${nextRentalNumber}`,
+      reference: nextRentalNumber,
       details: `${isStartedViaQR ? 'QR Scan' : 'Manual selection'} rental started for ${cleanSerial} (${selectedType?.name || 'Vehicle'}) to customer ${customerName.trim() || matchedCustomer?.fullName || matchedCustomer?.name || 'Customer'}${customerNicPassport ? ` (NIC: ${customerNicPassport})` : ''}`,
     });
 
@@ -465,7 +465,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-amber-100 font-mono">
                   <span>Vehicle: {activeRentalFound.vehicleTypeName} ({activeRentalFound.vehicleSerialNumber})</span>
-                  <span>Started: {new Date(activeRentalFound.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span>Started: {new Date(activeRentalFound.startTime).toLocaleTimeString('en-GB', { timeZone: 'Asia/Colombo', hour: '2-digit', minute: '2-digit', hour12: true })}</span>
                   {activeRentalFound.depositAmount ? <span>Deposit: {formatCurrency(activeRentalFound.depositAmount, settings.currencySymbol, settings.currencyPosition)}</span> : null}
                 </div>
               </div>

@@ -97,11 +97,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [canScrollDown, setCanScrollDown] = useState(false);
 
   const activeUser: UserAccount = currentUser && currentUser.email ? currentUser : DEFAULT_USER;
-  const isAdmin = activeUser.role === 'admin' || activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+  const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || activeUser.email.toLowerCase() === 'absiraiva@gmail.com';
+  const isAdmin = activeUser.role === 'admin';
   const persona = getMGRPersona(activeUser);
   const isPassenger = persona === 'passenger';
   const isOwner = persona === 'owner';
-  const isAdminUser = persona === 'admin' || isAdmin;
+  const isAdminUser = persona === 'admin' || isAdmin || isRootAdmin;
   const userPerms = getUserPermissions(activeUser);
   const handleOpenAuth = onOpenAuthModal || onOpenCashierModal || (() => {});
   const handleAccentChange = onSelectAccent || onChangeAccent || (() => {});
@@ -153,7 +154,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'dashboard' as const,
       label: 'Dashboard',
       icon: <Sparkles className="w-4 h-4 shrink-0" />,
-      show: userPerms.accessDashboard ?? (userPerms.accessSettings || isAdmin),
+      show: isAdmin ? true : Boolean(userPerms.accessDashboard),
       badge: null as number | null,
       activeClass: 'bg-violet-500/20 text-violet-400 border border-violet-500/40',
     },
@@ -161,7 +162,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'rentals' as const,
       label: 'Rental Desk',
       icon: <PlayCircle className="w-4 h-4 shrink-0" />,
-      show: userPerms.accessRentals || isAdmin,
+      show: isAdmin ? true : Boolean(userPerms.accessRentals),
       badge: activeRentals.length > 0 ? activeRentals.length : null,
       activeClass: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
     },
@@ -169,7 +170,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'customers' as const,
       label: 'Customers',
       icon: <Users className="w-4 h-4 shrink-0" />,
-      show: userPerms.accessCustomers ?? (userPerms.accessRentals || isAdmin),
+      show: isAdmin ? true : Boolean(userPerms.accessCustomers),
       badge: null as number | null,
       activeClass: 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40',
     },
@@ -177,7 +178,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'messages' as const,
       label: 'Messages',
       icon: <MessageSquare className="w-4 h-4 shrink-0" />,
-      show: userPerms.accessMessages ?? (userPerms.accessCustomers ?? (userPerms.accessRentals || isAdmin)),
+      show: isAdmin ? true : Boolean(userPerms.accessMessages),
       badge: null as number | null,
       activeClass: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
     },
@@ -185,7 +186,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'history' as const,
       label: 'History',
       icon: <History className="w-4 h-4 shrink-0" />,
-      show: userPerms.accessHistory || isAdmin,
+      show: isAdmin ? true : Boolean(userPerms.accessHistory),
       badge: todayCompletedRentals.length > 0 ? todayCompletedRentals.length : null,
       activeClass: 'bg-teal-500/20 text-teal-400 border border-teal-500/40',
     },
@@ -193,7 +194,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'users' as const,
       label: 'Users & Role',
       icon: <ShieldCheck className="w-4 h-4 shrink-0" />,
-      show: userPerms.accessUsers || isAdmin,
+      show: isAdmin ? true : Boolean(userPerms.accessUsers || isRootAdmin),
       badge: null as number | null,
       activeClass: 'bg-purple-500/20 text-purple-400 border border-purple-500/40',
     },
@@ -201,7 +202,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'settings' as const,
       label: 'Rates & Inventory',
       icon: <SettingsIcon className="w-4 h-4 shrink-0" />,
-      show: userPerms.accessSettings || isAdmin,
+      show: isAdmin ? true : Boolean(userPerms.accessSettings),
       badge: null as number | null,
       activeClass: 'bg-blue-500/20 text-blue-400 border border-blue-500/40',
     },
@@ -209,7 +210,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'finance' as const,
       label: 'Finance',
       icon: <DollarSign className="w-4 h-4 shrink-0" />,
-      show: userPerms.accessFinance ?? userPerms.accessIncome ?? (userPerms.accessSettings || isAdmin),
+      show: isAdmin ? true : Boolean(userPerms.accessFinance ?? userPerms.accessIncome),
       badge: null as number | null,
       activeClass: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
     },
@@ -368,12 +369,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Date */}
           <div className={`hidden lg:flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border ${t.cardSubtleBg} ${t.textHeading}`}>
             <Calendar className="w-3.5 h-3.5 text-emerald-500" />
-            <span>{currentTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
+            <span>{currentTime.toLocaleDateString('en-GB', { timeZone: 'Asia/Colombo', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
           </div>
           {/* Clock */}
           <div className={`hidden md:flex items-center gap-1.5 text-xs font-mono px-2.5 py-1.5 rounded-lg border ${t.cardSubtleBg} ${t.textMuted}`}>
             <Clock className="w-3.5 h-3.5 text-blue-400" />
-            <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+            <span>{currentTime.toLocaleTimeString('en-GB', { timeZone: 'Asia/Colombo', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}</span>
           </div>
 
           {/* Accent Picker (Admin Only) */}
@@ -425,14 +426,24 @@ export const Navbar: React.FC<NavbarProps> = ({
 
 
 
-          {/* Profile Avatar */}
-          <div className="relative">
+          {/* Profile Avatar & Role Badge */}
+          <div className="relative flex items-center gap-2">
+            <span className={`hidden sm:inline-block text-[11px] px-2.5 py-0.5 rounded-full font-bold uppercase border ${
+              activeUser.role === 'admin' 
+                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' 
+                : activeUser.role === 'manager' 
+                ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' 
+                : 'bg-purple-500/15 text-purple-400 border-purple-500/30'
+            }`}>
+              {activeUser.role === 'admin' ? 'Administrator' : activeUser.role === 'manager' ? 'Store Manager' : activeUser.role === 'cashier' ? 'Cashier POS' : activeUser.role}
+            </span>
+
             <button
               id="btn-profile-avatar"
               type="button"
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="flex items-center gap-0.5 cursor-pointer group"
-              title={activeUser.name}
+              title={`${activeUser.name} (${activeUser.role})`}
             >
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-lg ring-2 ring-offset-1 transition-all group-hover:scale-105"
@@ -453,14 +464,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
             {showUserMenu && (
               <div
-                className={`absolute right-0 mt-2 w-52 rounded-xl shadow-2xl z-50 border overflow-hidden ${t.modalBg}`}
+                className={`absolute right-0 top-11 w-52 rounded-xl shadow-2xl z-50 border overflow-hidden ${t.modalBg}`}
                 onMouseLeave={() => setShowUserMenu(false)}
               >
                 <div className={`px-4 py-3 border-b ${t.divider}`}>
                   <p className={`text-sm font-bold ${t.textHeading}`}>{activeUser.name}</p>
                   <p className={`text-xs ${t.textMuted}`}>{activeUser.email}</p>
-                  <span className={`inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${t.badge}`}>
-                    {activeUser.role}
+                  <span className={`inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${t.badge}`}>
+                    {activeUser.role === 'admin' ? 'Administrator' : activeUser.role === 'manager' ? 'Store Manager' : activeUser.role === 'cashier' ? 'Cashier POS' : activeUser.role}
                   </span>
                 </div>
                 <div className="p-1">

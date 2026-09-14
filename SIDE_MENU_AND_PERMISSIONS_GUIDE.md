@@ -97,7 +97,7 @@ graph TD
      id: 'messages' as const,
      label: 'Messages',
      icon: <MessageSquare className="w-4 h-4 shrink-0" />,
-     show: userPerms.accessMessages ?? (userPerms.accessCustomers ?? (userPerms.accessRentals || isAdmin)),
+     show: Boolean(userPerms.accessMessages),
      badge: null as number | null,
      activeClass: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
    },

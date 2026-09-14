@@ -213,12 +213,12 @@ export function resolveTemplatePlaceholders(
   const formatTimestamp = (ts?: number) => {
     if (!ts) return '';
     const d = new Date(ts);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleTimeString('en-GB', { timeZone: 'Asia/Colombo', hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
   const formatDate = (ts?: number) => {
     const d = ts ? new Date(ts) : new Date();
-    return d.toLocaleDateString();
+    return d.toLocaleDateString('en-GB', { timeZone: 'Asia/Colombo', month: 'short', day: 'numeric', year: 'numeric' });
   };
 
   const startTimeStr = rental?.startTime ? formatTimestamp(rental.startTime) : (extra?.start_time ? String(extra.start_time) : '');
@@ -417,15 +417,26 @@ const TEMPLATES_STORAGE_KEY = 'v_rental_message_templates';
 export function getStoredMessageTemplates(): MessageTemplate[] {
   try {
     const raw = localStorage.getItem(TEMPLATES_STORAGE_KEY);
-    if (!raw) return DEFAULT_MESSAGE_TEMPLATES;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+    const map = new Map<string, MessageTemplate>();
+    // Prepopulate standard default templates
+    for (const def of DEFAULT_MESSAGE_TEMPLATES) {
+      map.set(def.id, def);
     }
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        for (const t of parsed) {
+          if (t && t.id) {
+            map.set(t.id, t);
+          }
+        }
+      }
+    }
+    return Array.from(map.values());
   } catch (err) {
     console.error('Error reading stored message templates:', err);
+    return DEFAULT_MESSAGE_TEMPLATES;
   }
-  return DEFAULT_MESSAGE_TEMPLATES;
 }
 
 export function saveStoredMessageTemplates(templates: MessageTemplate[]): void {

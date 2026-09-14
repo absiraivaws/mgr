@@ -103,7 +103,7 @@ export const INITIAL_CUSTOMERS: Customer[] = [
 export const INITIAL_COMPLETED_RENTALS: RentalRecord[] = [
   {
     id: 'rental-103',
-    rentalNumber: 'REN-103',
+    rentalNumber: 'REN-0000003',
     vehicleId: 'veh-b01',
     vehicleSerialNumber: '01-0001',
     vehicleTypeId: 'type-bicycle-boys',
@@ -137,7 +137,7 @@ export const INITIAL_COMPLETED_RENTALS: RentalRecord[] = [
   },
   {
     id: 'rental-102',
-    rentalNumber: 'REN-102',
+    rentalNumber: 'REN-0000002',
     vehicleId: 'veh-b01',
     vehicleSerialNumber: '01-0001',
     vehicleTypeId: 'type-bicycle-boys',
@@ -171,7 +171,7 @@ export const INITIAL_COMPLETED_RENTALS: RentalRecord[] = [
   },
   {
     id: 'rental-101',
-    rentalNumber: 'REN-101',
+    rentalNumber: 'REN-0000001',
     vehicleId: 'veh-b01',
     vehicleSerialNumber: '01-0001',
     vehicleTypeId: 'type-bicycle-boys',

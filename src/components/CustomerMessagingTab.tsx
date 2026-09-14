@@ -417,7 +417,7 @@ export const CustomerMessagingTab: React.FC<CustomerMessagingTabProps> = ({
       extra: {
         vehicle_serial: 'CY-101',
         vehicle_name: 'Standard City Bicycle',
-        rental_number: 'REN-101',
+        rental_number: 'REN-0000001',
         start_time: '10:00 AM',
         end_time: '12:00 PM',
         duration: '2 hrs',

@@ -237,6 +237,39 @@ export function getStoredRoles(): RoleDefinition[] {
     // Normalize permissions to make sure tab access flags are present
     const normalized: RoleDefinition[] = [...parsed, ...missingSystemRoles].map((role) => {
       const defaultMatch = DEFAULT_ROLES.find(d => d.id === role.id);
+      if (role.id === 'admin') {
+        // Administrator always has all side menu options and features allowed
+        return {
+          ...role,
+          name: 'Administrator',
+          isSystem: true,
+          permissions: {
+            accessDashboard: true,
+            accessRentals: true,
+            accessHistory: true,
+            accessCustomers: true,
+            accessMessages: true,
+            accessUsers: true,
+            accessSettings: true,
+            accessIncome: true,
+            accessFinance: true,
+            canRent: true,
+            canSettle: true,
+            canExportReports: true,
+            canEditPricing: true,
+            canEditFleet: true,
+            canManageUsers: true,
+            canManageRoles: true,
+            canAddFinanceTransaction: true,
+            canEditFinanceTransaction: true,
+            canDeleteFinanceTransaction: true,
+            canViewPL: true,
+            canViewStatement: true,
+            canExportFinanceReports: true,
+          },
+        };
+      }
+
       return {
         ...role,
         permissions: {
@@ -247,7 +280,8 @@ export function getStoredRoles(): RoleDefinition[] {
           accessMessages: role.permissions?.accessMessages ?? (defaultMatch?.permissions?.accessMessages ?? true),
           accessUsers: role.permissions?.accessUsers ?? (defaultMatch ? defaultMatch.permissions.accessUsers : false),
           accessSettings: role.permissions?.accessSettings ?? (defaultMatch ? defaultMatch.permissions.accessSettings : false),
-          accessIncome: role.permissions?.accessIncome ?? (defaultMatch?.permissions?.accessIncome ?? false),
+          accessIncome: role.permissions?.accessIncome ?? role.permissions?.accessFinance ?? (defaultMatch?.permissions?.accessIncome ?? false),
+          accessFinance: role.permissions?.accessFinance ?? role.permissions?.accessIncome ?? (defaultMatch?.permissions?.accessFinance ?? false),
           canRent: role.permissions?.canRent ?? true,
           canSettle: role.permissions?.canSettle ?? true,
           canExportReports: role.permissions?.canExportReports ?? false,
@@ -255,6 +289,12 @@ export function getStoredRoles(): RoleDefinition[] {
           canEditFleet: role.permissions?.canEditFleet ?? false,
           canManageUsers: role.permissions?.canManageUsers ?? false,
           canManageRoles: role.permissions?.canManageRoles ?? false,
+          canAddFinanceTransaction: role.permissions?.canAddFinanceTransaction ?? (defaultMatch?.permissions?.canAddFinanceTransaction ?? false),
+          canEditFinanceTransaction: role.permissions?.canEditFinanceTransaction ?? (defaultMatch?.permissions?.canEditFinanceTransaction ?? false),
+          canDeleteFinanceTransaction: role.permissions?.canDeleteFinanceTransaction ?? (defaultMatch?.permissions?.canDeleteFinanceTransaction ?? false),
+          canViewPL: role.permissions?.canViewPL ?? (defaultMatch?.permissions?.canViewPL ?? false),
+          canViewStatement: role.permissions?.canViewStatement ?? (defaultMatch?.permissions?.canViewStatement ?? false),
+          canExportFinanceReports: role.permissions?.canExportFinanceReports ?? (defaultMatch?.permissions?.canExportFinanceReports ?? false),
         },
       };
     });
@@ -290,14 +330,8 @@ export function updateRolePermissions(
   };
 
   if (roleId === 'admin') {
-    updatedPerms.accessDashboard = true;
-    updatedPerms.accessRentals = true;
-    updatedPerms.accessHistory = true;
-    updatedPerms.accessCustomers = true;
-    updatedPerms.accessMessages = true;
+    // Admin always retains user & role management so permissions can never be locked out permanently
     updatedPerms.accessUsers = true;
-    updatedPerms.accessSettings = true;
-    updatedPerms.accessIncome = true;
     updatedPerms.canManageUsers = true;
     updatedPerms.canManageRoles = true;
   }
@@ -322,6 +356,13 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
       accessUsers: false,
       accessSettings: false,
       accessIncome: false,
+      accessFinance: false,
+      canAddFinanceTransaction: false,
+      canEditFinanceTransaction: false,
+      canDeleteFinanceTransaction: false,
+      canViewPL: false,
+      canViewStatement: false,
+      canExportFinanceReports: false,
       canRent: false,
       canSettle: false,
       canExportReports: false,
@@ -332,7 +373,49 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
     };
   }
 
-  if (user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || user.role === 'admin') {
+  if (user.role === 'admin') {
+    return {
+      accessDashboard: true,
+      accessRentals: true,
+      accessHistory: true,
+      accessCustomers: true,
+      accessMessages: true,
+      accessUsers: true,
+      accessSettings: true,
+      accessIncome: true,
+      accessFinance: true,
+      canRent: true,
+      canSettle: true,
+      canExportReports: true,
+      canEditPricing: true,
+      canEditFleet: true,
+      canManageUsers: true,
+      canManageRoles: true,
+      canAddFinanceTransaction: true,
+      canEditFinanceTransaction: true,
+      canDeleteFinanceTransaction: true,
+      canViewPL: true,
+      canViewStatement: true,
+      canExportFinanceReports: true,
+    };
+  }
+
+  const isRootAdmin = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+                      user.email.toLowerCase() === 'absiraiva@gmail.com' ||
+                      user.email.toLowerCase() === 'admin@mannargreenride.lk';
+  const roles = getStoredRoles();
+  const found = roles.find(r => r.id === user.role);
+  if (found) {
+    const perms = { ...found.permissions };
+    if (isRootAdmin) {
+      perms.accessUsers = true;
+      perms.canManageUsers = true;
+      perms.canManageRoles = true;
+    }
+    return perms;
+  }
+
+  if (isRootAdmin || user.role === 'admin') {
     return {
       accessDashboard: true,
       accessRentals: true,
@@ -357,12 +440,6 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
       canManageUsers: true,
       canManageRoles: true,
     };
-  }
-
-  const roles = getStoredRoles();
-  const found = roles.find(r => r.id === user.role);
-  if (found) {
-    return found.permissions;
   }
 
   // Default fallback for any unspecified role
@@ -397,7 +474,11 @@ export function hasPermission(
   permission: keyof RolePermissionSet
 ): boolean {
   if (!user) return false;
-  if (user.role === 'admin' || user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase()) {
+  if (user.role === 'admin') {
+    return true;
+  }
+  const isRootAdmin = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || user.email.toLowerCase() === 'absiraiva@gmail.com';
+  if (isRootAdmin && (permission === 'accessUsers' || permission === 'canManageUsers' || permission === 'canManageRoles')) {
     return true;
   }
   const perms = getUserPermissions(user);
@@ -1039,11 +1120,6 @@ export function updateUserRoleAndDetails(
     return { success: false, error: 'User not found in system records.' };
   }
 
-  // Prevent demoting the primary admin if it's the only admin
-  if (users[idx].email.toLowerCase() === DEFAULT_USER.email.toLowerCase() && newRole !== 'admin') {
-    return { success: false, error: 'Cannot remove admin role from primary root administrator.' };
-  }
-
   users[idx] = {
     ...users[idx],
     role: newRole,
@@ -1069,9 +1145,9 @@ export function updateUserRoleAndDetails(
     }
   }
 
-  // Update session if it's the current user
+  // Update session if it's the current user (match either user id or email)
   const current = getCurrentUser();
-  if (current && current.id === userId) {
+  if (current && (current.id === userId || current.email.toLowerCase() === users[idx].email.toLowerCase())) {
     setCurrentUserSession(users[idx]);
   }
 

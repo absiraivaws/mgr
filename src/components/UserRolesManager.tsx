@@ -289,7 +289,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   ) => {
     if (!isAdmin) return;
     if (roleId === 'admin') {
-      // Administrator always retains full access
+      // Root administrator always has all side menu options allowed
       return;
     }
 
@@ -304,6 +304,12 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
         accessSettings: false,
         accessIncome: false,
         accessFinance: false,
+        canAddFinanceTransaction: false,
+        canEditFinanceTransaction: false,
+        canDeleteFinanceTransaction: false,
+        canViewPL: false,
+        canViewStatement: false,
+        canExportFinanceReports: false,
         canRent: true,
         canSettle: true,
         canExportReports: false,
@@ -328,30 +334,25 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
 
       return {
         ...prev,
-        [roleId]: {
-          ...current,
-          [tabKey]: !current[tabKey],
-        },
+        [roleId]: updated,
       };
     });
 
     setSavedRoleIds((prev) => ({ ...prev, [roleId]: false }));
   };
 
-  // Save Role Level Tab Permissions
+  // Save Role Level Tab Permissions & ACTIVATE Role for logged-in user
   const handleSaveRolePermissions = async (roleId: string) => {
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    const targetPerms = rolePermsState[roleId];
-    if (!targetPerms) return;
-
     const roleObj = roles.find((r) => r.id === roleId);
     if (!roleObj) return;
 
+    const targetPerms = rolePermsState[roleId] || roleObj.permissions;
     const updatedRole: RoleDefinition = { ...roleObj, permissions: targetPerms };
 
-    // 1. If Supabase is connected, sync first and verify database success
+    // 1. If Supabase is connected, sync role permissions first
     if (isSupabaseConfigured()) {
       const syncRes = await syncRoleToSupabase(updatedRole);
       if (!syncRes.success) {
@@ -360,23 +361,47 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       }
     }
 
-    // 2. Persist to local cache
+    // 2. Persist role permissions to local cache
     const res = updateRolePermissions(roleId, targetPerms);
     if (!res.success) {
       setErrorMessage(res.error || 'Failed to update role permissions in local cache.');
       return;
     }
 
-    // 3. Mark saved, notify parent component, and show success
+    // 3. ACTIVATE this role for the current logged-in user account!
+    const activeAccount = currentUser && currentUser.email ? currentUser : DEFAULT_USER;
+    const allUsers = getStoredUsers();
+    const userMatch = allUsers.find(
+      (u) => u.id === activeAccount.id || u.email.toLowerCase() === activeAccount.email.toLowerCase()
+    ) || activeAccount;
+
+    const updatedUser: UserAccount = { ...userMatch, role: roleId };
+
+    // Sync active user account to Supabase
+    if (isSupabaseConfigured()) {
+      await syncUserAccountToSupabase(updatedUser);
+    }
+
+    // Update in local users store and active session
+    updateUserRoleAndDetails(userMatch.id, roleId);
+    setCurrentUserSession(updatedUser);
+
+    // Mark saved in state
     setSavedRoleIds((prev) => ({ ...prev, [roleId]: true }));
-    setSuccessMessage(`Access permissions for user level "${roleObj.name || roleId}" saved and synced successfully.`);
+    setSelectedRoles((prev) => ({ ...prev, [userMatch.id]: roleId }));
+
     refreshState();
+    onUserListChange?.();
     onRolePermissionsChange?.();
+
+    setSuccessMessage(
+      `Role "${roleObj.name || roleId}" saved and ACTIVATED successfully! All menu tabs and permissions are now active.`
+    );
 
     setTimeout(() => {
       setSavedRoleIds((prev) => ({ ...prev, [roleId]: false }));
       setSuccessMessage(null);
-    }, 2500);
+    }, 3000);
   };
 
   // Save All Role Level Tab Permissions
@@ -387,7 +412,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     let count = 0;
     const updatedRolesList: RoleDefinition[] = [];
     roles.forEach((r) => {
-      if (r.id !== 'admin' && rolePermsState[r.id]) {
+      if (rolePermsState[r.id]) {
         updatedRolesList.push({ ...r, permissions: rolePermsState[r.id] });
         count++;
       } else {
@@ -405,7 +430,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
 
     // Persist to local storage
     roles.forEach((r) => {
-      if (r.id !== 'admin' && rolePermsState[r.id]) {
+      if (rolePermsState[r.id]) {
         updateRolePermissions(r.id, rolePermsState[r.id]);
       }
     });
@@ -424,6 +449,49 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       [userId]: targetRoleId,
     }));
     setSavedUserIds((prev) => ({ ...prev, [userId]: false }));
+  };
+
+  // Quick switch active logged-in user's role
+  const handleSwitchActiveUserRole = async (targetRoleId: string) => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    const activeAccount = currentUser && currentUser.email ? currentUser : DEFAULT_USER;
+    const targetRoleObj = roles.find((r) => r.id === targetRoleId);
+    if (!targetRoleObj) return;
+
+    const allUsers = getStoredUsers();
+    const userMatch = allUsers.find(
+      (u) => u.id === activeAccount.id || u.email.toLowerCase() === activeAccount.email.toLowerCase()
+    ) || activeAccount;
+
+    const updatedUser: UserAccount = { ...userMatch, role: targetRoleId };
+
+    // 1. Sync to Supabase user_accounts table
+    if (isSupabaseConfigured()) {
+      const syncRes = await syncUserAccountToSupabase(updatedUser);
+      if (!syncRes.success) {
+        setErrorMessage(`Failed to update role in Supabase: ${syncRes.error || 'Database error'}`);
+        return;
+      }
+    }
+
+    // 2. Persist to local users store and active session
+    updateUserRoleAndDetails(userMatch.id, targetRoleId);
+    setCurrentUserSession(updatedUser);
+
+    setSelectedRoles((prev) => ({ ...prev, [userMatch.id]: targetRoleId }));
+    refreshState();
+    onUserListChange?.();
+    onRolePermissionsChange?.();
+
+    setSuccessMessage(
+      `Switched active role to "${targetRoleObj.name}". All navigation tabs and operational permissions are now active for this role!`
+    );
+
+    setTimeout(() => {
+      setSuccessMessage(null);
+    }, 3500);
   };
 
   const handleSaveUserRole = async (userId: string) => {
@@ -454,11 +522,18 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       return;
     }
 
+    // 3. Update session if it's the current user
+    const current = getCurrentUser();
+    if (current && (current.id === userId || current.email.toLowerCase() === userObj.email.toLowerCase())) {
+      setCurrentUserSession(updatedUser);
+    }
+
     setSavedUserIds((prev) => ({ ...prev, [userId]: true }));
     const roleObj = roles.find((r) => r.id === targetRole);
-    setSuccessMessage(`User "${userObj.name}" assigned to level "${roleObj?.name || targetRole}".`);
+    setSuccessMessage(`User "${userObj.name}" assigned to level "${roleObj?.name || targetRole}". Role and permissions updated successfully!`);
     refreshState();
     onUserListChange?.();
+    onRolePermissionsChange?.();
 
     setTimeout(() => {
       setSavedUserIds((prev) => ({ ...prev, [userId]: false }));
@@ -477,11 +552,6 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     const updatedUsers = allUsers.map((u) => {
       const targetRole = selectedRoles[u.id];
       newSavedMap[u.id] = true;
-
-      // Primary default admin cannot be demoted
-      if (u.email.toLowerCase() === DEFAULT_USER.email.toLowerCase()) {
-        return { ...u, role: 'admin' as const };
-      }
 
       if (targetRole) {
         if (targetRole !== u.role) {
@@ -505,13 +575,14 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
     // Update active session if logged in user's role changed
     const current = getCurrentUser();
     if (current) {
-      const found = updatedUsers.find((u) => u.id === current.id);
+      const found = updatedUsers.find((u) => u.id === current.id || u.email.toLowerCase() === current.email.toLowerCase());
       if (found) setCurrentUserSession(found);
     }
 
     setSavedUserIds(newSavedMap);
     refreshState();
     onUserListChange?.();
+    onRolePermissionsChange?.();
 
     setSuccessMessage(
       updatedCount > 0
@@ -708,10 +779,18 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   useEffect(() => {
     if (isSupabaseConfigured()) {
       fetchMessageTemplatesFromSupabase().then((cloudTmpls) => {
-        if (cloudTmpls && cloudTmpls.length > 0) {
-          setTemplates(cloudTmpls);
-          saveStoredMessageTemplates(cloudTmpls);
+        const merged = new Map<string, MessageTemplate>();
+        for (const def of DEFAULT_MESSAGE_TEMPLATES) {
+          merged.set(def.id, def);
         }
+        if (cloudTmpls && cloudTmpls.length > 0) {
+          for (const ct of cloudTmpls) {
+            merged.set(ct.id, ct);
+          }
+        }
+        const fullList = Array.from(merged.values());
+        setTemplates(fullList);
+        saveStoredMessageTemplates(fullList);
       });
     }
   }, []);
@@ -900,6 +979,56 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
 
   return (
     <div className="space-y-6">
+
+      {/* CURRENT USER & ACTIVE ROLE SWITCHER BANNER */}
+      <div className={`${t.cardBg} rounded-2xl p-4 sm:p-5 border shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-emerald-500/20 bg-gradient-to-r from-emerald-500/5 via-transparent to-purple-500/5`}>
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-lg shadow-sm">
+            {(currentUser?.name || 'A').charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`font-bold text-sm sm:text-base ${t.textHeading}`}>
+                {currentUser?.name || 'Root Administrator'}
+              </span>
+              <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold uppercase border ${getRoleBadgeClasses(roles.find(r => r.id === (currentUser?.role || 'admin'))?.color || 'emerald')}`}>
+                Current Role: {roles.find(r => r.id === (currentUser?.role || 'admin'))?.name || currentUser?.role || 'Administrator'}
+              </span>
+            </div>
+            <p className={`text-xs ${t.textMuted} mt-0.5`}>
+              {currentUser?.email || DEFAULT_USER.email} • Click any role below to instantly switch your active role and test its menu permissions.
+            </p>
+          </div>
+        </div>
+
+        {/* Quick Role Switcher Buttons */}
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <span className={`text-xs font-semibold ${t.textMuted} mr-1 hidden sm:inline`}>
+            Quick Switch:
+          </span>
+          {staffRoles.map((r) => {
+            const isActive = (currentUser?.role || 'admin') === r.id;
+            const badgeClasses = getRoleBadgeClasses(r.color);
+            return (
+              <button
+                key={`quick-switch-${r.id}`}
+                id={`btn-quick-switch-${r.id}`}
+                type="button"
+                onClick={() => handleSwitchActiveUserRole(r.id)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
+                  isActive
+                    ? `${badgeClasses} ring-2 ring-emerald-500/40 shadow-sm`
+                    : `${t.cardSubtleBg} ${t.divider} ${t.textMuted} hover:border-emerald-500/40 hover:text-emerald-400`
+                }`}
+                title={`Switch active role to ${r.name}`}
+              >
+                {isActive && <Check className="w-3.5 h-3.5" />}
+                <span>{r.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
       
       {/* 1. SECTION 1: ROLE LEVEL ACCESS MATRIX (MAIN TABS TICK BOXES) */}
       <div className={`${t.cardBg} rounded-2xl p-4 sm:p-6 border shadow-xl space-y-5`}>
@@ -927,9 +1056,10 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                 type="button"
                 onClick={handleSaveAllRolePermissions}
                 className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${t.inactiveTab}`}
+                title="Save tab permissions matrix for all user levels"
               >
                 <Save className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Save All Levels</span>
+                <span>Save All Tab Permissions</span>
               </button>
 
               {!isAddingRole && (
@@ -1122,23 +1252,46 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                         <span className={`text-[10px] font-normal normal-case ${t.textMuted} truncate max-w-[150px]`}>
                           {role.description}
                         </span>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className={`text-[10px] font-mono normal-case ${t.textMuted}`}>
-                            {assignedUsersCount} active {assignedUsersCount === 1 ? 'user' : 'users'}
-                          </span>
-                          {!isRootAdmin && isAdmin && (
-                            <button
-                              type="button"
-                              onClick={() => handleSaveRolePermissions(role.id)}
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold border transition cursor-pointer ${
-                                isSaved
-                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                                  : `${t.cardSubtleBg} text-emerald-400 hover:border-emerald-500/40`
-                              }`}
-                              title={`Save permissions for ${role.name}`}
-                            >
-                              {isSaved ? '✓ Saved' : 'Save'}
-                            </button>
+                        <span className={`text-[10px] font-mono normal-case ${t.textMuted} mt-0.5`}>
+                          {assignedUsersCount} active {assignedUsersCount === 1 ? 'user' : 'users'}
+                        </span>
+                        <div className="flex flex-col items-center gap-1.5 mt-2 w-full">
+                          {(currentUser?.role || 'admin') === role.id ? (
+                            <div className="flex flex-col items-center gap-1 w-full">
+                              <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                ACTIVE ROLE
+                              </span>
+                              {isAdmin && (
+                                <button
+                                  id={`btn-save-role-${role.id}`}
+                                  type="button"
+                                  onClick={() => handleSaveRolePermissions(role.id)}
+                                  className={`w-full px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                                    isSaved
+                                      ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/50'
+                                      : `${t.cardSubtleBg} text-emerald-400 hover:border-emerald-500/40 border-slate-700`
+                                  }`}
+                                  title={`Save permissions for ${role.name}`}
+                                >
+                                  <Save className="w-3.5 h-3.5" />
+                                  <span>{isSaved ? '✓ Saved' : 'Save Permissions'}</span>
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            isAdmin && (
+                              <button
+                                id={`btn-save-activate-${role.id}`}
+                                type="button"
+                                onClick={() => handleSaveRolePermissions(role.id)}
+                                className="w-full px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1.5 cursor-pointer bg-purple-600 hover:bg-purple-500 text-white shadow-md hover:scale-[1.02] active:scale-95"
+                                title={`Save permissions & activate "${role.name}" for your user session`}
+                              >
+                                <PlayCircle className="w-3.5 h-3.5" />
+                                <span>Save & Activate Role</span>
+                              </button>
+                            )
                           )}
                         </div>
                       </div>
@@ -1171,6 +1324,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                   {roles.map((role) => {
                     const perms = rolePermsState[role.id] || role.permissions;
                     const isRootAdmin = role.id === 'admin';
+                    const isLocked = !isAdmin || isRootAdmin;
                     const isAllowed = isRootAdmin ? true : Boolean(perms[tab.key]);
 
                     return (
@@ -1179,11 +1333,11 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                           isAllowed
                             ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 font-bold ring-1 ring-emerald-500/20'
                             : `${t.cardSubtleBg} ${t.divider} ${t.textMuted} opacity-40`
-                        } ${!isAdmin || isRootAdmin ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+                        } ${isLocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
                           <input
                             id={`tick-${role.id}-${tab.key}`}
                             type="checkbox"
-                            disabled={!isAdmin || isRootAdmin}
+                            disabled={isLocked}
                             checked={isAllowed}
                             onChange={() => handleToggleTabPermission(role.id, tab.key)}
                             className="w-4 h-4 accent-emerald-500 rounded cursor-pointer disabled:cursor-not-allowed"
@@ -1445,7 +1599,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                     {/* Role Level Tick Boxes */}
                     {staffRoles.map((role) => {
                       const isChecked = assignedRole === role.id;
-                      const isDisabled = !isAdmin || (isDefaultAdmin && role.id !== 'admin');
+                      const isDisabled = !isAdmin;
                       const badgeClasses = getRoleBadgeClasses(role.color);
 
                       return (
@@ -1983,7 +2137,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                       extra: {
                         vehicle_serial: 'CY-101',
                         vehicle_name: 'Standard City Bicycle',
-                        rental_number: 'REN-101',
+                        rental_number: 'REN-0000001',
                         start_time: '10:00 AM',
                         end_time: '12:00 PM',
                         duration: '2 hrs',
