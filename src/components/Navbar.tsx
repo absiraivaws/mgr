@@ -223,7 +223,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Dashboard',
       icon: <Sparkles className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: isAdminUser, // Removed for passenger and driver, Admin only
+      show: isAdminUser, // Admin only
       activeClass: 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold shadow-xs',
     },
     {
@@ -231,7 +231,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Find Transport',
       icon: <Search className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: !isOwner, // Removed for Owner
+      show: isAdminUser ? true : !isOwner, // Accessible to Admin, Passenger & Staff
       activeClass: 'bg-cyan-50 text-cyan-800 border border-cyan-300 font-bold shadow-xs',
     },
     {
@@ -247,7 +247,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Fleet & Listings',
       icon: <Car className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: !isPassenger, // Blocked for Passenger
+      show: isAdminUser ? true : !isPassenger, // Admin and Fleet Owner
       activeClass: 'bg-indigo-50 text-indigo-800 border border-indigo-300 font-bold shadow-xs',
     },
     {
@@ -255,7 +255,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Customers',
       icon: <UserCheck className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: !isPassenger, // Blocked for Passenger
+      show: isAdminUser ? true : !isPassenger, // Admin and Staff
       activeClass: 'bg-amber-50 text-amber-800 border border-amber-300 font-bold shadow-xs',
     },
     {
@@ -263,7 +263,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Driver',
       icon: <Users className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: !isPassenger, // Blocked for Passenger
+      show: isAdminUser ? true : !isPassenger, // Admin and Driver/Owner
       activeClass: 'bg-purple-50 text-purple-800 border border-purple-300 font-bold shadow-xs',
     },
     {

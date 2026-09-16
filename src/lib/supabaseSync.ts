@@ -878,11 +878,15 @@ export async function fetchIncomeEntries(): Promise<import('../types').IncomeEnt
       date: row.date,
       description: row.description,
       type: row.type as 'income' | 'expense',
-      amount: Number(row.amount),
+      amount: Number(row.amount || 0),
       category: row.category || 'Other',
       who: (row.who && row.who !== 'Mark') ? row.who : (row.cashier_name || 'Staff'),
       createdAt: row.created_at ? Number(row.created_at) : Date.now(),
       cashierName: row.cashier_name || '',
+      reference: row.reference || undefined,
+      paymentMethod: row.payment_method || undefined,
+      remarks: row.remarks || undefined,
+      enteredBy: row.who || row.cashier_name || 'Staff',
     }));
   } catch (err) {
     console.warn('Failed to fetch income entries:', err);
@@ -891,14 +895,14 @@ export async function fetchIncomeEntries(): Promise<import('../types').IncomeEnt
 }
 
 /**
- * Upsert a single income/expense entry to Supabase
+ * Upsert a single income/expense entry to Supabase with schema compatibility fallback
  */
-export async function syncIncomeEntryToSupabase(entry: import('../types').IncomeEntry) {
+export async function syncIncomeEntryToSupabase(entry: import('../types').IncomeEntry): Promise<{ success: boolean; error?: any }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: false, error: 'Supabase client not available' };
 
   try {
-    const payload = {
+    const basePayload = {
       id: entry.id,
       date: entry.date,
       description: entry.description,
@@ -906,16 +910,47 @@ export async function syncIncomeEntryToSupabase(entry: import('../types').Income
       amount: entry.amount,
       category: entry.category || 'Other',
       who: entry.who || entry.enteredBy || 'Staff',
-      created_at: entry.createdAt,
-      cashier_name: entry.cashierName || '',
-      reference: entry.reference || null,
-      payment_method: entry.paymentMethod || null,
-      remarks: entry.remarks || null,
+      created_at: entry.createdAt || Date.now(),
+      cashier_name: entry.cashierName || entry.who || 'Staff',
     };
 
-    await supabase.from('income_expenses').upsert(payload, { onConflict: 'id' });
+    const fullPayload: any = {
+      ...basePayload,
+      ...(entry.reference ? { reference: entry.reference } : {}),
+      ...(entry.paymentMethod ? { payment_method: entry.paymentMethod } : {}),
+      ...(entry.remarks ? { remarks: entry.remarks } : {}),
+    };
+
+    const { error } = await supabase.from('income_expenses').upsert(fullPayload, { onConflict: 'id' });
+    if (error) {
+      // If error is caused by missing column (PGRST204) in the existing database schema, retry with base columns
+      if (error.code === 'PGRST204' || (typeof error.message === 'string' && error.message.includes('column'))) {
+        console.warn('[Supabase] Retrying income_expenses upsert with base columns:', error.message);
+        const { error: retryError } = await supabase.from('income_expenses').upsert(basePayload, { onConflict: 'id' });
+        if (retryError) {
+          console.error('[Supabase] Failed to sync income entry with base columns:', retryError);
+          return { success: false, error: retryError };
+        }
+        console.log('[Supabase] Successfully saved income entry with base schema:', entry.id);
+        return { success: true };
+      }
+      console.error('[Supabase] Error upserting income entry:', error);
+      return { success: false, error };
+    }
+
+    return { success: true };
   } catch (err) {
     console.error('Failed to sync income entry to Supabase:', err);
+    return { success: false, error: err };
+  }
+}
+
+/**
+ * Upsert multiple income/expense entries to Supabase
+ */
+export async function syncAllIncomeEntriesToSupabase(entries: import('../types').IncomeEntry[]) {
+  for (const entry of entries) {
+    await syncIncomeEntryToSupabase(entry);
   }
 }
 
@@ -927,11 +962,15 @@ export async function deleteIncomeEntryFromSupabase(id: string) {
   if (!supabase) return;
 
   try {
-    await supabase.from('income_expenses').delete().eq('id', id);
+    const { error } = await supabase.from('income_expenses').delete().eq('id', id);
+    if (error) {
+      console.error('[Supabase] Error deleting income entry:', error);
+    }
   } catch (err) {
     console.error('Failed to delete income entry from Supabase:', err);
   }
 }
+
 
 
 /**

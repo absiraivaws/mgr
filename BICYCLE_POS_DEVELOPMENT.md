@@ -10,7 +10,7 @@ This document maintains the complete development reference, system specification
 
 - **Local Dev URL**: `http://localhost:9898`
 - **System Timezone**: Sri Lanka Standard Time (`Asia/Colombo` / `GMT+05:30`)
-- **Backend & Database**: Supabase (`https://szzhzpjfmyeulxjhbbov.supabase.co`) with offline-first localStorage cache.
+- **Backend & Database**: Supabase (`https://pmowtdktjmejisggngsp.supabase.co`) with offline-first localStorage cache.
 
 ---
 
@@ -128,6 +128,23 @@ All timestamps and date displays strictly use **Sri Lanka Standard Time** (`Asia
 
 ## 6. Changelog
 
+### Version 2.2.0 (September 2026)
+- **Store Manager Income & Expense Persistence Across Sessions**:
+  - **Database Schema Compatibility**: Fixed PostgREST `PGRST204` schema mismatch in `syncIncomeEntryToSupabase` by providing an automatic fallback to base columns (`id`, `date`, `description`, `type`, `amount`, `category`, `who`, `cashier_name`, `created_at`) when extra fields like `payment_method` do not exist as distinct columns in the active Supabase database.
+  - **Resilient Local-Cloud Ledger Merge**: Updated `loadData()` in `App.tsx` so that local entries in `v_rental_income` are merged by ID with cloud entries rather than wiped out, automatically queueing unsynced local records to Supabase on login or restart.
+  - **Strict Store Manager Role Privileges**: Explicitly enforced that Store Managers can **Add only** (`canAddFinanceTransaction = true`), preventing Store Managers from editing or deleting transactions (`canEditFinanceTransaction = false`, `canDeleteFinanceTransaction = false`), with full rights reserved for Administrators.
+- **Login Screen MGR Transport Admin Route Lock**:
+  - Configured the bottom demo credential **👑 Admin** (`admin@mannargreenride.lk`) to navigate directly to **MGR Transport only**, identical to the Fleet Owner and Passenger experience.
+  - Blocked switching to Bicycle POS for `admin@mannargreenride.lk` while in this persona.
+  - Granted MGR Transport Admin complete, unrestricted access to **all side menu tabs** in MGR Transport (`Dashboard`, `Find Transport`, `Bookings & Seats`, `Fleet & Listings`, `Customers`, `Driver`, and `Settings & SQL`).
+- **Finance Tables: Sortable Headings & 50-Row Pagination**:
+  - **Transactions & Ledger**:
+    - Added interactive sortable headers with up and down indicators (`ChevronUp`, `ChevronDown`, `ChevronsUpDown`) for Date, Reference, Type, Category, Description, Amount, Method, and Staff.
+    - Fixed maximum rows to 50 per page with pagination controls, record counter, and page navigation buttons.
+  - **Statement of Account**:
+    - Added interactive sortable headers for Date, Reference, Description, Category, Debit (Expense), Credit (Income), Running Balance, and Entered By.
+    - Fixed maximum rows to 50 per page with pagination controls and record counter.
+
 ### Version 2.1.2 (September 2026)
 - **Save & Activate Role Action**:
   - Unified the column header action button into **`Save & Activate Role`**. Clicking this button under any role (e.g. `STORE MANAGER`) automatically persists permissions AND immediately activates that role for the active user session across the entire app.
@@ -138,5 +155,26 @@ All timestamps and date displays strictly use **Sri Lanka Standard Time** (`Asia
   - In `Navbar.tsx`, ensured `isAdmin ? true : Boolean(userPerms[tab])` guarantees all side menu options are permanently active and accessible for Administrator.
   - Locked Administrator column checkboxes to `Allowed` in the matrix table so no tab can ever be disabled for Administrator.
   - Synced `admin` role with `accessFinance: true` and `accessIncome: true` directly to Supabase `user_roles` table.
+
+---
+
+## 7. Finance & Role-Based Access Reference
+
+### Role Capabilities in Finance
+| Feature / Action | Root Admin (`absiraiva@gmail.com`) | Administrator (`admin`) | Store Manager (`manager`) | Cashier POS (`cashier`) |
+|---|:---:|:---:|:---:|:---:|
+| **View Finance Tab** | Allowed | Allowed | Allowed | Denied |
+| **Add Transaction** | Allowed | Allowed | **Allowed (Add Only)** | Denied |
+| **Edit Transaction** | Allowed | Allowed | **Denied** | Denied |
+| **Delete Transaction** | Allowed | Allowed | **Denied** | Denied |
+| **View P&L Report** | Allowed | Allowed | Allowed | Denied |
+| **View Statement of Accounts** | Allowed | Allowed | Allowed | Denied |
+| **Export CSV Reports** | Allowed | Allowed | Allowed | Denied |
+
+### Table Pagination & Sorting Architecture
+- **Page Size**: Fixed strictly to 50 records per page (`PAGE_SIZE = 50`).
+- **Pagination Component**: Reusable footer showing current range (`Showing X to Y of Z entries`), Previous button, numbered page pills, and Next button.
+- **Sorting State**: Field-based ascending/descending comparator supporting alphanumeric strings, timestamps, and currency numbers. Resets to Page 1 upon sort or filter change.
+
 
 

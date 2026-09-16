@@ -35,6 +35,11 @@ import {
   Building,
   QrCode,
   Layers,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { AppSettings, IncomeEntry, FinanceCategoryConfig } from '../types';
 import { formatCurrency } from '../utils/pricing';
@@ -94,13 +99,13 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
   const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
   const isAdmin = activeUser.role === 'admin' || isRootAdmin;
 
-  // RBAC checks: Staff with Finance access can View and Add. Admin can View, Add, Edit, and Delete.
+  // RBAC checks: Store Manager can Add only (no Edit or Delete). Admin can View, Add, Edit, and Delete.
   const canAccessFinance = hasPermission(activeUser, 'accessFinance') || isAdmin;
-  const canAdd = canAccessFinance;
-  const canEdit = isAdmin;
-  const canDelete = isAdmin;
-  const canViewPL = canAccessFinance;
-  const canViewStatement = canAccessFinance;
+  const canAdd = hasPermission(activeUser, 'canAddFinanceTransaction') || isAdmin;
+  const canEdit = (hasPermission(activeUser, 'canEditFinanceTransaction') && activeUser.role !== 'manager') || isAdmin;
+  const canDelete = (hasPermission(activeUser, 'canDeleteFinanceTransaction') && activeUser.role !== 'manager') || isAdmin;
+  const canViewPL = hasPermission(activeUser, 'canViewPL') || isAdmin;
+  const canViewStatement = hasPermission(activeUser, 'canViewStatement') || isAdmin;
   const canExport = hasPermission(activeUser, 'canExportFinanceReports') || isAdmin;
 
   // Active Sub-tab in Finance
@@ -179,6 +184,23 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
   const [txnToDate, setTxnToDate] = useState<string>('');
   const [txnMethodFilter, setTxnMethodFilter] = useState<string>('all');
 
+  // Sorting & Pagination for Transactions (Max 50 rows per page)
+  type TxnSortField = 'date' | 'reference' | 'type' | 'category' | 'description' | 'amount' | 'paymentMethod' | 'who';
+  const [txnSortField, setTxnSortField] = useState<TxnSortField>('date');
+  const [txnSortDir, setTxnSortDir] = useState<'asc' | 'desc'>('desc');
+  const [txnPage, setTxnPage] = useState<number>(1);
+  const TXN_PAGE_SIZE = 50;
+
+  const handleTxnSort = (field: TxnSortField) => {
+    if (txnSortField === field) {
+      setTxnSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setTxnSortField(field);
+      setTxnSortDir(field === 'amount' || field === 'date' ? 'desc' : 'asc');
+    }
+    setTxnPage(1);
+  };
+
   // Add / Edit Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
@@ -216,6 +238,57 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
     });
   }, [entries, txnTypeFilter, txnCategoryFilter, txnMethodFilter, txnFromDate, txnToDate, txnSearch]);
 
+  // Reset pagination to first page whenever search or filters change
+  useEffect(() => {
+    setTxnPage(1);
+  }, [txnSearch, txnTypeFilter, txnCategoryFilter, txnFromDate, txnToDate, txnMethodFilter]);
+
+  // Sort transactions by selected field and direction
+  const sortedTransactions = useMemo(() => {
+    const list = [...filteredEntries];
+    list.sort((a, b) => {
+      let comparison = 0;
+      switch (txnSortField) {
+        case 'date':
+          comparison = (a.date || '').localeCompare(b.date || '');
+          if (comparison === 0) comparison = (a.createdAt || 0) - (b.createdAt || 0);
+          break;
+        case 'reference':
+          comparison = (a.reference || '').localeCompare(b.reference || '');
+          break;
+        case 'type':
+          comparison = (a.type || '').localeCompare(b.type || '');
+          break;
+        case 'category':
+          comparison = (a.category || '').localeCompare(b.category || '');
+          break;
+        case 'description':
+          comparison = (a.description || '').localeCompare(b.description || '');
+          break;
+        case 'amount':
+          comparison = (a.amount || 0) - (b.amount || 0);
+          break;
+        case 'paymentMethod':
+          comparison = (a.paymentMethod || '').localeCompare(b.paymentMethod || '');
+          break;
+        case 'who':
+          comparison = (a.who || a.cashierName || '').localeCompare(b.who || b.cashierName || '');
+          break;
+        default:
+          comparison = 0;
+      }
+      return txnSortDir === 'asc' ? comparison : -comparison;
+    });
+    return list;
+  }, [filteredEntries, txnSortField, txnSortDir]);
+
+  const totalTxnPages = Math.max(1, Math.ceil(sortedTransactions.length / TXN_PAGE_SIZE));
+  const currentTxnPage = Math.min(txnPage, totalTxnPages);
+  const paginatedTransactions = useMemo(() => {
+    const start = (currentTxnPage - 1) * TXN_PAGE_SIZE;
+    return sortedTransactions.slice(start, start + TXN_PAGE_SIZE);
+  }, [sortedTransactions, currentTxnPage]);
+
   const filteredTotals = useMemo(() => {
     let inc = 0;
     let exp = 0;
@@ -228,6 +301,10 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
 
   // Open Add modal
   const handleOpenAdd = () => {
+    if (!canAdd) {
+      alert('Permission Denied: You do not have permission to add finance transactions.');
+      return;
+    }
     setEditingEntryId(null);
     setFormDate(todayStr);
     setFormType('income');
@@ -244,8 +321,8 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
 
   // Open Edit modal
   const handleOpenEdit = (entry: IncomeEntry) => {
-    if (!isAdmin) {
-      alert('Permission Denied: Only administrators are authorized to edit finance transactions.');
+    if (!canEdit) {
+      alert('Permission Denied: Store Managers and non-admin users cannot edit finance transactions.');
       return;
     }
     setEditingEntryId(entry.id);
@@ -279,9 +356,9 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
 
     if (editingEntryId) {
       // Edit - strictly admin only
-      if (!isAdmin) {
-        setFormError('Permission Denied: Only administrators are authorized to edit finance transactions.');
-        alert('Permission Denied: Only administrators are authorized to edit finance transactions.');
+      if (!canEdit) {
+        setFormError('Permission Denied: Store Managers and non-admin users cannot edit finance transactions.');
+        alert('Permission Denied: Store Managers and non-admin users cannot edit finance transactions.');
         return;
       }
       const updated: IncomeEntry = {
@@ -314,7 +391,12 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
         details: `Updated ${formType} of ${formatCurrency(amt, settings.currencySymbol, settings.currencyPosition)} (${formCategory}): ${formDescription}`,
       });
     } else {
-      // Add
+      // Add - allowed for Store Manager and Admin
+      if (!canAdd) {
+        setFormError('Permission Denied: You do not have permission to add finance transactions.');
+        alert('Permission Denied: You do not have permission to add finance transactions.');
+        return;
+      }
       const newEntry: IncomeEntry = {
         id: `fin-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         date: formDate,
@@ -348,8 +430,8 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
   const handleConfirmDelete = () => {
     if (!deletingEntry) return;
 
-    if (!isAdmin) {
-      alert('Permission Denied: Only administrators are authorized to delete finance transactions.');
+    if (!canDelete) {
+      alert('Permission Denied: Store Managers and non-admin users cannot delete finance transactions.');
       setDeletingEntry(null);
       return;
     }
@@ -515,6 +597,73 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
       ledgerRows: filteredLedger,
     };
   }, [entries, stmtFromDate, stmtToDate, stmtSearch]);
+
+  // Sorting & Pagination for Statement of Accounts (Max 50 rows per page)
+  type StmtSortField = 'date' | 'reference' | 'description' | 'category' | 'debit' | 'credit' | 'runningBalance' | 'who';
+  const [stmtSortField, setStmtSortField] = useState<StmtSortField>('date');
+  const [stmtSortDir, setStmtSortDir] = useState<'asc' | 'desc'>('asc');
+  const [stmtPage, setStmtPage] = useState<number>(1);
+  const STMT_PAGE_SIZE = 50;
+
+  const handleStmtSort = (field: StmtSortField) => {
+    if (stmtSortField === field) {
+      setStmtSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setStmtSortField(field);
+      setStmtSortDir(field === 'debit' || field === 'credit' || field === 'runningBalance' ? 'desc' : 'asc');
+    }
+    setStmtPage(1);
+  };
+
+  // Reset statement pagination when dates or search filter change
+  useEffect(() => {
+    setStmtPage(1);
+  }, [stmtFromDate, stmtToDate, stmtSearch]);
+
+  const sortedStatementRows = useMemo(() => {
+    const list = [...statementData.ledgerRows];
+    list.sort((a, b) => {
+      let comparison = 0;
+      switch (stmtSortField) {
+        case 'date':
+          comparison = (a.date || '').localeCompare(b.date || '');
+          if (comparison === 0) comparison = (a.createdAt || 0) - (b.createdAt || 0);
+          break;
+        case 'reference':
+          comparison = (a.reference || '').localeCompare(b.reference || '');
+          break;
+        case 'description':
+          comparison = (a.description || '').localeCompare(b.description || '');
+          break;
+        case 'category':
+          comparison = (a.category || '').localeCompare(b.category || '');
+          break;
+        case 'debit':
+          comparison = (a.debit || 0) - (b.debit || 0);
+          break;
+        case 'credit':
+          comparison = (a.credit || 0) - (b.credit || 0);
+          break;
+        case 'runningBalance':
+          comparison = (a.runningBalance || 0) - (b.runningBalance || 0);
+          break;
+        case 'who':
+          comparison = (a.who || a.cashierName || '').localeCompare(b.who || b.cashierName || '');
+          break;
+        default:
+          comparison = 0;
+      }
+      return stmtSortDir === 'asc' ? comparison : -comparison;
+    });
+    return list;
+  }, [statementData.ledgerRows, stmtSortField, stmtSortDir]);
+
+  const totalStmtPages = Math.max(1, Math.ceil(sortedStatementRows.length / STMT_PAGE_SIZE));
+  const currentStmtPage = Math.min(stmtPage, totalStmtPages);
+  const paginatedStatementRows = useMemo(() => {
+    const start = (currentStmtPage - 1) * STMT_PAGE_SIZE;
+    return sortedStatementRows.slice(start, start + STMT_PAGE_SIZE);
+  }, [sortedStatementRows, currentStmtPage]);
 
   // Export Statement of Accounts to CSV
   const handleExportStatementCSV = () => {
@@ -948,26 +1097,98 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className={`border-b ${t.divider} ${t.cardSubtleBg} ${isDark ? 'text-slate-400' : 'text-slate-700 font-bold'} uppercase tracking-wider text-[10px]`}>
-                    <th className="py-3 px-3.5">Date</th>
-                    <th className="py-3 px-3.5">Reference</th>
-                    <th className="py-3 px-3.5">Type</th>
-                    <th className="py-3 px-3.5">Category</th>
-                    <th className="py-3 px-3.5">Description</th>
-                    <th className="py-3 px-3.5 text-right">Amount</th>
-                    <th className="py-3 px-3.5">Method</th>
-                    <th className="py-3 px-3.5">Staff</th>
+                    <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleTxnSort('date')}>
+                      <div className="flex items-center gap-1">
+                        <span>Date</span>
+                        {txnSortField === 'date' ? (
+                          txnSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleTxnSort('reference')}>
+                      <div className="flex items-center gap-1">
+                        <span>Reference</span>
+                        {txnSortField === 'reference' ? (
+                          txnSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleTxnSort('type')}>
+                      <div className="flex items-center gap-1">
+                        <span>Type</span>
+                        {txnSortField === 'type' ? (
+                          txnSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleTxnSort('category')}>
+                      <div className="flex items-center gap-1">
+                        <span>Category</span>
+                        {txnSortField === 'category' ? (
+                          txnSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleTxnSort('description')}>
+                      <div className="flex items-center gap-1">
+                        <span>Description</span>
+                        {txnSortField === 'description' ? (
+                          txnSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th className="py-3 px-3.5 text-right cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleTxnSort('amount')}>
+                      <div className="flex items-center justify-end gap-1">
+                        <span>Amount</span>
+                        {txnSortField === 'amount' ? (
+                          txnSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleTxnSort('paymentMethod')}>
+                      <div className="flex items-center gap-1">
+                        <span>Method</span>
+                        {txnSortField === 'paymentMethod' ? (
+                          txnSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleTxnSort('who')}>
+                      <div className="flex items-center gap-1">
+                        <span>Staff</span>
+                        {txnSortField === 'who' ? (
+                          txnSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
                     <th className="py-3 px-3.5 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${t.divider}`}>
-                  {filteredEntries.length === 0 ? (
+                  {paginatedTransactions.length === 0 ? (
                     <tr>
                       <td colSpan={9} className={`py-8 text-center ${t.textMuted} text-xs`}>
                         No transactions found matching your criteria.
                       </td>
                     </tr>
                   ) : (
-                    filteredEntries.map((e) => (
+                    paginatedTransactions.map((e) => (
                       <tr key={e.id} className={`${isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-100/80'} transition group`}>
                         <td className={`py-2.5 px-3.5 font-mono text-[11px] ${isDark ? 'text-slate-300' : 'text-slate-700'} whitespace-nowrap`}>
                           {e.date}
@@ -1052,6 +1273,70 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls - Max 50 Rows Per Page */}
+            {sortedTransactions.length > 0 && (
+              <div className={`p-3 border-t ${t.divider} ${t.cardSubtleBg} flex flex-col sm:flex-row items-center justify-between gap-3 text-xs`}>
+                <div className={`${t.textMuted} font-medium`}>
+                  Showing <span className="font-bold text-emerald-600 dark:text-emerald-400">{(currentTxnPage - 1) * TXN_PAGE_SIZE + 1}</span> to{' '}
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{Math.min(currentTxnPage * TXN_PAGE_SIZE, sortedTransactions.length)}</span> of{' '}
+                  <span className="font-bold">{sortedTransactions.length}</span> transactions (Page {currentTxnPage} of {totalTxnPages})
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setTxnPage((p) => Math.max(1, p - 1))}
+                    disabled={currentTxnPage <= 1}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1 transition ${
+                      currentTxnPage <= 1
+                        ? 'opacity-40 cursor-not-allowed border-transparent text-slate-400'
+                        : `${isDark ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200' : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-700'} cursor-pointer`
+                    }`}
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Previous</span>
+                  </button>
+                  <div className="flex items-center gap-1 px-1">
+                    {Array.from({ length: totalTxnPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === totalTxnPages || Math.abs(p - currentTxnPage) <= 1)
+                      .map((p, idx, arr) => {
+                        const prev = arr[idx - 1];
+                        return (
+                          <React.Fragment key={p}>
+                            {prev && p - prev > 1 && <span className="text-slate-400 px-1">...</span>}
+                            <button
+                              type="button"
+                              onClick={() => setTxnPage(p)}
+                              className={`w-7 h-7 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                currentTxnPage === p
+                                  ? 'bg-emerald-600 text-white shadow-xs'
+                                  : isDark
+                                  ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                                  : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          </React.Fragment>
+                        );
+                      })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTxnPage((p) => Math.min(totalTxnPages, p + 1))}
+                    disabled={currentTxnPage >= totalTxnPages}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1 transition ${
+                      currentTxnPage >= totalTxnPages
+                        ? 'opacity-40 cursor-not-allowed border-transparent text-slate-400'
+                        : `${isDark ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200' : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-700'} cursor-pointer`
+                    }`}
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1438,64 +1723,210 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className={`border-b ${t.divider} ${t.cardSubtleBg} ${isDark ? 'text-slate-400' : 'text-slate-700 font-bold'} uppercase tracking-wider text-[10px]`}>
-                        <th className="py-3 px-3.5">Date</th>
-                        <th className="py-3 px-3.5">Reference</th>
-                        <th className="py-3 px-3.5">Description</th>
-                        <th className="py-3 px-3.5">Category</th>
-                        <th className={`py-3 px-3.5 text-right ${isDark ? 'text-rose-400' : 'text-rose-700 font-bold'}`}>Debit (Expense)</th>
-                        <th className={`py-3 px-3.5 text-right ${isDark ? 'text-emerald-400' : 'text-emerald-700 font-bold'}`}>Credit (Income)</th>
-                        <th className="py-3 px-3.5 text-right">Running Balance</th>
-                        <th className="py-3 px-3.5">Entered By</th>
+                        <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleStmtSort('date')}>
+                          <div className="flex items-center gap-1">
+                            <span>Date</span>
+                            {stmtSortField === 'date' ? (
+                              stmtSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                            ) : (
+                              <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                            )}
+                          </div>
+                        </th>
+                        <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleStmtSort('reference')}>
+                          <div className="flex items-center gap-1">
+                            <span>Reference</span>
+                            {stmtSortField === 'reference' ? (
+                              stmtSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                            ) : (
+                              <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                            )}
+                          </div>
+                        </th>
+                        <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleStmtSort('description')}>
+                          <div className="flex items-center gap-1">
+                            <span>Description</span>
+                            {stmtSortField === 'description' ? (
+                              stmtSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                            ) : (
+                              <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                            )}
+                          </div>
+                        </th>
+                        <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleStmtSort('category')}>
+                          <div className="flex items-center gap-1">
+                            <span>Category</span>
+                            {stmtSortField === 'category' ? (
+                              stmtSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                            ) : (
+                              <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                            )}
+                          </div>
+                        </th>
+                        <th className={`py-3 px-3.5 text-right cursor-pointer select-none hover:text-rose-500 transition ${isDark ? 'text-rose-400' : 'text-rose-700 font-bold'}`} onClick={() => handleStmtSort('debit')}>
+                          <div className="flex items-center justify-end gap-1">
+                            <span>Debit (Expense)</span>
+                            {stmtSortField === 'debit' ? (
+                              stmtSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-rose-500" /> : <ChevronDown className="w-3.5 h-3.5 text-rose-500" />
+                            ) : (
+                              <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                            )}
+                          </div>
+                        </th>
+                        <th className={`py-3 px-3.5 text-right cursor-pointer select-none hover:text-emerald-500 transition ${isDark ? 'text-emerald-400' : 'text-emerald-700 font-bold'}`} onClick={() => handleStmtSort('credit')}>
+                          <div className="flex items-center justify-end gap-1">
+                            <span>Credit (Income)</span>
+                            {stmtSortField === 'credit' ? (
+                              stmtSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                            ) : (
+                              <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                            )}
+                          </div>
+                        </th>
+                        <th className="py-3 px-3.5 text-right cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleStmtSort('runningBalance')}>
+                          <div className="flex items-center justify-end gap-1">
+                            <span>Running Balance</span>
+                            {stmtSortField === 'runningBalance' ? (
+                              stmtSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                            ) : (
+                              <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                            )}
+                          </div>
+                        </th>
+                        <th className="py-3 px-3.5 cursor-pointer select-none hover:text-emerald-500 transition" onClick={() => handleStmtSort('who')}>
+                          <div className="flex items-center gap-1">
+                            <span>Entered By</span>
+                            {stmtSortField === 'who' ? (
+                              stmtSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> : <ChevronDown className="w-3.5 h-3.5 text-emerald-500" />
+                            ) : (
+                              <ChevronsUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                            )}
+                          </div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${t.divider}`}>
-                      {/* Opening Balance Row */}
-                      <tr className={`${isDark ? 'bg-slate-900/30 text-slate-400' : 'bg-slate-100/70 text-slate-700'} font-semibold`}>
-                        <td className="py-2.5 px-3.5 font-mono text-[11px]">{stmtFromDate}</td>
-                        <td className="py-2.5 px-3.5 font-mono text-[11px]">—</td>
-                        <td className={`py-2.5 px-3.5 italic ${isDark ? 'text-slate-300' : 'text-slate-800'}`}>Balance Brought Forward (Opening Balance)</td>
-                        <td className="py-2.5 px-3.5">—</td>
-                        <td className="py-2.5 px-3.5 text-right font-mono">—</td>
-                        <td className="py-2.5 px-3.5 text-right font-mono">—</td>
-                        <td className={`py-2.5 px-3.5 text-right font-mono font-bold ${
-                          statementData.openingBalance >= 0
-                            ? isDark ? 'text-emerald-400' : 'text-emerald-700'
-                            : isDark ? 'text-rose-400' : 'text-rose-700'
-                        }`}>
-                          {formatCurrency(statementData.openingBalance, settings.currencySymbol, settings.currencyPosition)}
-                        </td>
-                        <td className="py-2.5 px-3.5">System</td>
-                      </tr>
-
-                      {statementData.ledgerRows.map((r) => (
-                        <tr key={r.id} className={`${isDark ? 'hover:bg-slate-800/30' : 'hover:bg-slate-100/80'} transition`}>
-                          <td className={`py-2 px-3.5 font-mono text-[11px] whitespace-nowrap ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{r.date}</td>
-                          <td className={`py-2 px-3.5 font-mono text-[11px] font-bold whitespace-nowrap ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
-                            {r.reference || '—'}
-                          </td>
-                          <td className={`py-2 px-3.5 font-medium max-w-xs truncate ${t.textHeading}`} title={r.description}>
-                            {r.description}
-                          </td>
-                          <td className={`py-2 px-3.5 text-[11px] whitespace-nowrap ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{r.category}</td>
-                          <td className={`py-2 px-3.5 text-right font-mono whitespace-nowrap ${isDark ? 'text-rose-400' : 'text-rose-700 font-semibold'}`}>
-                            {r.debit > 0 ? formatCurrency(r.debit, settings.currencySymbol, settings.currencyPosition) : '—'}
-                          </td>
-                          <td className={`py-2 px-3.5 text-right font-mono whitespace-nowrap ${isDark ? 'text-emerald-400' : 'text-emerald-700 font-semibold'}`}>
-                            {r.credit > 0 ? formatCurrency(r.credit, settings.currencySymbol, settings.currencyPosition) : '—'}
-                          </td>
-                          <td className={`py-2 px-3.5 text-right font-mono font-bold whitespace-nowrap ${
-                            r.runningBalance >= 0
-                              ? isDark ? 'text-slate-100' : 'text-slate-900'
+                      {/* Opening Balance Row - displayed on page 1 */}
+                      {currentStmtPage === 1 && (
+                        <tr className={`${isDark ? 'bg-slate-900/30 text-slate-400' : 'bg-slate-100/70 text-slate-700'} font-semibold`}>
+                          <td className="py-2.5 px-3.5 font-mono text-[11px]">{stmtFromDate}</td>
+                          <td className="py-2.5 px-3.5 font-mono text-[11px]">—</td>
+                          <td className={`py-2.5 px-3.5 italic ${isDark ? 'text-slate-300' : 'text-slate-800'}`}>Balance Brought Forward (Opening Balance)</td>
+                          <td className="py-2.5 px-3.5">—</td>
+                          <td className="py-2.5 px-3.5 text-right font-mono">—</td>
+                          <td className="py-2.5 px-3.5 text-right font-mono">—</td>
+                          <td className={`py-2.5 px-3.5 text-right font-mono font-bold ${
+                            statementData.openingBalance >= 0
+                              ? isDark ? 'text-emerald-400' : 'text-emerald-700'
                               : isDark ? 'text-rose-400' : 'text-rose-700'
                           }`}>
-                            {formatCurrency(r.runningBalance, settings.currencySymbol, settings.currencyPosition)}
+                            {formatCurrency(statementData.openingBalance, settings.currencySymbol, settings.currencyPosition)}
                           </td>
-                          <td className={`py-2 px-3.5 text-[11px] whitespace-nowrap ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{r.who || r.cashierName || 'Staff'}</td>
+                          <td className="py-2.5 px-3.5">System</td>
                         </tr>
-                      ))}
+                      )}
+
+                      {paginatedStatementRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className={`py-8 text-center ${t.textMuted} text-xs`}>
+                            No ledger entries found for this period.
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedStatementRows.map((r) => (
+                          <tr key={r.id} className={`${isDark ? 'hover:bg-slate-800/30' : 'hover:bg-slate-100/80'} transition`}>
+                            <td className={`py-2 px-3.5 font-mono text-[11px] whitespace-nowrap ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{r.date}</td>
+                            <td className={`py-2 px-3.5 font-mono text-[11px] font-bold whitespace-nowrap ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                              {r.reference || '—'}
+                            </td>
+                            <td className={`py-2 px-3.5 font-medium max-w-xs truncate ${t.textHeading}`} title={r.description}>
+                              {r.description}
+                            </td>
+                            <td className={`py-2 px-3.5 text-[11px] whitespace-nowrap ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{r.category}</td>
+                            <td className={`py-2 px-3.5 text-right font-mono whitespace-nowrap ${isDark ? 'text-rose-400' : 'text-rose-700 font-semibold'}`}>
+                              {r.debit > 0 ? formatCurrency(r.debit, settings.currencySymbol, settings.currencyPosition) : '—'}
+                            </td>
+                            <td className={`py-2 px-3.5 text-right font-mono whitespace-nowrap ${isDark ? 'text-emerald-400' : 'text-emerald-700 font-semibold'}`}>
+                              {r.credit > 0 ? formatCurrency(r.credit, settings.currencySymbol, settings.currencyPosition) : '—'}
+                            </td>
+                            <td className={`py-2 px-3.5 text-right font-mono font-bold whitespace-nowrap ${
+                              r.runningBalance >= 0
+                                ? isDark ? 'text-slate-100' : 'text-slate-900'
+                                : isDark ? 'text-rose-400' : 'text-rose-700'
+                            }`}>
+                              {formatCurrency(r.runningBalance, settings.currencySymbol, settings.currencyPosition)}
+                            </td>
+                            <td className={`py-2 px-3.5 text-[11px] whitespace-nowrap ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{r.who || r.cashierName || 'Staff'}</td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
+
+                {/* Statement of Accounts Pagination Controls (Max 50 rows per page) */}
+                {sortedStatementRows.length > 0 && (
+                  <div className={`p-3 border-t ${t.divider} ${t.cardSubtleBg} flex flex-col sm:flex-row items-center justify-between gap-3 text-xs`}>
+                    <div className={`${t.textMuted} font-medium`}>
+                      Showing <span className="font-bold text-emerald-600 dark:text-emerald-400">{(currentStmtPage - 1) * STMT_PAGE_SIZE + 1}</span> to{' '}
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">{Math.min(currentStmtPage * STMT_PAGE_SIZE, sortedStatementRows.length)}</span> of{' '}
+                      <span className="font-bold">{sortedStatementRows.length}</span> entries (Page {currentStmtPage} of {totalStmtPages})
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setStmtPage((p) => Math.max(1, p - 1))}
+                        disabled={currentStmtPage <= 1}
+                        className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1 transition ${
+                          currentStmtPage <= 1
+                            ? 'opacity-40 cursor-not-allowed border-transparent text-slate-400'
+                            : `${isDark ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200' : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-700'} cursor-pointer`
+                        }`}
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                        <span>Previous</span>
+                      </button>
+                      <div className="flex items-center gap-1 px-1">
+                        {Array.from({ length: totalStmtPages }, (_, i) => i + 1)
+                          .filter((p) => p === 1 || p === totalStmtPages || Math.abs(p - currentStmtPage) <= 1)
+                          .map((p, idx, arr) => {
+                            const prev = arr[idx - 1];
+                            return (
+                              <React.Fragment key={p}>
+                                {prev && p - prev > 1 && <span className="text-slate-400 px-1">...</span>}
+                                <button
+                                  type="button"
+                                  onClick={() => setStmtPage(p)}
+                                  className={`w-7 h-7 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                    currentStmtPage === p
+                                      ? 'bg-emerald-600 text-white shadow-xs'
+                                      : isDark
+                                      ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                                      : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                                  }`}
+                                >
+                                  {p}
+                                </button>
+                              </React.Fragment>
+                            );
+                          })}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setStmtPage((p) => Math.min(totalStmtPages, p + 1))}
+                        disabled={currentStmtPage >= totalStmtPages}
+                        className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1 transition ${
+                          currentStmtPage >= totalStmtPages
+                            ? 'opacity-40 cursor-not-allowed border-transparent text-slate-400'
+                            : `${isDark ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200' : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-700'} cursor-pointer`
+                        }`}
+                      >
+                        <span>Next</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}

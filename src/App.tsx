@@ -174,10 +174,11 @@ export default function App() {
   const userPersona = getMGRPersona(activeUser);
   const isPassenger = userPersona === 'passenger';
   const isOwner = userPersona === 'owner';
+  const isMGRTransportAdmin = (activeUser.email || '').toLowerCase() === 'admin@mannargreenride.lk';
 
   const handleToggleSystemMode = (mode: 'bicycle_pos' | 'mgr_booking') => {
-    if ((isPassenger || isOwner) && mode === 'bicycle_pos') {
-      return; // Block access to Bicycle POS for Passenger and Owner
+    if ((isPassenger || isOwner || isMGRTransportAdmin) && mode === 'bicycle_pos') {
+      return; // Block access to Bicycle POS for Passenger, Owner, and MGR Transport Admin
     }
     setSystemMode(mode);
     try {
@@ -185,11 +186,14 @@ export default function App() {
     } catch {}
   };
 
-  // Route protection for Passenger and Owner roles - Dashboard removed for passenger and driver
+  // Route protection for MGR Transport personas (Passenger, Owner, and MGR Transport Admin)
   useEffect(() => {
-    if (isPassenger || isOwner) {
+    if (isPassenger || isOwner || isMGRTransportAdmin) {
       if (systemMode !== 'mgr_booking') {
         setSystemMode('mgr_booking');
+        try {
+          localStorage.setItem('mgr_system_mode', 'mgr_booking');
+        } catch {}
       }
       if (isPassenger && ['mgr-dashboard', 'mgr-fleet', 'mgr-customers', 'mgr-routes', 'mgr-owners', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
         setMgrActiveTab('mgr-search');
@@ -198,7 +202,7 @@ export default function App() {
         setMgrActiveTab('mgr-fleet');
       }
     }
-  }, [currentUser, isPassenger, isOwner, systemMode, mgrActiveTab]);
+  }, [currentUser, isPassenger, isOwner, isMGRTransportAdmin, systemMode, mgrActiveTab]);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
@@ -615,7 +619,49 @@ export default function App() {
       const effectiveRentals = cloudData?.completedRentals !== undefined
         ? cloudData.completedRentals.map(sanitizeRentalRecordNumber)
         : completedRentals;
-      const effectiveIncome = (cloudIncome && cloudIncome.length > 0) ? cloudIncome : incomeEntries;
+
+      // Merge local incomeEntries with cloudIncome so newly added local entries (e.g. by Store Manager) are never wiped
+      const mergedIncomesMap = new Map<string, IncomeEntry>();
+
+      // 1. Load latest from localStorage first
+      let storedLocalIncomes: IncomeEntry[] = [];
+      try {
+        const raw = localStorage.getItem('v_rental_income');
+        if (raw) storedLocalIncomes = JSON.parse(raw);
+      } catch {}
+
+      const localPool = storedLocalIncomes.length > 0 ? storedLocalIncomes : incomeEntries;
+      for (const item of localPool) {
+        if (item && item.id) mergedIncomesMap.set(item.id, item);
+      }
+
+      // 2. Overlay cloud income entries while keeping rich local details if present
+      const cloudList = cloudIncome || [];
+      const unsyncedLocalItems: IncomeEntry[] = [];
+      for (const cloudItem of cloudList) {
+        if (cloudItem && cloudItem.id) {
+          const localItem = mergedIncomesMap.get(cloudItem.id);
+          mergedIncomesMap.set(cloudItem.id, {
+            ...cloudItem,
+            ...(localItem ? {
+              reference: localItem.reference || cloudItem.reference,
+              paymentMethod: localItem.paymentMethod || cloudItem.paymentMethod,
+              remarks: localItem.remarks || cloudItem.remarks,
+            } : {}),
+          });
+        }
+      }
+
+      // 3. Identify local entries that are not yet in cloud and queue them for sync
+      const cloudIdSet = new Set(cloudList.map((c) => c.id));
+      for (const localItem of localPool) {
+        if (localItem && localItem.id && !cloudIdSet.has(localItem.id)) {
+          unsyncedLocalItems.push(localItem);
+        }
+      }
+
+      const mergedIncomesList = Array.from(mergedIncomesMap.values());
+      const effectiveIncome = mergedIncomesList.length > 0 ? mergedIncomesList : incomeEntries;
 
       const { reconciledIncomes, hasChanges, newItems, updatedItems } = reconcileRentalIncomeLedger(
         effectiveRentals,
@@ -623,15 +669,17 @@ export default function App() {
         currentUser?.name || settings.cashierName || 'Staff'
       );
 
-      if (hasChanges) {
-        setIncomeEntries(reconciledIncomes);
-        if (isSupabaseConfigured()) {
-          [...newItems, ...updatedItems].forEach((entry) => {
-            syncIncomeEntryToSupabase(entry);
-          });
-        }
-      } else if (cloudIncome && cloudIncome.length > 0) {
-        setIncomeEntries(cloudIncome);
+      const finalIncomes = hasChanges ? reconciledIncomes : effectiveIncome;
+      setIncomeEntries(finalIncomes);
+      try {
+        localStorage.setItem('v_rental_income', JSON.stringify(finalIncomes));
+      } catch {}
+
+      if (isSupabaseConfigured()) {
+        const itemsToSync = [...unsyncedLocalItems, ...(hasChanges ? [...newItems, ...updatedItems] : [])];
+        itemsToSync.forEach((entry) => {
+          syncIncomeEntryToSupabase(entry);
+        });
       }
 
       if (cloudTemplates && cloudTemplates.length > 0) {
@@ -1091,7 +1139,18 @@ export default function App() {
             setIsFullLoginPage(false);
             setSidebarCollapsed(true);
             setSettings((prev) => ({ ...prev, cashierName: user.name }));
-            setActiveTab('rentals');
+            const isMGRAdmin = (user.email || '').toLowerCase() === 'admin@mannargreenride.lk';
+            if (isMGRAdmin || user.role === 'owner' || user.role === 'passenger') {
+              setSystemMode('mgr_booking');
+              try {
+                localStorage.setItem('mgr_system_mode', 'mgr_booking');
+              } catch {}
+              if (user.role === 'owner') setMgrActiveTab('mgr-fleet');
+              else if (user.role === 'passenger') setMgrActiveTab('mgr-search');
+              else setMgrActiveTab('mgr-dashboard');
+            } else {
+              setActiveTab('rentals');
+            }
             if (user.must_change_password || (typeof window !== 'undefined' && localStorage.getItem('v_rental_must_change_password') === 'true')) {
               setIsPasswordResetModalOpen(true);
               setIsForcedPasswordChange(true);
@@ -1395,29 +1454,52 @@ export default function App() {
               accent={accent}
               currentUser={activeUser}
               onAddEntry={(entry) => {
-                setIncomeEntries((prev) => [entry, ...prev]);
+                const canAdd = hasPermission(activeUser, 'canAddFinanceTransaction') || activeUser.role === 'admin';
+                if (!canAdd) {
+                  console.warn('[Finance] Action rejected: Active role does not have permission to add finance records.');
+                  return;
+                }
+                setIncomeEntries((prev) => {
+                  const updated = [entry, ...prev];
+                  try {
+                    localStorage.setItem('v_rental_income', JSON.stringify(updated));
+                  } catch {}
+                  return updated;
+                });
                 if (isSupabaseConfigured()) {
                   syncIncomeEntryToSupabase(entry);
                 }
               }}
               onUpdateEntry={(updated) => {
-                const canEdit = hasPermission(activeUser, 'canEditFinanceTransaction');
+                const canEdit = hasPermission(activeUser, 'canEditFinanceTransaction') || activeUser.role === 'admin';
                 if (!canEdit) {
                   console.warn('[Finance] Action rejected: Active role does not have permission to update finance records.');
                   return;
                 }
-                setIncomeEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+                setIncomeEntries((prev) => {
+                  const list = prev.map((e) => (e.id === updated.id ? updated : e));
+                  try {
+                    localStorage.setItem('v_rental_income', JSON.stringify(list));
+                  } catch {}
+                  return list;
+                });
                 if (isSupabaseConfigured()) {
                   syncIncomeEntryToSupabase(updated);
                 }
               }}
               onDeleteEntry={(id) => {
-                const canDelete = hasPermission(activeUser, 'canDeleteFinanceTransaction');
+                const canDelete = hasPermission(activeUser, 'canDeleteFinanceTransaction') || activeUser.role === 'admin';
                 if (!canDelete) {
                   console.warn('[Finance] Action rejected: Active role does not have permission to delete finance records.');
                   return;
                 }
-                setIncomeEntries((prev) => prev.filter((e) => e.id !== id));
+                setIncomeEntries((prev) => {
+                  const list = prev.filter((e) => e.id !== id);
+                  try {
+                    localStorage.setItem('v_rental_income', JSON.stringify(list));
+                  } catch {}
+                  return list;
+                });
                 if (isSupabaseConfigured()) {
                   deleteIncomeEntryFromSupabase(id);
                 }

@@ -6,8 +6,8 @@ export function normalizeSupabaseUrl(rawUrl: string): string {
   if (!url) return '';
 
   // If user pasted dashboard link like:
-  // https://supabase.com/dashboard/project/szzhzpjfmyeulxjhbbov
-  // or https://supabase.com/dashboard/project/szzhzpjfmyeulxjhbbov/settings/api-key
+  // https://supabase.com/dashboard/project/pmowtdktjmejisggngsp
+  // or https://supabase.com/dashboard/project/pmowtdktjmejisggngsp/settings/api-key
   const dashboardMatch = url.match(/supabase\.com\/dashboard\/project\/([a-z0-9_-]+)/i);
   if (dashboardMatch && dashboardMatch[1]) {
     return `https://${dashboardMatch[1]}.supabase.co`;
@@ -27,8 +27,8 @@ export function getSupabaseCredentials(): { url: string; anonKey: string } {
   const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
 
   // Default to the provided Supabase project
-  const defaultUrl = 'https://szzhzpjfmyeulxjhbbov.supabase.co';
-  const defaultKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6emh6cGpmbXlldWx4amhiYm92Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNzI4NDksImV4cCI6MjEwMzg0ODg0OX0.Xo3-i1H_rbX0DYhtw5C5-i4kQYsB1mXHYJzckhOYu1g';
+  const defaultUrl = 'https://pmowtdktjmejisggngsp.supabase.co';
+  const defaultKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBtb3d0ZGt0am1lamlzZ2duZ3NwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0ODA1MjAsImV4cCI6MjEwNTA1NjUyMH0.Dat7Pae2QlORFll9tGhDrwjO1m-ACmK7OZW-1cqUAVs';
 
   const rawUrl = (localUrl || envUrl || defaultUrl).trim();
   const url = normalizeSupabaseUrl(rawUrl);

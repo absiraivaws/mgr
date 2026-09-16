@@ -130,7 +130,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       canManageUsers: false,
       canManageRoles: false,
       canAddFinanceTransaction: true,
-      canEditFinanceTransaction: true,
+      canEditFinanceTransaction: false,
       canDeleteFinanceTransaction: false,
       canViewPL: true,
       canViewStatement: true,
