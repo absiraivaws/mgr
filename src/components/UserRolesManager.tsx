@@ -644,6 +644,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       password: newPassword,
       role: newRole,
       phone: newPhone,
+      requirePasswordChange: true,
     });
 
     if (res.success && res.user) {

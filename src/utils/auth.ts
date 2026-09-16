@@ -885,6 +885,7 @@ export async function changePassword(newPassword: string): Promise<{ success: bo
   try {
     const { data, error } = await supaAuth.auth.updateUser({
       password: newPassword,
+      data: { must_change_password: false },
     });
 
     if (error) {
@@ -956,8 +957,10 @@ export async function registerNewUser(params: {
   password: string;
   role?: UserRole;
   phone?: string;
+  requirePasswordChange?: boolean;
 }): Promise<{ success: boolean; user?: UserAccount; error?: string }> {
   const normalizedEmail = (params.email || '').trim().toLowerCase();
+  const requirePasswordChange = params.requirePasswordChange ?? false;
 
   // Register in Supabase Auth
   const supaAuth = getSupabaseAuth();
@@ -971,60 +974,73 @@ export async function registerNewUser(params: {
             name: params.name.trim(),
             role: params.role || 'cashier',
             phone: params.phone?.trim() || '',
-            must_change_password: true,
+            must_change_password: requirePasswordChange,
           },
         },
       });
 
       if (error) {
+        const msg = (error.message || '').toLowerCase();
+        if (msg.includes('already registered') || msg.includes('already exists') || msg.includes('already been registered')) {
+          return { success: false, error: 'An account with this email already exists. Please sign in.' };
+        }
         return { success: false, error: error.message };
       }
 
+      // Supabase returns a user with an empty identities array when the email is already
+      // registered (with email confirmation enabled) to avoid leaking account existence.
+      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        return { success: false, error: 'An account with this email already exists. Please sign in.' };
+      }
+
       if (data.user) {
+        const resolvedEmail = (data.user.email || normalizedEmail).toLowerCase();
         const users = getStoredUsers();
         const existing = users.find(
-          (u) => u && u.email && u.email.toLowerCase() === data.user.email?.toLowerCase()
+          (u) => u && u.email && u.email.toLowerCase() === resolvedEmail
         );
-        if (existing) {
-          setCurrentUserSession(existing);
-          return { success: true, user: existing };
-        }
 
-        const newUser: UserAccount = {
-          id: `supa-${data.user.id}`,
+        // Refresh/merge the local record so it is always linked to the Supabase Auth user,
+        // even if a stale entry for this email was left behind in the local cache.
+        const resolvedUser: UserAccount = {
+          id: existing?.id || `supa-${data.user.id}`,
           auth_user_id: data.user.id,
-          name: data.user.user_metadata?.name || params.name.trim(),
+          name: data.user.user_metadata?.name || params.name.trim() || existing?.name || 'User',
           email: data.user.email || normalizedEmail,
-          role: params.role || 'cashier',
-          phone: params.phone?.trim() || undefined,
-          status: 'active',
-          must_change_password: true,
-          createdAt: Date.now(),
-          avatarColor: 'emerald',
+          role: params.role || existing?.role || 'cashier',
+          phone: params.phone?.trim() || existing?.phone || undefined,
+          status: existing?.status || 'active',
+          must_change_password: Boolean(
+            data.user.user_metadata?.must_change_password ?? existing?.must_change_password ?? requirePasswordChange
+          ),
+          createdAt: existing?.createdAt || Date.now(),
+          avatarColor: existing?.avatarColor || 'emerald',
         };
 
-        const usersUpdated = [newUser, ...users];
-        saveStoredUsers(usersUpdated);
-        setCurrentUserSession(newUser);
+        const otherUsers = users.filter(
+          (u) => !u || !u.email || u.email.toLowerCase() !== resolvedEmail
+        );
+        saveStoredUsers([resolvedUser, ...otherUsers]);
+        setCurrentUserSession(resolvedUser);
 
         // Also save profile to user_accounts table (NO password_hash!)
         if (isSupabaseConfigured()) {
           const supa = getSupabase();
           if (supa) {
             await supa.from('user_accounts').upsert({
-              id: newUser.id,
+              id: resolvedUser.id,
               auth_user_id: data.user.id,
-              name: newUser.name,
-              email: newUser.email,
-              phone: newUser.phone || null,
-              role: newUser.role,
+              name: resolvedUser.name,
+              email: resolvedUser.email,
+              phone: resolvedUser.phone || null,
+              role: resolvedUser.role,
               status: 'active',
-              must_change_password: true,
-              created_at: newUser.createdAt,
+              must_change_password: resolvedUser.must_change_password,
+              created_at: resolvedUser.createdAt,
             }, { onConflict: 'id' });
           }
         }
-        return { success: true, user: newUser };
+        return { success: true, user: resolvedUser };
       }
     } catch (e: any) {
       return { success: false, error: e.message || 'Failed to register account with Supabase Auth.' };

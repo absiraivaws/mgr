@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Bike, 
   Settings as SettingsIcon, 
@@ -78,7 +78,6 @@ import {
   deleteVehicleFromSupabase,
   syncIncomeEntryToSupabase,
   syncSettingsToSupabase,
-  syncAllUsersToSupabase,
   syncAllRolesToSupabase,
   fetchIncomeEntries,
   deleteIncomeEntryFromSupabase,
@@ -92,6 +91,16 @@ import { MGRBookingHub } from './components/mgr-booking/MGRBookingHub';
 import { MGRTabType } from './types/mgrBooking';
 import { PRHHub } from './components/prh/PRHHub';
 import { PRHTabType } from './types/prhTypes';
+import {
+  buildRolePath,
+  DEFAULT_TAB_BY_PERSONA,
+  navigate,
+  ParsedRolePath,
+  parseRolePath,
+  RolePersona,
+  sanitizeMGRTabForPersona,
+  useRoleRouting,
+} from './utils/roleRouting';
 
 function sanitizeRentalRecordNumber(r: RentalRecord): RentalRecord {
   if (!r || !r.rentalNumber) return r;
@@ -124,6 +133,7 @@ import {
 } from './utils/theme';
 import { 
   DEFAULT_USER, 
+  MGR_INITIAL_ACCOUNTS,
   UserAccount, 
   getCurrentUser, 
   setCurrentUserSession,
@@ -151,14 +161,43 @@ export default function App() {
   // System Mode (Bicycle Rental POS vs MGR Transport Booking Marketplace vs PRH Rental Hub)
   const [systemMode, setSystemMode] = useState<'bicycle_pos' | 'mgr_booking' | 'prh_rental'>(() => {
     try {
+      if (parseRolePath(window.location.pathname).persona) {
+        return 'mgr_booking';
+      }
       const saved = localStorage.getItem('mgr_system_mode');
       return (saved as any) || 'bicycle_pos';
     } catch {
       return 'bicycle_pos';
     }
   });
-  const [mgrActiveTab, setMgrActiveTab] = useState<MGRTabType>('mgr-search');
+  const [mgrActiveTab, setMgrActiveTab] = useState<MGRTabType>(() => {
+    const parsed = parseRolePath(typeof window !== 'undefined' ? window.location.pathname : '/');
+    if (parsed.tab) return parsed.tab;
+    if (parsed.persona) return DEFAULT_TAB_BY_PERSONA[parsed.persona];
+    return 'mgr-search';
+  });
   const [prhActiveTab, setPrhActiveTab] = useState<PRHTabType>('prh-dashboard');
+
+  // URL routing state (role paths: /passenger, /owner, /admin + nested tab slugs)
+  const [route, setRoute] = useState<ParsedRolePath>(() =>
+    parseRolePath(typeof window !== 'undefined' ? window.location.pathname : '/')
+  );
+
+  // Marks the next route change as coming from browser back/forward so state follows the URL
+  const popNavRef = useRef(false);
+
+  const go = useCallback((path: string, options: { replace?: boolean } = {}) => {
+    navigate(path, options);
+    setRoute(parseRolePath(path));
+  }, []);
+
+  useRoleRouting(
+    useCallback((parsed: ParsedRolePath) => {
+      popNavRef.current = true;
+      setRoute(parsed);
+    }, [])
+  );
+
 
   // Authenticated User Session - Always require login on page refresh or direct link open
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
@@ -170,6 +209,13 @@ export default function App() {
   const isPassenger = userPersona === 'passenger';
   const isOwner = userPersona === 'owner';
   const isMGRTransportAdmin = (activeUser.email || '').toLowerCase() === 'admin@mannargreenride.lk';
+  const rolePersona: RolePersona | null = isPassenger
+    ? 'passenger'
+    : isOwner
+      ? 'owner'
+      : isMGRTransportAdmin
+        ? 'admin'
+        : null;
 
   const handleToggleSystemMode = (mode: 'bicycle_pos' | 'mgr_booking' | 'prh_rental') => {
     if ((isPassenger || isOwner || isMGRTransportAdmin) && mode !== 'mgr_booking') {
@@ -181,6 +227,25 @@ export default function App() {
     } catch {}
   };
 
+  // Central helper: set the active MGR tab and keep the browser URL in sync
+  const applyMGRTab = useCallback(
+    (tab: MGRTabType, options: { push?: boolean } = {}) => {
+      if (!rolePersona) return;
+      const sanitized = sanitizeMGRTabForPersona(rolePersona, tab);
+      setMgrActiveTab(sanitized);
+      go(buildRolePath(rolePersona, sanitized), { replace: !options.push });
+    },
+    [go, rolePersona]
+  );
+
+  // User-initiated tab navigation (adds a history entry so back/forward works)
+  const navigateToMGRTab = useCallback(
+    (tab: MGRTabType) => {
+      applyMGRTab(tab, { push: true });
+    },
+    [applyMGRTab]
+  );
+
   // Route protection for MGR Transport personas (Passenger, Owner, and MGR Transport Admin)
   useEffect(() => {
     if (isPassenger || isOwner || isMGRTransportAdmin) {
@@ -191,13 +256,76 @@ export default function App() {
         } catch {}
       }
       if (isPassenger && ['mgr-dashboard', 'mgr-fleet', 'mgr-customers', 'mgr-routes', 'mgr-owners', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
-        setMgrActiveTab('mgr-search');
+        applyMGRTab('mgr-search');
       }
       if (isOwner && ['mgr-dashboard', 'mgr-search', 'mgr-routes', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
-        setMgrActiveTab('mgr-fleet');
+        applyMGRTab('mgr-fleet');
       }
     }
-  }, [currentUser, isPassenger, isOwner, isMGRTransportAdmin, systemMode, mgrActiveTab]);
+  }, [currentUser, isPassenger, isOwner, isMGRTransportAdmin, systemMode, mgrActiveTab, applyMGRTab]);
+
+  // On login/refresh: land on the URL's tab (or the persona default) and normalize the URL
+  useEffect(() => {
+    if (!currentUser || !rolePersona) return;
+    const parsed = parseRolePath(window.location.pathname);
+    const targetTab =
+      parsed.persona === rolePersona
+        ? parsed.tab
+          ? sanitizeMGRTabForPersona(rolePersona, parsed.tab)
+          : DEFAULT_TAB_BY_PERSONA[rolePersona]
+        : DEFAULT_TAB_BY_PERSONA[rolePersona];
+
+    setSystemMode('mgr_booking');
+    try {
+      localStorage.setItem('mgr_system_mode', 'mgr_booking');
+    } catch {}
+    setMgrActiveTab(targetTab);
+    go(buildRolePath(rolePersona, targetTab), { replace: true });
+  }, [currentUser, rolePersona, go]);
+
+  // Unknown paths fall back to the root entry point
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const parsed = parseRolePath(window.location.pathname);
+    if (!parsed.isRoot && !parsed.persona) {
+      go('/', { replace: true });
+    }
+  }, [go]);
+
+  // Bicycle POS / staff users only live at the root
+  useEffect(() => {
+    if (!currentUser || rolePersona) return;
+    const parsed = parseRolePath(window.location.pathname);
+    if (!parsed.isRoot) {
+      go('/', { replace: true });
+    }
+  }, [currentUser, rolePersona, go]);
+
+  // Apply browser back/forward navigation to the active role/tab
+  useEffect(() => {
+    if (!popNavRef.current) return;
+    popNavRef.current = false;
+
+    if (!currentUser || !rolePersona) return;
+
+    if (route.persona && route.persona === rolePersona) {
+      const nextTab = route.tab
+        ? sanitizeMGRTabForPersona(rolePersona, route.tab)
+        : DEFAULT_TAB_BY_PERSONA[rolePersona];
+      setSystemMode('mgr_booking');
+      try {
+        localStorage.setItem('mgr_system_mode', 'mgr_booking');
+      } catch {}
+      setMgrActiveTab(nextTab);
+      return;
+    }
+
+    // Mismatched role path -> go to this persona's default
+    const fallback = DEFAULT_TAB_BY_PERSONA[rolePersona];
+    setMgrActiveTab(fallback);
+    go(buildRolePath(rolePersona, fallback), { replace: true });
+  }, [route, currentUser, rolePersona, go]);
+
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
@@ -564,18 +692,24 @@ export default function App() {
           localStorage.setItem('v_rental_settings', JSON.stringify(cloudData.settings));
         }
 
-        if (cloudData.userAccounts && cloudData.userAccounts.length > 0) {
-          const localUsers = getStoredUsers();
+        if (cloudData.userAccounts !== undefined) {
+          // Cloud is authoritative for user accounts. Only keep the built-in accounts
+          // locally when they are missing from the cloud, so deleted users do not linger
+          // or get re-created in Supabase.
+          const standardEmails = new Set(
+            [DEFAULT_USER, ...MGR_INITIAL_ACCOUNTS].map((u) => u.email.toLowerCase())
+          );
           const mergedMap = new Map<string, UserAccount>();
-          for (const u of localUsers) {
-            if (u && u.email) mergedMap.set(u.email.toLowerCase(), u);
-          }
           for (const u of cloudData.userAccounts) {
             if (u && u.email) mergedMap.set(u.email.toLowerCase(), u);
           }
+          for (const u of getStoredUsers()) {
+            const email = u?.email?.toLowerCase();
+            if (email && standardEmails.has(email) && !mergedMap.has(email)) {
+              mergedMap.set(email, u);
+            }
+          }
           saveStoredUsers(Array.from(mergedMap.values()));
-        } else {
-          syncAllUsersToSupabase(getStoredUsers());
         }
 
         if (cloudData.roles && cloudData.roles.length > 0) {
@@ -1090,6 +1224,7 @@ export default function App() {
     await logoutUser();
     setCurrentUser(null);
     setIsFullLoginPage(true);
+    go('/', { replace: true });
     try {
       localStorage.removeItem('v_rental_current_user');
       localStorage.removeItem('mgr_system_mode');
@@ -1130,23 +1265,38 @@ export default function App() {
     return (
       <>
         <LoginPage
+          preselectedRole={route.persona}
           onLoginSuccess={(user) => {
             setCurrentUser(user);
             setCurrentUserSession(user);
             setIsFullLoginPage(false);
             setSidebarCollapsed(true);
             setSettings((prev) => ({ ...prev, cashierName: user.name }));
-            const isMGRAdmin = (user.email || '').toLowerCase() === 'admin@mannargreenride.lk';
-            if (isMGRAdmin || user.role === 'owner' || user.role === 'passenger') {
+            const persona = getMGRPersona(user);
+            const isAdminEmail = (user.email || '').toLowerCase() === 'admin@mannargreenride.lk';
+            const mgrRole: RolePersona | null =
+              persona === 'passenger'
+                ? 'passenger'
+                : persona === 'owner'
+                  ? 'owner'
+                  : isAdminEmail
+                    ? 'admin'
+                    : null;
+            if (mgrRole) {
               setSystemMode('mgr_booking');
               try {
                 localStorage.setItem('mgr_system_mode', 'mgr_booking');
               } catch {}
-              if (user.role === 'owner') setMgrActiveTab('mgr-fleet');
-              else if (user.role === 'passenger') setMgrActiveTab('mgr-search');
-              else setMgrActiveTab('mgr-dashboard');
+              const tab = DEFAULT_TAB_BY_PERSONA[mgrRole];
+              setMgrActiveTab(tab);
+              go(buildRolePath(mgrRole, tab), { replace: true });
             } else {
+              setSystemMode('bicycle_pos');
+              try {
+                localStorage.setItem('mgr_system_mode', 'bicycle_pos');
+              } catch {}
               setActiveTab('rentals');
+              go('/', { replace: true });
             }
             if (user.must_change_password || (typeof window !== 'undefined' && localStorage.getItem('v_rental_must_change_password') === 'true')) {
               setIsPasswordResetModalOpen(true);
@@ -1212,7 +1362,7 @@ export default function App() {
         systemMode={systemMode}
         onToggleSystemMode={handleToggleSystemMode}
         mgrActiveTab={mgrActiveTab}
-        onSelectMGRTab={setMgrActiveTab}
+        onSelectMGRTab={navigateToMGRTab}
         prhActiveTab={prhActiveTab}
         onSelectPRHTab={setPrhActiveTab}
       />
@@ -1239,7 +1389,7 @@ export default function App() {
           ) : systemMode === 'mgr_booking' ? (
             <MGRBookingHub
               activeTab={mgrActiveTab}
-              setActiveTab={setMgrActiveTab}
+              setActiveTab={navigateToMGRTab}
               themeMode="light"
               currentUser={activeUser}
               customers={customers}

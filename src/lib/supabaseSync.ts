@@ -159,7 +159,7 @@ export async function fetchSupabaseData(): Promise<{
       };
     }
 
-    if (usersRes.data && usersRes.data.length > 0) {
+    if (usersRes.data) {
       result.userAccounts = usersRes.data.map((row) => ({
         id: row.id,
         auth_user_id: row.auth_user_id || undefined,

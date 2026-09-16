@@ -36,9 +36,8 @@ import {
   authenticateUser, 
   resetUserPassword,
   registerNewUser,
-  getStoredUsers,
-  saveStoredUsers,
-  setCurrentUserSession
+  setCurrentUserSession,
+  getStoredUsers
 } from '../utils/auth';
 import { syncUserAccountToSupabase } from '../lib/supabaseSync';
 import { ACCENT_COLORS, AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
@@ -50,6 +49,7 @@ interface LoginPageProps {
   onToggleTheme: () => void;
   accent: AccentColor;
   onChangeAccent: (accent: AccentColor) => void;
+  preselectedRole?: 'passenger' | 'owner' | 'admin' | null;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({
@@ -59,6 +59,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onToggleTheme,
   accent,
   onChangeAccent,
+  preselectedRole = null,
 }) => {
   const [view, setView] = useState<'login' | 'register' | 'forgot'>('login');
 
