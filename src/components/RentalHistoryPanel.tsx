@@ -524,7 +524,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               <option value="all">All Payment Methods</option>
               <option value="cash">Cash Only</option>
               <option value="card">Card / POS</option>
-              <option value="qr">QR Code Transfer</option>
+              <option value="qr_transfer">QR / LankaQR</option>
             </select>
           </div>
 

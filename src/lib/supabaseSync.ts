@@ -1,6 +1,12 @@
 import { getSupabase } from './supabase';
 import { AppSettings, Customer, CustomerGroup, CustomerStatus, MessageHistoryEntry, MessageTemplate, RentalRecord, Vehicle, VehicleType } from '../types';
 import { RoleDefinition, UserAccount } from '../utils/auth';
+import type {
+  TransportV2Request,
+  TransportListingMode,
+  TransportRequestStatus,
+  TransportPaymentStatus,
+} from '../types/mgrTransportV2';
 
 /**
  * Fetch all initial data from Supabase if connected
@@ -260,6 +266,8 @@ export async function syncRentalToSupabase(rental: RentalRecord) {
       payment_method: rental.paymentMethod || null,
       amount_received: rental.amountReceived || null,
       change_amount: rental.changeAmount || null,
+      payment_ref: rental.paymentRef || null,
+      deposit_payment_ref: rental.depositPaymentRef || null,
       completed_at: rental.completedAt || null,
     };
 
@@ -1622,6 +1630,107 @@ export async function syncMarketplaceSettingsToSupabase(settings: MarketplaceSet
     await supabase.from('marketplace_settings').upsert(payload, { onConflict: 'id' });
   } catch (err) {
     console.warn('[MGR Sync] Failed to sync marketplace settings to Supabase:', err);
+  }
+}
+
+/**
+ * Persist a Transport V2 booking request to Supabase so payment callbacks can
+ * confirm it server-side even when the passenger's browser is closed.
+ */
+export async function syncTransportRequestV2ToSupabase(request: TransportV2Request): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) return;
+  try {
+    const dbMode = request.listingMode === 'availability_only' ? 'availability_only' : 'planned_trip';
+    const payload = {
+      id: request.id,
+      request_number: request.requestNumber,
+      listing_id: request.listingId || null,
+      vehicle_id: request.vehicleId,
+      vehicle_name: request.vehicleName,
+      vehicle_type: request.vehicleType,
+      registration_number: request.registrationNumber,
+      owner_id: request.ownerId,
+      owner_name: request.ownerName,
+      owner_phone: request.ownerPhone,
+      owner_whatsapp: request.ownerWhatsApp,
+      passenger_name: request.passenger?.name || '',
+      passenger_phone: request.passenger?.phone || '',
+      passenger_whatsapp: request.passenger?.whatsapp || '',
+      passenger_email: request.passenger?.email || null,
+      listing_mode: dbMode,
+      travel_date: request.travelDate,
+      travel_time: request.travelTime || null,
+      route_from: request.routeFrom,
+      route_to: request.routeTo,
+      seat_count: request.seatCount || 1,
+      special_notes: request.specialNotes || null,
+      owner_travel_charge: request.ownerTravelCharge ?? null,
+      convenience_fee: request.convenienceFee ?? null,
+      convenience_fee_percentage: request.convenienceFeePercentage ?? 5.0,
+      final_amount: request.finalAmount ?? null,
+      request_status: request.requestStatus,
+      payment_status: request.paymentStatus,
+      payment_ref: request.paymentRef || null,
+      rejection_reason: request.rejectionReason || null,
+      created_at: new Date(request.createdAt || Date.now()).toISOString(),
+      updated_at: new Date(request.updatedAt || Date.now()).toISOString(),
+    };
+    await supabase.from('mgr_transport_requests').upsert(payload, { onConflict: 'id' });
+  } catch (err) {
+    console.warn('[MGR Sync] Failed to sync transport request V2 to Supabase:', err);
+  }
+}
+
+export async function fetchTransportRequestsV2(): Promise<TransportV2Request[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.from('mgr_transport_requests').select('*');
+    if (error) throw error;
+    if (!data) return [];
+    return data.map((row: any): TransportV2Request => ({
+      id: row.id,
+      requestNumber: row.request_number,
+      listingId: row.listing_id || '',
+      vehicleId: row.vehicle_id,
+      vehicleName: row.vehicle_name,
+      vehicleType: row.vehicle_type,
+      registrationNumber: row.registration_number,
+      ownerId: row.owner_id,
+      ownerName: row.owner_name,
+      ownerPhone: row.owner_phone,
+      ownerWhatsApp: row.owner_whatsapp,
+      passenger: {
+        name: row.passenger_name || '',
+        phone: row.passenger_phone || '',
+        whatsapp: row.passenger_whatsapp || '',
+        email: row.passenger_email || undefined,
+      },
+      listingMode: (row.listing_mode === 'availability_only'
+        ? 'availability_only'
+        : 'planned_trip') as TransportListingMode,
+      travelDate: row.travel_date,
+      travelTime: row.travel_time || undefined,
+      routeFrom: row.route_from,
+      routeTo: row.route_to,
+      seatCount: row.seat_count ?? 1,
+      specialNotes: row.special_notes || undefined,
+      ownerTravelCharge: row.owner_travel_charge != null ? Number(row.owner_travel_charge) : undefined,
+      convenienceFee: row.convenience_fee != null ? Number(row.convenience_fee) : undefined,
+      convenienceFeePercentage:
+        row.convenience_fee_percentage != null ? Number(row.convenience_fee_percentage) : undefined,
+      finalAmount: row.final_amount != null ? Number(row.final_amount) : undefined,
+      requestStatus: row.request_status as TransportRequestStatus,
+      paymentStatus: row.payment_status as TransportPaymentStatus,
+      paymentRef: row.payment_ref || undefined,
+      rejectionReason: row.rejection_reason || undefined,
+      createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+      updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+    }));
+  } catch (err) {
+    console.warn('[MGR Sync] Failed to fetch transport requests V2 from Supabase:', err);
+    return null;
   }
 }
 

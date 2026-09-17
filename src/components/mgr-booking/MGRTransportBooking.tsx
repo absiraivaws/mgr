@@ -41,6 +41,8 @@ import {
 import { triggerLifecycleNotifications, getWhatsAppUrl } from '../../utils/mgrTransportNotifications';
 import { UserAccount, getMGRPersona } from '../../utils/auth';
 import { formatVehicleCode, formatBookingCode, formatScheduleCode } from '../../utils/mgrUniqueId';
+import { fetchTransportRequestsV2, syncTransportRequestV2ToSupabase } from '../../lib/supabaseSync';
+import { LankaQrPaymentModal } from '../LankaQrPaymentModal';
 
 export interface MGRTransportBookingProps {
   view: 'search' | 'requests' | 'owner-listings';
@@ -236,10 +238,33 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       return [];
     }
   });
+  const [requestsHydrated, setRequestsHydrated] = useState(false);
+
+  // Hydrate from Supabase (source of truth for payment callbacks), falling back to local cache
+  useEffect(() => {
+    let cancelled = false;
+    fetchTransportRequestsV2()
+      .then((remote) => {
+        if (cancelled) return;
+        // Keep the local cache when the cloud table is empty (fresh migration) so
+        // existing bookings are not wiped; the persist effect will push them up.
+        if (remote && remote.length > 0) {
+          setRequests(remote);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRequestsHydrated(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('mgr_transport_v2_requests', JSON.stringify(requests));
-  }, [requests]);
+    if (!requestsHydrated) return;
+    requests.forEach((r) => syncTransportRequestV2ToSupabase(r));
+  }, [requests, requestsHydrated]);
 
   // ─── SEARCH VIEW STATE ─────────────────────────────────────────────
   const [globalSearch, setGlobalSearch] = useState<string>('');
@@ -524,7 +549,6 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     const totalAmount = seatSubtotal + adminCharge;
 
     const reqNum = formatBookingCode(requests.length + 1);
-    const payRef = `PAY-MGR-${Math.floor(100000 + Math.random() * 900000)}`;
 
     const newRequest: TransportV2Request = {
       id: `REQ-V2-${Date.now()}`,
@@ -555,10 +579,9 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       convenienceFee: adminCharge,
       convenienceFeePercentage,
       finalAmount: totalAmount,
-      // DIRECT CONFIRMATION (Bypasses Owner Review/Accept)
-      requestStatus: 'confirmed',
-      paymentStatus: 'paid',
-      paymentRef: payRef,
+      // Seat is held pending LankaQR payment; confirmed in handleCompletePayment
+      requestStatus: 'awaiting_payment',
+      paymentStatus: 'pending',
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -566,17 +589,9 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     // Update requests state which reactively and accurately recalculates remaining seats via getRemainingSeatsForListing
     setRequests(prev => [newRequest, ...prev]);
 
-    // Dispatch Lifecycle Notification
-    await triggerLifecycleNotifications('booking_confirmed', newRequest);
-
-    // Show Success Modal
-    setBookingSuccessModal({
-      requestNumber: reqNum,
-      isSchedule: true,
-      totalAmount,
-      seats: requestedSeats,
-    });
+    // Collect payment via LankaQR; confirmation flips the request to confirmed/paid
     setRequestingListing(null);
+    setPayingRequest(newRequest);
   };
 
   // 2. TRIP: SUBMIT TRIP REQUEST TO OWNER (Requires Owner Accept -> Passenger Pay)
@@ -684,8 +699,8 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   };
 
   // 5. PASSENGER PAYS FOR TRIP BOOKING (Confirmed upon payment)
-  const handleCompletePayment = async (req: TransportV2Request) => {
-    const paymentRef = `PAY-MGR-${Math.floor(100000 + Math.random() * 900000)}`;
+  const handleCompletePayment = async (req: TransportV2Request, paymentReference?: string) => {
+    const paymentRef = paymentReference || `PAY-MGR-${Math.floor(100000 + Math.random() * 900000)}`;
 
     const updated: TransportV2Request = {
       ...req,
@@ -696,6 +711,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     };
 
     setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
+    await syncTransportRequestV2ToSupabase(updated);
 
     // Block the booked date on the trip vehicle
     setListings(prev =>
@@ -713,6 +729,15 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 
     setPayingRequest(null);
     await triggerLifecycleNotifications('booking_confirmed', updated);
+
+    if (updated.listingMode === 'schedule') {
+      setBookingSuccessModal({
+        requestNumber: updated.requestNumber,
+        isSchedule: true,
+        totalAmount: updated.finalAmount,
+        seats: updated.seatCount,
+      });
+    }
   };
 
   // 6. EDIT REQUEST (Requirements 10 & 11)
@@ -2206,68 +2231,28 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL: PASSENGER PAYMENT (for Trip bookings)
+          MODAL: PASSENGER PAYMENT (for Trip bookings) — LankaQR
       ───────────────────────────────────────────────────────────── */}
-      {payingRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div>
-                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
-                  {payingRequest.requestNumber}
-                </span>
-                <h3 className="text-base font-bold text-slate-900 mt-1">Complete Passenger Payment</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPayingRequest(null)}
-                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Service:</span>
-                <strong className="text-slate-800">{payingRequest.vehicleName}</strong>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Route:</span>
-                <span className="text-slate-800 font-medium">
-                  {payingRequest.routeFrom} ➔ {payingRequest.routeTo}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Travel Date:</span>
-                <span className="text-slate-800">{payingRequest.travelDate}</span>
-              </div>
-              <div className="pt-2 border-t border-slate-200 flex justify-between font-extrabold text-sm text-emerald-800">
-                <span>Total Amount:</span>
-                <span>Rs. {(payingRequest.finalAmount || 0).toLocaleString()}</span>
-              </div>
-            </div>
-
-            <div className="pt-2 border-t flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setPayingRequest(null)}
-                className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => handleCompletePayment(payingRequest)}
-                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Payment Complete / Success</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <LankaQrPaymentModal
+        isOpen={!!payingRequest}
+        amount={payingRequest?.finalAmount || 0}
+        purpose="booking"
+        recordId={payingRequest?.id}
+        description={
+          payingRequest
+            ? `Booking ${payingRequest.requestNumber} — ${payingRequest.routeFrom} to ${payingRequest.routeTo}`
+            : undefined
+        }
+        createdBy={currentUser?.name}
+        themeMode="light"
+        accent="emerald"
+        onSuccess={(reference) => {
+          const req = payingRequest;
+          setPayingRequest(null);
+          if (req) handleCompletePayment(req, reference);
+        }}
+        onClose={() => setPayingRequest(null)}
+      />
 
       {/* ─────────────────────────────────────────────────────────────
           MODAL: VIEW DETAILS (Contact Privacy, Requirement 7)

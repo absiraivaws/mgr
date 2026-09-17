@@ -1,0 +1,18 @@
+# Supabase project configuration for the MGR app.
+# Deploy functions with:
+#   supabase functions deploy lankaqr-generate
+#   supabase functions deploy lankaqr-callback
+#
+# QR_* secrets are read from supabase/.env:
+#   supabase functions serve --env-file supabase/.env
+#   supabase secrets set --env-file supabase/.env
+
+project_id = "pmowtdktjmejisggngsp"
+
+[functions.lankaqr-generate]
+verify_jwt = true
+
+[functions.lankaqr-callback]
+# The People's Bank callback is server-to-server and authenticates via HMAC
+# x-signature, not a Supabase JWT.
+verify_jwt = false

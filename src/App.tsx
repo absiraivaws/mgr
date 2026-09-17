@@ -946,6 +946,7 @@ export default function App() {
     customerNicPassport?: string;
     customerNotes?: string;
     depositAmount?: number;
+    depositPaymentRef?: string;
     customStartTime?: number;
     sendWelcomeWhatsApp?: boolean;
     sendEndWhatsApp?: boolean;
@@ -1028,6 +1029,7 @@ export default function App() {
       customerNicPassport: params.customerNicPassport,
       customerNotes: params.customerNotes,
       depositAmount: params.depositAmount,
+      depositPaymentRef: params.depositPaymentRef,
       startTime: params.customStartTime || Date.now(),
       status: 'active',
       rateSnapshot: { ...typeObj.rates },
@@ -1097,7 +1099,7 @@ export default function App() {
           amount: completedRecord.totalAmount,
           category: 'Rental Income',
           reference: rentRef,
-          paymentMethod: 'cash',
+          paymentMethod: completedRecord.paymentMethod || 'cash',
           who: activeCashier,
           cashierName: activeCashier,
           createdAt: Date.now(),

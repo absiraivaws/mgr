@@ -72,6 +72,8 @@ export interface RentalRecord {
   paymentMethod?: 'cash' | 'card' | 'qr_transfer' | 'other';
   amountReceived?: number;
   changeAmount?: number;
+  paymentRef?: string; // LankaQR reference for the final settlement
+  depositPaymentRef?: string; // LankaQR reference for the deposit, when paid by QR
   completedAt?: number;
   sendWelcomeWhatsApp?: boolean;
   sendEndWhatsApp?: boolean;

@@ -26,6 +26,7 @@ import { findCustomerByNic, searchCustomers, isCustomerSuspendedOrBlocked, clean
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { DEFAULT_USER, UserAccount } from '../utils/auth';
 import { QRScannerModal } from './QRScannerModal';
+import { LankaQrPaymentModal } from './LankaQrPaymentModal';
 import { recordAuditLog } from '../utils/audit';
 
 interface StartRentalCardProps {
@@ -46,6 +47,7 @@ interface StartRentalCardProps {
     customerNicPassport?: string;
     customerNotes?: string;
     depositAmount?: number;
+    depositPaymentRef?: string;
     customStartTime?: number;
     sendWelcomeWhatsApp?: boolean;
     sendEndWhatsApp?: boolean;
@@ -76,6 +78,8 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   const [customerNicPassport, setCustomerNicPassport] = useState<string>('');
   const [customerNotes, setCustomerNotes] = useState<string>('');
   const [depositAmount, setDepositAmount] = useState<string>('');
+  const [depositQrOpen, setDepositQrOpen] = useState<boolean>(false);
+  const [depositQrPaidRef, setDepositQrPaidRef] = useState<string | null>(null);
   const [sendWelcomeWhatsApp, setSendWelcomeWhatsApp] = useState<boolean>(true);
   const [sendEndWhatsApp, setSendEndWhatsApp] = useState<boolean>(true);
   const [customSerialMode, setCustomSerialMode] = useState<boolean>(false);
@@ -363,6 +367,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
       customerNicPassport: customerNicPassport.trim() || undefined,
       customerNotes: customerNotes.trim() || undefined,
       depositAmount: depositAmount ? parseFloat(depositAmount) : undefined,
+      depositPaymentRef: depositQrPaidRef || undefined,
       customStartTime: customStartMs,
       sendWelcomeWhatsApp,
       sendEndWhatsApp,
@@ -392,6 +397,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     setCustomerNicPassport('');
     setCustomerNotes('');
     setDepositAmount('');
+    setDepositQrPaidRef(null);
     setMatchedCustomer(null);
     setShowSuggestions(false);
     setErrorMsg(null);
@@ -931,9 +937,31 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
                 min="0"
                 placeholder="e.g. 1000"
                 value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
+                onChange={(e) => {
+                  setDepositAmount(e.target.value);
+                  setDepositQrPaidRef(null);
+                }}
                 className={`w-full rounded-xl px-3 py-2.5 text-xs font-mono ${t.textInput}`}
               />
+              {parseFloat(depositAmount) > 0 && (
+                <div className="mt-1.5">
+                  {depositQrPaidRef ? (
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-500">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Deposit collected via LankaQR</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setDepositQrOpen(true)}
+                      className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 hover:text-emerald-500 cursor-pointer"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>Collect deposit via LankaQR (optional)</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             <div>
@@ -1067,6 +1095,22 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
         accent={accent}
         title="Scan Vehicle QR"
         subtitle="Point camera at vehicle QR tag to auto-select or detect active rental"
+      />
+
+      {/* Optional Deposit LankaQR Payment */}
+      <LankaQrPaymentModal
+        isOpen={depositQrOpen}
+        amount={parseFloat(depositAmount) || 0}
+        purpose="rental_deposit"
+        description={`Rental deposit (${selectedSerial || 'vehicle'})`}
+        createdBy={activeUser.name}
+        themeMode={themeMode}
+        accent={accent}
+        onSuccess={(reference) => {
+          setDepositQrPaidRef(reference);
+          setDepositQrOpen(false);
+        }}
+        onClose={() => setDepositQrOpen(false)}
       />
     </div>
   );

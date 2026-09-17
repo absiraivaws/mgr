@@ -34,6 +34,7 @@ import {
 } from '../utils/pricing';
 import { cleanWhatsAppPhoneNumber } from '../utils/customer';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
+import { LankaQrPaymentModal } from './LankaQrPaymentModal';
 
 interface StopRentalModalProps {
   rental: RentalRecord;
@@ -88,6 +89,7 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
   const [damageAmountInput, setDamageAmountInput] = useState<string>('');
   const [discountInput, setDiscountInput] = useState<string>('');
   const [sendThankYouWhatsApp, setSendThankYouWhatsApp] = useState<boolean>(rental.sendEndWhatsApp ?? true);
+  const [showQrPayment, setShowQrPayment] = useState<boolean>(false);
 
   const t = getThemeClasses(themeMode, accent);
 
@@ -181,7 +183,16 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
     setAmountReceivedInput(newTot.toString());
   };
 
-  const handleComplete = () => {
+  const handleComplete = (overrides?: {
+    paymentMethod?: 'cash' | 'card' | 'qr_transfer';
+    amountReceived?: number;
+    paymentRef?: string;
+  }) => {
+    const settledMethod = overrides?.paymentMethod ?? paymentMethod;
+    const settledAmountReceived = overrides?.amountReceived ?? amountReceived;
+    const settledChangeDue = Math.max(0, settledAmountReceived - finalTotalAmount);
+    const settledPaymentRef = overrides?.paymentRef ?? rental.paymentRef;
+
     if (settings.soundEnabled) {
       playSoundEffect('stop');
     }
@@ -203,9 +214,10 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
       status: 'completed',
       breakdown: breakdown,
       totalAmount: finalTotalAmount,
-      paymentMethod: paymentMethod,
-      amountReceived: amountReceived,
-      changeAmount: changeDue,
+      paymentMethod: settledMethod,
+      amountReceived: settledAmountReceived,
+      changeAmount: settledChangeDue,
+      paymentRef: settledPaymentRef,
       damageAmount: damageAmount,
       discountAmount: discountAmount,
       completedAt: effectiveStopTime,
@@ -521,6 +533,11 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
                 <span>QR / Transfer</span>
               </button>
             </div>
+            {paymentMethod === 'qr_transfer' && (
+              <p className={`text-[11px] mt-2 ${t.textMuted}`}>
+                A LankaQR code will be generated on confirm. Payment is verified automatically; switch to Cash/Card if the customer prefers.
+              </p>
+            )}
           </div>
 
           {/* Cash Received and Change Calculator */}
@@ -587,13 +604,43 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
 
           <button
             type="button"
-            onClick={handleComplete}
+            onClick={() => {
+              if (paymentMethod === 'qr_transfer' && finalTotalAmount > 0) {
+                setShowQrPayment(true);
+              } else {
+                handleComplete();
+              }
+            }}
             className={`px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 shadow-lg cursor-pointer ${t.primaryBtn}`}
           >
             <CheckCircle2 className="w-4 h-4" />
-            <span>Confirm Payment & Print Receipt</span>
+            <span>
+              {paymentMethod === 'qr_transfer' && finalTotalAmount > 0
+                ? 'Generate LankaQR & Settle'
+                : 'Confirm Payment & Print Receipt'}
+            </span>
           </button>
         </div>
+
+        <LankaQrPaymentModal
+          isOpen={showQrPayment}
+          amount={finalTotalAmount}
+          purpose="rental_final"
+          recordId={rental.id}
+          description={`Rental ${rental.rentalNumber} settlement (${rental.vehicleSerialNumber})`}
+          createdBy={rental.cashierName}
+          themeMode={themeMode}
+          accent={accent}
+          onSuccess={(reference) => {
+            setShowQrPayment(false);
+            handleComplete({
+              paymentMethod: 'qr_transfer',
+              amountReceived: finalTotalAmount,
+              paymentRef: reference,
+            });
+          }}
+          onClose={() => setShowQrPayment(false)}
+        />
 
       </div>
     </div>
