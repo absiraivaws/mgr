@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 /* Ensure date input calendar picker indicator is clearly visible in dark and light modes */
 /* Remove up/down spinner arrows from all numeric input windows globally */

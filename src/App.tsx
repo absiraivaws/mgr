@@ -90,6 +90,8 @@ import { getNextRentalNumber, formatRentalNumber } from './utils/pricing';
 import { isSupabaseConfigured, getSupabase } from './lib/supabase';
 import { MGRBookingHub } from './components/mgr-booking/MGRBookingHub';
 import { MGRTabType } from './types/mgrBooking';
+import { PRHHub } from './components/prh/PRHHub';
+import { PRHTabType } from './types/prhTypes';
 
 function sanitizeRentalRecordNumber(r: RentalRecord): RentalRecord {
   if (!r || !r.rentalNumber) return r;
@@ -146,8 +148,8 @@ export default function App() {
     }
   });
 
-  // System Mode (Bicycle Rental POS vs MGR Transport Booking Marketplace)
-  const [systemMode, setSystemMode] = useState<'bicycle_pos' | 'mgr_booking'>(() => {
+  // System Mode (Bicycle Rental POS vs MGR Transport Booking Marketplace vs PRH Rental Hub)
+  const [systemMode, setSystemMode] = useState<'bicycle_pos' | 'mgr_booking' | 'prh_rental'>(() => {
     try {
       const saved = localStorage.getItem('mgr_system_mode');
       return (saved as any) || 'bicycle_pos';
@@ -156,6 +158,7 @@ export default function App() {
     }
   });
   const [mgrActiveTab, setMgrActiveTab] = useState<MGRTabType>('mgr-search');
+  const [prhActiveTab, setPrhActiveTab] = useState<PRHTabType>('prh-dashboard');
 
   // Authenticated User Session
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => getCurrentUser());
@@ -176,9 +179,9 @@ export default function App() {
   const isOwner = userPersona === 'owner';
   const isMGRTransportAdmin = (activeUser.email || '').toLowerCase() === 'admin@mannargreenride.lk';
 
-  const handleToggleSystemMode = (mode: 'bicycle_pos' | 'mgr_booking') => {
-    if ((isPassenger || isOwner || isMGRTransportAdmin) && mode === 'bicycle_pos') {
-      return; // Block access to Bicycle POS for Passenger, Owner, and MGR Transport Admin
+  const handleToggleSystemMode = (mode: 'bicycle_pos' | 'mgr_booking' | 'prh_rental') => {
+    if ((isPassenger || isOwner || isMGRTransportAdmin) && mode !== 'mgr_booking') {
+      return; // Block access outside MGR Transport for Passenger, Owner, and MGR Transport Admin
     }
     setSystemMode(mode);
     try {
@@ -1216,6 +1219,8 @@ export default function App() {
         onToggleSystemMode={handleToggleSystemMode}
         mgrActiveTab={mgrActiveTab}
         onSelectMGRTab={setMgrActiveTab}
+        prhActiveTab={prhActiveTab}
+        onSelectPRHTab={setPrhActiveTab}
       />
 
       {/* Main Container */}
@@ -1229,8 +1234,15 @@ export default function App() {
       >
         <div className="px-4 sm:px-6 lg:px-8 pt-6">
 
-          {/* MGR Transport Marketplace Hub */}
-          {systemMode === 'mgr_booking' ? (
+          {/* PRH Construction Equipment Rental Hub */}
+          {systemMode === 'prh_rental' ? (
+            <PRHHub
+              activeTab={prhActiveTab}
+              setActiveTab={setPrhActiveTab}
+              currentUserEmail={activeUser.email || 'admin@mannargreenride.lk'}
+              themeMode={themeMode}
+            />
+          ) : systemMode === 'mgr_booking' ? (
             <MGRBookingHub
               activeTab={mgrActiveTab}
               setActiveTab={setMgrActiveTab}

@@ -30,11 +30,16 @@ import {
   Search,
   Key,
   UserCheck,
+  HardHat,
+  Boxes,
+  RotateCcw,
+  Wrench,
 } from 'lucide-react';
 import { AppSettings, RentalRecord, Vehicle } from '../types';
 import { DEFAULT_USER, UserAccount, getUserPermissions, getMGRPersona } from '../utils/auth';
 import { ACCENT_COLORS, AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { MGRTabType } from '../types/mgrBooking';
+import { PRHTabType } from '../types/prhTypes';
 
 export type NavTabType = 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers' | 'messages' | 'finance';
 
@@ -58,10 +63,12 @@ interface NavbarProps {
   onSelectAccent?: (accent: AccentColor) => void;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (v: boolean) => void;
-  systemMode?: 'bicycle_pos' | 'mgr_booking';
-  onToggleSystemMode?: (mode: 'bicycle_pos' | 'mgr_booking') => void;
+  systemMode?: 'bicycle_pos' | 'mgr_booking' | 'prh_rental';
+  onToggleSystemMode?: (mode: 'bicycle_pos' | 'mgr_booking' | 'prh_rental') => void;
   mgrActiveTab?: MGRTabType;
   onSelectMGRTab?: (tab: MGRTabType) => void;
+  prhActiveTab?: PRHTabType;
+  onSelectPRHTab?: (tab: PRHTabType) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -87,6 +94,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleSystemMode,
   mgrActiveTab = 'mgr-search',
   onSelectMGRTab,
+  prhActiveTab = 'prh-dashboard',
+  onSelectPRHTab,
 }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -103,6 +112,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isPassenger = persona === 'passenger';
   const isOwner = persona === 'owner';
   const isAdminUser = persona === 'admin' || isAdmin || isRootAdmin;
+  const isMGRTransportAdmin = (activeUser.email || '').toLowerCase() === 'admin@mannargreenride.lk';
   const userPerms = getUserPermissions(activeUser);
   const handleOpenAuth = onOpenAuthModal || onOpenCashierModal || (() => {});
   const handleAccentChange = onSelectAccent || onChangeAccent || (() => {});
@@ -276,6 +286,113 @@ export const Navbar: React.FC<NavbarProps> = ({
     },
   ];
 
+  const prhNavItems: {
+    id: PRHTabType;
+    label: string;
+    icon: React.ReactNode;
+    show: boolean;
+    activeClass: string;
+  }[] = [
+    {
+      id: 'prh-dashboard',
+      label: 'PRH Dashboard',
+      icon: <Compass className="w-4 h-4 text-amber-500 shrink-0" />,
+      show: true,
+      activeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-new-rental',
+      label: 'New Rental',
+      icon: <HardHat className="w-4 h-4 text-amber-500 shrink-0" />,
+      show: true,
+      activeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-active-rentals',
+      label: 'Active Rentals',
+      icon: <Clock className="w-4 h-4 text-amber-400 shrink-0" />,
+      show: true,
+      activeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-returns',
+      label: 'Returns & Inspection',
+      icon: <RotateCcw className="w-4 h-4 text-emerald-400 shrink-0" />,
+      show: true,
+      activeClass: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-customers',
+      label: 'Customers & Contractors',
+      icon: <Users className="w-4 h-4 text-sky-400 shrink-0" />,
+      show: true,
+      activeClass: 'bg-sky-500/20 text-sky-300 border border-sky-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-equipment',
+      label: 'Equipment & Rates',
+      icon: <Boxes className="w-4 h-4 text-orange-400 shrink-0" />,
+      show: true,
+      activeClass: 'bg-orange-500/20 text-orange-300 border border-orange-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-inventory',
+      label: 'Inventory / Units',
+      icon: <Boxes className="w-4 h-4 text-emerald-400 shrink-0" />,
+      show: true,
+      activeClass: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-reservations',
+      label: 'Reservations',
+      icon: <Calendar className="w-4 h-4 text-purple-400 shrink-0" />,
+      show: true,
+      activeClass: 'bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-payments',
+      label: 'Payments & Deposits',
+      icon: <DollarSign className="w-4 h-4 text-blue-400 shrink-0" />,
+      show: true,
+      activeClass: 'bg-blue-500/20 text-blue-300 border border-blue-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-finance',
+      label: 'PRH Finance & P&L',
+      icon: <DollarSign className="w-4 h-4 text-emerald-400 shrink-0" />,
+      show: true,
+      activeClass: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-maintenance',
+      label: 'Maintenance Workshop',
+      icon: <Wrench className="w-4 h-4 text-amber-500 shrink-0" />,
+      show: true,
+      activeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-reminders',
+      label: 'Messages / Reminders',
+      icon: <MessageSquare className="w-4 h-4 text-emerald-400 shrink-0" />,
+      show: true,
+      activeClass: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-reports',
+      label: 'Reports & Utilisation',
+      icon: <FileText className="w-4 h-4 text-teal-400 shrink-0" />,
+      show: true,
+      activeClass: 'bg-teal-500/20 text-teal-300 border border-teal-500/40 font-bold shadow-xs',
+    },
+    {
+      id: 'prh-settings',
+      label: 'PRH Settings',
+      icon: <SettingsIcon className="w-4 h-4 text-slate-400 shrink-0" />,
+      show: true,
+      activeClass: 'bg-slate-700/50 text-slate-200 border border-slate-600 font-bold shadow-xs',
+    },
+  ];
+
   const sidebarBg = systemMode === 'mgr_booking'
     ? 'bg-white border-slate-200'
     : (themeMode === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200');
@@ -315,14 +432,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
             <span className={`font-bold text-base sm:text-lg tracking-tight ${systemMode === 'mgr_booking' ? 'text-slate-900' : t.textHeading}`}>
-              {settings.businessName || (settings as any).shopName || 'Cycly Rent'}
+              {systemMode === 'prh_rental' ? 'Pesalai Rental Hub (PRH)' : (settings.businessName || (settings as any).shopName || 'Cycly Rent')}
             </span>
           </div>
         </div>
 
-        {/* Center: Module Switcher (Bicycle POS <-> MGR Transport Booking) */}
+        {/* Center: Module Switcher (Bicycle POS <-> MGR Transport Booking <-> PRH Rental Hub) */}
         {onToggleSystemMode && (
-          !isPassenger && !isOwner ? (
+          !isPassenger && !isOwner && !isMGRTransportAdmin ? (
             <div className={`flex items-center p-1 rounded-xl shadow-inner border ${
               systemMode === 'mgr_booking'
                 ? 'bg-slate-100 border-slate-300'
@@ -351,6 +468,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <Car className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">MGR Transport</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleSystemMode('prh_rental')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  systemMode === 'prh_rental'
+                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                    : (systemMode === 'mgr_booking' ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
+                }`}
+              >
+                <HardHat className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">PRH Rental Hub</span>
               </button>
             </div>
           ) : (
@@ -567,7 +696,30 @@ export const Navbar: React.FC<NavbarProps> = ({
           style={{ scrollbarWidth: 'none' }}
         >
           <div className={`flex flex-col gap-1 ${sidebarCollapsed ? 'px-1.5' : 'px-2'}`}>
-            {systemMode === 'mgr_booking' ? (
+            {systemMode === 'prh_rental' ? (
+              /* PRH Rental Hub Nav Items */
+              prhNavItems.filter(item => item.show).map(item => {
+                const isActive = prhActiveTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    id={`tab-${item.id}`}
+                    type="button"
+                    onClick={() => onSelectPRHTab && onSelectPRHTab(item.id)}
+                    title={sidebarCollapsed ? item.label : undefined}
+                    className={`
+                      relative flex items-center gap-2.5 rounded-xl transition-all cursor-pointer
+                      ${sidebarCollapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5'}
+                      ${isActive ? item.activeClass : inactiveItemClass}
+                      text-xs sm:text-sm font-semibold whitespace-nowrap
+                    `}
+                  >
+                    {item.icon}
+                    {!sidebarCollapsed && <span>{item.label}</span>}
+                  </button>
+                );
+              })
+            ) : systemMode === 'mgr_booking' ? (
               /* MGR Transport Marketplace Nav Items */
               mgrNavItems.filter(item => item.show).map(item => {
                 const isActive = mgrActiveTab === item.id;
