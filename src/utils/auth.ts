@@ -945,6 +945,9 @@ export async function logoutUser(): Promise<void> {
     }
   }
   setCurrentUserSession(null);
+  try {
+    localStorage.removeItem('mgr_system_mode');
+  } catch {}
 }
 
 export async function registerNewUser(params: {

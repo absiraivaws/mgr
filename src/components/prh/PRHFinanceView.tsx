@@ -98,7 +98,7 @@ export const PRHFinanceView: React.FC<PRHFinanceViewProps> = ({
 
   // Categories for Filter
   const categoryOptions = useMemo<PRHOption[]>(() => {
-    const cats = Array.from(new Set(transactions.map((t) => t.category))).filter(Boolean);
+    const cats = Array.from(new Set(transactions.map((t) => t.category))).filter(Boolean) as string[];
     const sorted = cats.sort((a, b) => a.localeCompare(b));
     return [
       { value: 'all', label: 'All Categories' },

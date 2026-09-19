@@ -328,6 +328,7 @@ export const PRHNewRentalView: React.FC<PRHNewRentalViewProps> = ({
       businessUnit: 'PRH',
       customerId: selectedCustomer.id,
       customerName: selectedCustomer.name,
+      customerType: selectedCustomer.customerType || 'individual',
       customerPhone: selectedCustomer.phone,
       customerWhatsapp: selectedCustomer.whatsapp || selectedCustomer.phone,
       siteAddress: siteAddress || selectedCustomer.siteAddress || 'Pesalai',

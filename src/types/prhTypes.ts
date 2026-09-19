@@ -149,13 +149,16 @@ export interface PRHReturnRecord {
   totalLateCharged: number;
   totalDamageCharged: number;
   totalLossCharged: number;
-  totalCharges: number;
-  depositDeduction: number;
+  totalCharges?: number;
+  depositDeduction?: number;
+  depositAdjusted?: number;
   depositRefunded: number;
-  additionalPayment: number;
-  paymentMethod: string;
+  additionalPayment?: number;
+  finalPaymentReceived?: number;
+  paymentMethod?: string;
   processedBy: string;
   createdAt: string;
+  remarks?: string;
   notes?: string;
 }
 
@@ -230,7 +233,8 @@ export interface PRHMaintenance {
   equipmentName: string;
   serialNumber?: string;
   issue: string;
-  damageDate: string;
+  damageDate?: string;
+  startDate?: string;
   rentalReference?: string;
   repairStatus: 'reported' | 'under_inspection' | 'under_repair' | 'completed' | 'scrapped';
   estimatedCost: number;
@@ -238,6 +242,8 @@ export interface PRHMaintenance {
   repairer: string;
   expectedCompletion: string;
   completedDate?: string;
+  loggedBy?: string;
+  createdAt?: string;
   notes?: string;
 }
 

@@ -7,7 +7,6 @@ import {
   DollarSign,
   Plus,
   Search,
-  Tool,
   Wrench,
   X,
 } from 'lucide-react';
@@ -89,7 +88,7 @@ export const PRHMaintenanceView: React.FC<PRHMaintenanceViewProps> = ({
       actualCost: 0,
       startDate: new Date().toISOString().split('T')[0],
       expectedCompletion: expectedDate || new Date().toISOString().split('T')[0],
-      repairStatus: 'in_progress',
+      repairStatus: 'under_repair',
       loggedBy: currentUserEmail,
       createdAt: new Date().toISOString(),
     };

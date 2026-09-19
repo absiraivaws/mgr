@@ -160,18 +160,10 @@ export default function App() {
   const [mgrActiveTab, setMgrActiveTab] = useState<MGRTabType>('mgr-search');
   const [prhActiveTab, setPrhActiveTab] = useState<PRHTabType>('prh-dashboard');
 
-  // Authenticated User Session
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => getCurrentUser());
+  // Authenticated User Session - Always require login on page refresh or direct link open
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isFullLoginPage, setIsFullLoginPage] = useState<boolean>(() => {
-    try {
-      const savedUser = localStorage.getItem('v_rental_current_user');
-      const savedMode = localStorage.getItem('mgr_system_mode') || 'bicycle_pos';
-      return !savedUser && savedMode === 'bicycle_pos';
-    } catch {
-      return true;
-    }
-  });
+  const [isFullLoginPage, setIsFullLoginPage] = useState<boolean>(true);
 
   const activeUser = currentUser || DEFAULT_USER;
   const userPersona = getMGRPersona(activeUser);
@@ -1099,6 +1091,8 @@ export default function App() {
     setCurrentUser(null);
     setIsFullLoginPage(true);
     try {
+      localStorage.removeItem('v_rental_current_user');
+      localStorage.removeItem('mgr_system_mode');
       const bc = new BroadcastChannel('bicycle_pos_channel');
       bc.postMessage({ type: 'LOGOUT' });
       bc.close();
@@ -1131,8 +1125,8 @@ export default function App() {
     };
   }, [settings.autoLogoutMinutes, isFullLoginPage, currentUser]);
 
-  // If user explicitly navigated to full login page or no active session in bicycle_pos
-  if (isFullLoginPage || (systemMode === 'bicycle_pos' && !currentUser)) {
+  // CRITICAL SECURITY: If user is not authenticated or login page is requested, ALWAYS display LoginPage
+  if (!currentUser || isFullLoginPage) {
     return (
       <>
         <LoginPage

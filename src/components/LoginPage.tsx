@@ -68,7 +68,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [showPassword, setShowPassword] = useState(false);
 
   // Registration State
-  const [regRole, setRegRole] = useState<'passenger' | 'driver'>('passenger');
+  const [regRole, setRegRole] = useState<'passenger' | 'owner'>('passenger');
   const [regName, setRegName] = useState('');
   const [regNic, setRegNic] = useState('');
   const [regDob, setRegDob] = useState('');
@@ -159,7 +159,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
-    if (regRole === 'driver' && !regVehicleNumber.trim()) {
+    if (regRole === 'owner' && !regVehicleNumber.trim()) {
       setErrorMessage('Please provide your vehicle number.');
       return;
     }
@@ -171,7 +171,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
-    const assignedRole = regRole === 'driver' ? 'owner' : 'passenger';
+    const assignedRole = regRole === 'owner' ? 'owner' : 'passenger';
     const res = await registerNewUser({
       name: regName.trim(),
       email: regEmail.trim().toLowerCase(),
@@ -187,8 +187,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     const newUser = res.user;
 
-    // If driver, also create owner & vehicle (with status: 'pending' for admin approval)
-    if (regRole === 'driver') {
+    // If owner, also create owner & vehicle (with status: 'pending' for admin approval)
+    if (regRole === 'owner') {
       try {
         const ownerId = `OWN-MGR-${Date.now().toString().slice(-5)}`;
         const newOwner = {
@@ -300,7 +300,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       } catch {}
     }
 
-    setSuccessMessage(`Account registered successfully as ${regRole === 'driver' ? 'Driver / Fleet Owner' : 'Passenger'}! Logging in...`);
+    setSuccessMessage(`Account registered successfully as ${regRole === 'owner' ? 'Vehicle / Boat Owner' : 'Passenger'}! Logging in...`);
     setTimeout(() => {
       onLoginSuccess(newUser);
     }, 700);
@@ -336,8 +336,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {settings.businessName || 'Mannar Green Ride'}
             </h1>
             <p className={`text-xs ${t.textMuted} mt-1`}>
-              {view === 'login' && 'Cashier, Staff, Passenger & Driver Sign In'}
-              {view === 'register' && 'Passenger & Driver Registration Portal'}
+              {view === 'login' && 'Cashier, Staff, Passenger & Owner Sign In'}
+              {view === 'register' && 'Passenger & Owner Registration Portal'}
               {view === 'forgot' && 'Password Recovery'}
             </p>
           </div>
@@ -438,7 +438,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   onClick={() => { setView('register'); clearMessages(); }}
                   className="font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer ml-1"
                 >
-                  Register as Passenger or Driver
+                  Register as Passenger or Owner
                 </button>
               </p>
             </div>
@@ -446,7 +446,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </form>
         )}
 
-        {/* 2. REGISTRATION VIEW: Passenger / Driver with vehicle details */}
+        {/* 2. REGISTRATION VIEW: Passenger / Owner with vehicle details */}
         {view === 'register' && (
           <form onSubmit={handleRegisterSubmit} className="space-y-4">
             {/* Role Radio Selection */}
@@ -476,22 +476,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </label>
 
                 <label className={`flex items-center gap-2.5 p-3 rounded-2xl border cursor-pointer transition ${
-                  regRole === 'driver'
+                  regRole === 'owner'
                     ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold ring-2 ring-emerald-500/20'
                     : `border-slate-200 dark:border-slate-700 hover:bg-slate-500/5 ${t.textMain}`
                 }`}>
                   <input
-                    id="radio-register-driver"
+                    id="radio-register-owner"
                     type="radio"
                     name="regRole"
-                    value="driver"
-                    checked={regRole === 'driver'}
-                    onChange={() => setRegRole('driver')}
+                    value="owner"
+                    checked={regRole === 'owner'}
+                    onChange={() => setRegRole('owner')}
                     className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                   />
                   <div>
-                    <span className="text-xs font-bold block">Driver</span>
-                    <span className="text-[10px] text-slate-500">Vehicle owner & driver</span>
+                    <span className="text-xs font-bold block">Owner</span>
+                    <span className="text-[10px] text-slate-500">Vehicle & boat owner / partner</span>
                   </div>
                 </label>
               </div>
@@ -599,13 +599,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             </div>
 
-            {/* If Driver: Vehicle Type, Vehicle Number, Driver Option (with driver, without driver, both) */}
-            {regRole === 'driver' && (
+            {/* If Owner: Vehicle Type, Vehicle Number, Driver Option (with driver, without driver, both) */}
+            {regRole === 'owner' && (
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                     <Car className="w-3.5 h-3.5 text-emerald-500" />
-                    Vehicle & Driver Details
+                    Vehicle & Owner Details
                   </span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold border border-amber-200">
                     Pending Admin Approval
@@ -646,7 +646,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <input
                     id="input-reg-vehicle-number"
                     type="text"
-                    required={regRole === 'driver'}
+                    required={regRole === 'owner'}
                     placeholder="e.g. WP CAD-8921 or SL-MN-BT-09"
                     value={regVehicleNumber}
                     onChange={(e) => setRegVehicleNumber(e.target.value.toUpperCase())}
@@ -764,7 +764,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg transition cursor-pointer ${t.primaryBtn}`}
             >
               <UserPlus className="w-4 h-4" />
-              <span>Register as {regRole === 'driver' ? 'Driver / Vehicle Owner' : 'Passenger'}</span>
+              <span>Register as {regRole === 'owner' ? 'Vehicle / Boat Owner' : 'Passenger'}</span>
             </button>
 
             <div className="text-center pt-1">

@@ -45,7 +45,7 @@ export const PRHInventoryView: React.FC<PRHInventoryViewProps> = ({
 
   // Extract distinct categories
   const categoryOptions = useMemo<PRHOption[]>(() => {
-    const cats = Array.from(new Set(equipment.map((e) => e.category))).filter(Boolean);
+    const cats = Array.from(new Set(equipment.map((e) => e.category))).filter(Boolean) as string[];
     const sorted = cats.sort((a, b) => a.localeCompare(b));
     return [
       { value: 'all', label: 'All Categories' },

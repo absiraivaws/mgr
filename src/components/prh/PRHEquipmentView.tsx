@@ -59,7 +59,7 @@ export const PRHEquipmentView: React.FC<PRHEquipmentViewProps> = ({
 
   // Extract distinct categories and format for PRHSearchableSelect
   const categoryOptions = useMemo<PRHOption[]>(() => {
-    const cats = Array.from(new Set(equipment.map((e) => e.category))).filter(Boolean);
+    const cats = Array.from(new Set(equipment.map((e) => e.category))).filter(Boolean) as string[];
     const sorted = cats.sort((a, b) => a.localeCompare(b));
     return [
       { value: 'all', label: 'All Categories' },
@@ -92,7 +92,7 @@ export const PRHEquipmentView: React.FC<PRHEquipmentViewProps> = ({
     setRentalMethod(eq.rentalMethod);
     setDailyRate(eq.dailyRate);
     setSecurityDeposit(eq.securityDeposit);
-    setMinDays(eq.minRentalDays || 1);
+    setMinDays(eq.minDays || 1);
     setLateCharge(eq.lateChargePerDay || 50);
     setReplacementValue(eq.replacementValue);
     setTotalQty(eq.totalQty);
@@ -131,10 +131,11 @@ export const PRHEquipmentView: React.FC<PRHEquipmentViewProps> = ({
       rentalMethod,
       dailyRate,
       securityDeposit,
-      minRentalDays: minDays,
-      lateChargeMethod: 'per_day',
+      minDays,
+      lateChargeMethod: 'fixed',
       lateChargePerDay: lateCharge,
       replacementValue,
+      damageChargeRule: 'At actual repair / replacement cost',
       totalQty,
       availableQty: editingEquipment ? editingEquipment.availableQty : totalQty,
       rentedQty: editingEquipment ? editingEquipment.rentedQty : 0,
