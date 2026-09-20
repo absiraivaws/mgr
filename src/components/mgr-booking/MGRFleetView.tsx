@@ -181,6 +181,15 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
     setCurrentPage(1);
   };
 
+  const isStaffOrAdmin = Boolean(
+    isAdmin ||
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'staff' ||
+    currentUser?.role === 'manager' ||
+    currentUser?.email?.toLowerCase() === 'admin@mannargreenride.lk' ||
+    currentUser?.email?.toLowerCase() === 'absiraiva@gmail.com'
+  );
+
   const userEmail = (currentUser?.email || '').toLowerCase();
   const userName = (currentUser?.name || '').toLowerCase();
   const userPhone = (currentUser?.phone || '').trim();
@@ -193,15 +202,15 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
   const currentOwnerId = currentOwner ? currentOwner.id : (currentUser?.id || null);
 
   const filteredVehicles = vehicles.filter(v => {
-    // Role-based visibility: If not admin, only show vehicles owned by the logged-in owner
-    if (!isAdmin) {
+    // Role-based visibility: If not admin/staff, only show vehicles owned by the logged-in owner
+    if (!isStaffOrAdmin) {
       const isMine = (currentOwnerId && v.ownerId === currentOwnerId) ||
                      (v.ownerName && v.ownerName.toLowerCase() === userName) ||
                      (v.ownerId && currentUser?.id && v.ownerId === currentUser.id);
       if (!isMine) return false;
     }
 
-    if (statusFilter !== 'all' && v.status !== statusFilter) return false;
+    if (isStaffOrAdmin && statusFilter !== 'all' && v.status !== statusFilter) return false;
 
     let matchesType = false;
     if (selectedType === 'all') {
@@ -515,33 +524,35 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
           </button>
         </div>
 
-        {/* Status Filter Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-          {[
-            { id: 'all' as const, label: 'All Fleet', count: vehicles.length },
-            { id: 'active' as const, label: 'Approved & Active', count: vehicles.filter(v => v.status === 'active').length },
-            { id: 'pending' as const, label: 'Pending Approval', count: vehicles.filter(v => v.status === 'pending').length },
-            { id: 'maintenance' as const, label: 'Maintenance', count: vehicles.filter(v => v.status === 'maintenance').length },
-          ].map(s => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => { setStatusFilter(s.id); setCurrentPage(1); }}
-              className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-                statusFilter === s.id
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              <span>{s.label}</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                statusFilter === s.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700 font-semibold'
-              }`}>
-                {s.count}
-              </span>
-            </button>
-          ))}
-        </div>
+        {/* Status Filter Tabs (Admin and Staff only; removed for Owner) */}
+        {isStaffOrAdmin && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            {[
+              { id: 'all' as const, label: 'All Fleet', count: vehicles.length },
+              { id: 'active' as const, label: 'Approved & Active', count: vehicles.filter(v => v.status === 'active').length },
+              { id: 'pending' as const, label: 'Pending Approval', count: vehicles.filter(v => v.status === 'pending').length },
+              { id: 'maintenance' as const, label: 'Maintenance', count: vehicles.filter(v => v.status === 'maintenance').length },
+            ].map(s => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => { setStatusFilter(s.id); setCurrentPage(1); }}
+                className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                  statusFilter === s.id
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <span>{s.label}</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                  statusFilter === s.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700 font-semibold'
+                }`}>
+                  {s.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Fleet Table Format */}

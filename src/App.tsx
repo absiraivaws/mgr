@@ -56,6 +56,8 @@ import { StopRentalModal } from './components/StopRentalModal';
 import { SettingsPanel } from './components/SettingsPanel';
 import { RentalHistoryPanel } from './components/RentalHistoryPanel';
 import { UserRolesManager } from './components/UserRolesManager';
+import { UserRoleMasterHub } from './components/user-role/UserRoleMasterHub';
+import { BicycleMessageTemplatesView } from './components/BicycleMessageTemplatesView';
 import { DashboardStats } from './components/DashboardStats';
 import { IncomeExpensesPanel } from './components/IncomeExpensesPanel';
 import { FinancePanel } from './components/FinancePanel';
@@ -93,13 +95,18 @@ import { PRHHub } from './components/prh/PRHHub';
 import { PRHTabType } from './types/prhTypes';
 import {
   buildRolePath,
+  buildBicyclePath,
+  buildPRHPath,
+  buildUserRolePath,
   DEFAULT_TAB_BY_PERSONA,
   navigate,
-  ParsedRolePath,
-  parseRolePath,
+  ParsedAppRoute,
+  parseAppRoute,
   RolePersona,
   sanitizeMGRTabForPersona,
-  useRoleRouting,
+  SystemMode,
+  UserRoleBusinessTab,
+  useAppRouting,
 } from './utils/roleRouting';
 
 function sanitizeRentalRecordNumber(r: RentalRecord): RentalRecord {
@@ -148,8 +155,37 @@ import {
 } from './utils/auth';
 
 export default function App() {
-  // Navigation State
-  const [activeTab, setActiveTab] = useState<NavTabType>(() => {
+  // Parse initial route from browser URL
+  const initialRoute = parseAppRoute(typeof window !== 'undefined' ? window.location.pathname : '/');
+
+  // Authenticated User Session - Keep session on browser refresh, only logout on explicit sign-out or session expiry
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
+    return getCurrentUser();
+  });
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isFullLoginPage, setIsFullLoginPage] = useState<boolean>(() => {
+    return !getCurrentUser();
+  });
+
+  // System Mode (Bicycle Rental POS vs MGR Transport Booking Marketplace vs PRH Rental Hub vs User Role)
+  const [systemMode, setSystemMode] = useState<SystemMode>(() => {
+    if (initialRoute.systemMode) {
+      return initialRoute.systemMode;
+    }
+    try {
+      const saved = localStorage.getItem('mgr_system_mode') as SystemMode;
+      if (saved === 'user_role' || saved === 'prh_rental' || saved === 'mgr_booking' || saved === 'bicycle_pos') {
+        return saved;
+      }
+    } catch {}
+    return 'bicycle_pos';
+  });
+
+  // Bicycle POS Tab Navigation State
+  const [activeTab, setActiveTabState] = useState<NavTabType>(() => {
+    if (initialRoute.bicycleTab) {
+      return initialRoute.bicycleTab;
+    }
     try {
       const saved = localStorage.getItem('v_rental_active_tab');
       return (saved as NavTabType) || 'rentals';
@@ -158,173 +194,228 @@ export default function App() {
     }
   });
 
-  // System Mode (Bicycle Rental POS vs MGR Transport Booking Marketplace vs PRH Rental Hub)
-  const [systemMode, setSystemMode] = useState<'bicycle_pos' | 'mgr_booking' | 'prh_rental'>(() => {
-    try {
-      if (parseRolePath(window.location.pathname).persona) {
-        return 'mgr_booking';
-      }
-      const saved = localStorage.getItem('mgr_system_mode');
-      return (saved as any) || 'bicycle_pos';
-    } catch {
-      return 'bicycle_pos';
+  // MGR Transport Tab Navigation State
+  const [mgrActiveTab, setMgrActiveTabState] = useState<MGRTabType>(() => {
+    if (initialRoute.mgrTab) {
+      return initialRoute.mgrTab;
     }
+    if (initialRoute.mgrPersona) {
+      return DEFAULT_TAB_BY_PERSONA[initialRoute.mgrPersona];
+    }
+    try {
+      const saved = localStorage.getItem('mgr_active_tab') as MGRTabType;
+      if (saved) return saved;
+    } catch {}
+    return 'mgr-dashboard';
   });
-  const [mgrActiveTab, setMgrActiveTab] = useState<MGRTabType>(() => {
-    const parsed = parseRolePath(typeof window !== 'undefined' ? window.location.pathname : '/');
-    if (parsed.tab) return parsed.tab;
-    if (parsed.persona) return DEFAULT_TAB_BY_PERSONA[parsed.persona];
-    return 'mgr-search';
+
+  // PRH Rental Hub Tab Navigation State
+  const [prhActiveTab, setPrhActiveTabState] = useState<PRHTabType>(() => {
+    if (initialRoute.prhTab) {
+      return initialRoute.prhTab;
+    }
+    try {
+      const saved = localStorage.getItem('prh_active_tab') as PRHTabType;
+      if (saved) return saved;
+    } catch {}
+    return 'prh-dashboard';
   });
-  const [prhActiveTab, setPrhActiveTab] = useState<PRHTabType>('prh-dashboard');
 
-  // URL routing state (role paths: /passenger, /owner, /admin + nested tab slugs)
-  const [route, setRoute] = useState<ParsedRolePath>(() =>
-    parseRolePath(typeof window !== 'undefined' ? window.location.pathname : '/')
-  );
-
-  // Marks the next route change as coming from browser back/forward so state follows the URL
-  const popNavRef = useRef(false);
-
-  const go = useCallback((path: string, options: { replace?: boolean } = {}) => {
-    navigate(path, options);
-    setRoute(parseRolePath(path));
-  }, []);
-
-  useRoleRouting(
-    useCallback((parsed: ParsedRolePath) => {
-      popNavRef.current = true;
-      setRoute(parsed);
-    }, [])
-  );
-
-
-  // Authenticated User Session - Always require login on page refresh or direct link open
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isFullLoginPage, setIsFullLoginPage] = useState<boolean>(true);
+  // User Role Module business view state (persisted across refresh)
+  const [userRoleActiveTab, setUserRoleActiveTab] = useState<UserRoleBusinessTab>(() => {
+    if (initialRoute.userRoleTab) {
+      return initialRoute.userRoleTab;
+    }
+    try {
+      const saved = localStorage.getItem('user_role_active_tab') as UserRoleBusinessTab;
+      if (saved === 'bicycle_pos' || saved === 'mgr_transport' || saved === 'prh_rental') {
+        return saved;
+      }
+    } catch {}
+    return 'bicycle_pos';
+  });
 
   const activeUser = currentUser || DEFAULT_USER;
   const userPersona = getMGRPersona(activeUser);
   const isPassenger = userPersona === 'passenger';
   const isOwner = userPersona === 'owner';
-  const isMGRTransportAdmin = (activeUser.email || '').toLowerCase() === 'admin@mannargreenride.lk';
+  const isMGRTransportAdmin =
+    (activeUser.email || '').toLowerCase() === 'admin@mannargreenride.lk' ||
+    activeUser.role === 'admin' ||
+    (activeUser.email || '').toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+    userPersona === 'admin';
   const rolePersona: RolePersona | null = isPassenger
     ? 'passenger'
     : isOwner
       ? 'owner'
-      : isMGRTransportAdmin
+      : (isMGRTransportAdmin || activeUser.role === 'admin')
         ? 'admin'
         : null;
 
-  const handleToggleSystemMode = (mode: 'bicycle_pos' | 'mgr_booking' | 'prh_rental') => {
-    if ((isPassenger || isOwner || isMGRTransportAdmin) && mode !== 'mgr_booking') {
-      return; // Block access outside MGR Transport for Passenger, Owner, and MGR Transport Admin
+  // URL navigation helper
+  const popNavRef = useRef(false);
+
+  const go = useCallback((path: string, options: { replace?: boolean } = {}) => {
+    navigate(path, options);
+  }, []);
+
+  // Listen to browser popstate (Back/Forward navigation)
+  useAppRouting(
+    useCallback((parsed: ParsedAppRoute) => {
+      popNavRef.current = true;
+      if (parsed.systemMode) {
+        setSystemMode(parsed.systemMode);
+        try {
+          localStorage.setItem('mgr_system_mode', parsed.systemMode);
+        } catch {}
+      }
+      if (parsed.userRoleTab) {
+        setUserRoleActiveTab(parsed.userRoleTab);
+        try {
+          localStorage.setItem('user_role_active_tab', parsed.userRoleTab);
+        } catch {}
+      }
+      if (parsed.bicycleTab) {
+        setActiveTabState(parsed.bicycleTab);
+        try {
+          localStorage.setItem('v_rental_active_tab', parsed.bicycleTab);
+        } catch {}
+      }
+      if (parsed.prhTab) {
+        setPrhActiveTabState(parsed.prhTab);
+        try {
+          localStorage.setItem('prh_active_tab', parsed.prhTab);
+        } catch {}
+      }
+      if (parsed.mgrTab) {
+        setMgrActiveTabState(parsed.mgrTab);
+        try {
+          localStorage.setItem('mgr_active_tab', parsed.mgrTab);
+        } catch {}
+      }
+    }, [])
+  );
+
+  // Bicycle POS Tab Handler
+  const setActiveTab = (tab: NavTabType) => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('v_rental_active_tab', tab);
+    } catch {}
+    go(buildBicyclePath(tab));
+  };
+
+  // PRH Tab Handler
+  const setPrhActiveTab = (tab: PRHTabType) => {
+    setPrhActiveTabState(tab);
+    try {
+      localStorage.setItem('prh_active_tab', tab);
+    } catch {}
+    go(buildPRHPath(tab));
+  };
+
+  // User Role Side Menu Tab Handler
+  const handleSelectUserRoleTab = (tab: UserRoleBusinessTab) => {
+    setUserRoleActiveTab(tab);
+    try {
+      localStorage.setItem('user_role_active_tab', tab);
+    } catch {}
+    go(buildUserRolePath(tab));
+  };
+
+  // MGR Transport Tab Handler
+  const navigateToMGRTab = useCallback(
+    (tab: MGRTabType) => {
+      const activePersona = rolePersona || (activeUser.role === 'admin' ? 'admin' : 'passenger');
+      const sanitized = sanitizeMGRTabForPersona(activePersona, tab);
+      setMgrActiveTabState(sanitized);
+      try {
+        localStorage.setItem('mgr_active_tab', sanitized);
+      } catch {}
+      go(buildRolePath(activePersona, sanitized));
+    },
+    [go, rolePersona, activeUser.role]
+  );
+
+  // System Mode Switcher (Bicycle POS, MGR Transport, PRH Rental Hub, User Role)
+  const handleToggleSystemMode = (mode: SystemMode) => {
+    if ((isPassenger || isOwner) && mode !== 'mgr_booking') {
+      return; // Block access outside MGR Transport for Passenger and Owner only
+    }
+    if (mode === 'user_role' && !isMGRTransportAdmin && activeUser.role !== 'admin') {
+      return; // Accessible to Admin users only
     }
     setSystemMode(mode);
     try {
       localStorage.setItem('mgr_system_mode', mode);
     } catch {}
+
+    if (mode === 'user_role') {
+      go(buildUserRolePath(userRoleActiveTab));
+    } else if (mode === 'prh_rental') {
+      go(buildPRHPath(prhActiveTab));
+    } else if (mode === 'bicycle_pos') {
+      go(buildBicyclePath(activeTab));
+    } else if (mode === 'mgr_booking') {
+      const activePersona = rolePersona || (activeUser.role === 'admin' ? 'admin' : 'passenger');
+      go(buildRolePath(activePersona, mgrActiveTab));
+    }
   };
 
-  // Central helper: set the active MGR tab and keep the browser URL in sync
-  const applyMGRTab = useCallback(
-    (tab: MGRTabType, options: { push?: boolean } = {}) => {
-      if (!rolePersona) return;
-      const sanitized = sanitizeMGRTabForPersona(rolePersona, tab);
-      setMgrActiveTab(sanitized);
-      go(buildRolePath(rolePersona, sanitized), { replace: !options.push });
-    },
-    [go, rolePersona]
-  );
-
-  // User-initiated tab navigation (adds a history entry so back/forward works)
-  const navigateToMGRTab = useCallback(
-    (tab: MGRTabType) => {
-      applyMGRTab(tab, { push: true });
-    },
-    [applyMGRTab]
-  );
-
-  // Route protection for MGR Transport personas (Passenger, Owner, and MGR Transport Admin)
+  // Route protection for Passenger and Owner personas (locked strictly to MGR Transport)
   useEffect(() => {
-    if (isPassenger || isOwner || isMGRTransportAdmin) {
+    if (!currentUser) return;
+    if ((isPassenger || isOwner) && !isMGRTransportAdmin) {
       if (systemMode !== 'mgr_booking') {
         setSystemMode('mgr_booking');
         try {
           localStorage.setItem('mgr_system_mode', 'mgr_booking');
         } catch {}
       }
-      if (isPassenger && ['mgr-dashboard', 'mgr-fleet', 'mgr-customers', 'mgr-routes', 'mgr-owners', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
-        applyMGRTab('mgr-search');
+      if (isPassenger) {
+        const allowed = ['mgr-search', 'mgr-bookings', 'mgr-history'];
+        if (!allowed.includes(mgrActiveTab)) {
+          setMgrActiveTabState('mgr-search');
+          go(buildRolePath('passenger', 'mgr-search'), { replace: true });
+        }
       }
-      if (isOwner && ['mgr-dashboard', 'mgr-search', 'mgr-routes', 'mgr-customers', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
-        applyMGRTab('mgr-fleet');
+      if (isOwner) {
+        const allowed = ['mgr-fleet', 'mgr-bookings', 'mgr-history', 'mgr-owners', 'mgr-requests'];
+        if (!allowed.includes(mgrActiveTab)) {
+          setMgrActiveTabState('mgr-fleet');
+          go(buildRolePath('owner', 'mgr-fleet'), { replace: true });
+        }
       }
-    }
-  }, [currentUser, isPassenger, isOwner, isMGRTransportAdmin, systemMode, mgrActiveTab, applyMGRTab]);
-
-  // On login/refresh: land on the URL's tab (or the persona default) and normalize the URL
-  useEffect(() => {
-    if (!currentUser || !rolePersona) return;
-    const parsed = parseRolePath(window.location.pathname);
-    const targetTab =
-      parsed.persona === rolePersona
-        ? parsed.tab
-          ? sanitizeMGRTabForPersona(rolePersona, parsed.tab)
-          : DEFAULT_TAB_BY_PERSONA[rolePersona]
-        : DEFAULT_TAB_BY_PERSONA[rolePersona];
-
-    setSystemMode('mgr_booking');
-    try {
-      localStorage.setItem('mgr_system_mode', 'mgr_booking');
-    } catch {}
-    setMgrActiveTab(targetTab);
-    go(buildRolePath(rolePersona, targetTab), { replace: true });
-  }, [currentUser, rolePersona, go]);
-
-  // Unknown paths fall back to the root entry point
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const parsed = parseRolePath(window.location.pathname);
-    if (!parsed.isRoot && !parsed.persona) {
-      go('/', { replace: true });
-    }
-  }, [go]);
-
-  // Bicycle POS / staff users only live at the root
-  useEffect(() => {
-    if (!currentUser || rolePersona) return;
-    const parsed = parseRolePath(window.location.pathname);
-    if (!parsed.isRoot) {
-      go('/', { replace: true });
-    }
-  }, [currentUser, rolePersona, go]);
-
-  // Apply browser back/forward navigation to the active role/tab
-  useEffect(() => {
-    if (!popNavRef.current) return;
-    popNavRef.current = false;
-
-    if (!currentUser || !rolePersona) return;
-
-    if (route.persona && route.persona === rolePersona) {
-      const nextTab = route.tab
-        ? sanitizeMGRTabForPersona(rolePersona, route.tab)
-        : DEFAULT_TAB_BY_PERSONA[rolePersona];
-      setSystemMode('mgr_booking');
-      try {
-        localStorage.setItem('mgr_system_mode', 'mgr_booking');
-      } catch {}
-      setMgrActiveTab(nextTab);
       return;
     }
 
-    // Mismatched role path -> go to this persona's default
-    const fallback = DEFAULT_TAB_BY_PERSONA[rolePersona];
-    setMgrActiveTab(fallback);
-    go(buildRolePath(rolePersona, fallback), { replace: true });
-  }, [route, currentUser, rolePersona, go]);
+    // Protect User Role from non-admin users
+    if (systemMode === 'user_role' && !isMGRTransportAdmin && activeUser.role !== 'admin') {
+      setSystemMode('bicycle_pos');
+      try {
+        localStorage.setItem('mgr_system_mode', 'bicycle_pos');
+      } catch {}
+      go(buildBicyclePath(activeTab), { replace: true });
+    }
+  }, [currentUser, isPassenger, isOwner, isMGRTransportAdmin, systemMode, mgrActiveTab, activeTab, activeUser.role, go]);
+
+  // If at root '/' on page load/refresh, normalize URL to current active module & tab without changing the active module
+  useEffect(() => {
+    if (typeof window === 'undefined' || !currentUser) return;
+    const path = window.location.pathname;
+    if (path === '/' || path === '') {
+      if (systemMode === 'user_role') {
+        go(buildUserRolePath(userRoleActiveTab), { replace: true });
+      } else if (systemMode === 'prh_rental') {
+        go(buildPRHPath(prhActiveTab), { replace: true });
+      } else if (systemMode === 'bicycle_pos') {
+        go(buildBicyclePath(activeTab), { replace: true });
+      } else if (systemMode === 'mgr_booking') {
+        const activePersona = rolePersona || (activeUser.role === 'admin' ? 'admin' : 'passenger');
+        go(buildRolePath(activePersona, mgrActiveTab), { replace: true });
+      }
+    }
+  }, [currentUser, systemMode, userRoleActiveTab, prhActiveTab, activeTab, mgrActiveTab, rolePersona, activeUser.role, go]);
 
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -504,22 +595,25 @@ export default function App() {
         setIsForcedPasswordChange(false);
 
         try {
-          const hashParams = new URLSearchParams(hash.startsWith('#') ? hash.substring(1) : hash);
+          const cleaned = hash.replace(/^#+/, '').replace(/#/g, '&');
+          const hashParams = new URLSearchParams(cleaned);
           const accessToken = hashParams.get('access_token');
           const refreshToken = hashParams.get('refresh_token');
 
           if (accessToken) {
             const parts = accessToken.split('.');
             if (parts.length === 3) {
-              const payload = JSON.parse(atob(parts[1]));
-              if (payload?.email) {
-                setResetModalEmail(payload.email);
-              }
+              try {
+                const payload = JSON.parse(atob(parts[1]));
+                if (payload?.email) {
+                  setResetModalEmail(payload.email);
+                }
+              } catch {}
             }
             if (isSupabaseConfigured()) {
               const supa = getSupabase();
-              if (supa && refreshToken) {
-                supa.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+              if (supa) {
+                supa.auth.setSession({ access_token: accessToken, refresh_token: refreshToken || '' }).catch(() => {});
               }
             }
           }
@@ -1261,15 +1355,38 @@ export default function App() {
     return (
       <>
         <LoginPage
-          preselectedRole={route.persona}
+          preselectedRole={initialRoute.mgrPersona}
           onLoginSuccess={(user) => {
             setCurrentUser(user);
             setCurrentUserSession(user);
             setIsFullLoginPage(false);
             setSidebarCollapsed(true);
             setSettings((prev) => ({ ...prev, cashierName: user.name }));
+
+            // Check if current browser URL already specifies a valid business module & tab
+            const currentRoute = parseAppRoute(window.location.pathname);
+            if (currentRoute.systemMode) {
+              setSystemMode(currentRoute.systemMode);
+              try {
+                localStorage.setItem('mgr_system_mode', currentRoute.systemMode);
+              } catch {}
+              if (currentRoute.userRoleTab) {
+                setUserRoleActiveTab(currentRoute.userRoleTab);
+              }
+              if (currentRoute.bicycleTab) {
+                setActiveTabState(currentRoute.bicycleTab);
+              }
+              if (currentRoute.prhTab) {
+                setPrhActiveTabState(currentRoute.prhTab);
+              }
+              if (currentRoute.mgrTab) {
+                setMgrActiveTabState(currentRoute.mgrTab);
+              }
+              return;
+            }
+
             const persona = getMGRPersona(user);
-            const isAdminEmail = (user.email || '').toLowerCase() === 'admin@mannargreenride.lk';
+            const isAdminEmail = (user.email || '').toLowerCase() === 'admin@mannargreenride.lk' || user.role === 'admin';
             const mgrRole: RolePersona | null =
               persona === 'passenger'
                 ? 'passenger'
@@ -1278,21 +1395,28 @@ export default function App() {
                   : isAdminEmail
                     ? 'admin'
                     : null;
-            if (mgrRole) {
+            if (mgrRole === 'passenger' || mgrRole === 'owner') {
               setSystemMode('mgr_booking');
               try {
                 localStorage.setItem('mgr_system_mode', 'mgr_booking');
               } catch {}
               const tab = DEFAULT_TAB_BY_PERSONA[mgrRole];
-              setMgrActiveTab(tab);
+              setMgrActiveTabState(tab);
               go(buildRolePath(mgrRole, tab), { replace: true });
             } else {
-              setSystemMode('bicycle_pos');
-              try {
-                localStorage.setItem('mgr_system_mode', 'bicycle_pos');
-              } catch {}
-              setActiveTab('rentals');
-              go('/', { replace: true });
+              // Admin or Staff: check last saved system mode or default to bicycle_pos
+              const savedMode = localStorage.getItem('mgr_system_mode') as SystemMode;
+              const effectiveMode: SystemMode = (savedMode === 'user_role' || savedMode === 'prh_rental' || savedMode === 'mgr_booking' || savedMode === 'bicycle_pos') ? savedMode : 'bicycle_pos';
+              setSystemMode(effectiveMode);
+              if (effectiveMode === 'user_role') {
+                go(buildUserRolePath(userRoleActiveTab), { replace: true });
+              } else if (effectiveMode === 'prh_rental') {
+                go(buildPRHPath(prhActiveTab), { replace: true });
+              } else if (effectiveMode === 'mgr_booking') {
+                go(buildRolePath('admin', mgrActiveTab), { replace: true });
+              } else {
+                go(buildBicyclePath(activeTab), { replace: true });
+              }
             }
           }}
           settings={settings}
@@ -1336,7 +1460,7 @@ export default function App() {
         currentUser={activeUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onOpenUserRoles={() => {
-          setActiveTab('users');
+          handleToggleSystemMode('user_role');
         }}
         onOpenPasswordReset={() => {
           setIsPasswordResetModalOpen(true);
@@ -1356,6 +1480,8 @@ export default function App() {
         onSelectMGRTab={navigateToMGRTab}
         prhActiveTab={prhActiveTab}
         onSelectPRHTab={setPrhActiveTab}
+        userRoleActiveTab={userRoleActiveTab}
+        onSelectUserRoleTab={handleSelectUserRoleTab}
       />
 
       {/* Main Container */}
@@ -1369,8 +1495,28 @@ export default function App() {
       >
         <div className="px-4 sm:px-6 lg:px-8 pt-6">
 
-          {/* PRH Construction Equipment Rental Hub */}
-          {systemMode === 'prh_rental' ? (
+          {/* Top-Level User Role Master Console (Admin Only) */}
+          {systemMode === 'user_role' ? (
+            <UserRoleMasterHub
+              currentUser={activeUser}
+              themeMode={themeMode}
+              accent={accent}
+              settings={settings}
+              activeBusiness={userRoleActiveTab}
+              onSelectBusiness={handleSelectUserRoleTab}
+              onUpdateSettings={(updated) => {
+                const nextSettings = { ...settings, ...updated };
+                handleUpdateSettings(nextSettings);
+              }}
+              onUserListChange={handleRefreshPermissions}
+              onRolePermissionsChange={handleRefreshPermissions}
+              onOpenPasswordReset={(email) => {
+                setIsPasswordResetModalOpen(true);
+                setIsForcedPasswordChange(false);
+                setResetModalEmail(email || activeUser.email);
+              }}
+            />
+          ) : systemMode === 'prh_rental' ? (
             <PRHHub
               activeTab={prhActiveTab}
               setActiveTab={setPrhActiveTab}
@@ -1550,9 +1696,9 @@ export default function App() {
             />
           )}
 
-          {/* Tab 4: Users & Role Management */}
+          {/* Tab 4: Message Templates (WhatsApp & SMS) */}
           {activeTab === 'users' && (
-            <UserRolesManager
+            <BicycleMessageTemplatesView
               currentUser={activeUser}
               themeMode={themeMode}
               accent={accent}
@@ -1560,13 +1706,6 @@ export default function App() {
               onUpdateSettings={(updated) => {
                 const nextSettings = { ...settings, ...updated };
                 handleUpdateSettings(nextSettings);
-              }}
-              onUserListChange={handleRefreshPermissions}
-              onRolePermissionsChange={handleRefreshPermissions}
-              onOpenPasswordReset={(email) => {
-                setIsPasswordResetModalOpen(true);
-                setIsForcedPasswordChange(false);
-                setResetModalEmail(email || activeUser.email);
               }}
             />
           )}
@@ -1684,7 +1823,7 @@ export default function App() {
           setSettings((prev) => ({ ...prev, cashierName: u.name }));
         }}
         onOpenUserRoles={() => {
-          setActiveTab('users');
+          handleToggleSystemMode('user_role');
         }}
         onOpenPasswordReset={() => {
           setIsPasswordResetModalOpen(true);

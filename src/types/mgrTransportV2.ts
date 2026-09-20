@@ -93,6 +93,7 @@ export interface TransportV2Request {
   // Status
   requestStatus: TransportRequestStatus;
   paymentStatus: TransportPaymentStatus;
+  paymentMethod?: 'cash' | 'card' | 'qr' | 'lankaqr' | 'other';
   paymentRef?: string;
   rejectionReason?: string;
   holdExpiresAt?: number; // FIFO temporary hold expiration timestamp

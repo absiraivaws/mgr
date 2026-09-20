@@ -33,6 +33,7 @@ import { MGRMarketplaceAdminView } from './MGRMarketplaceAdminView';
 import { MGRDashboardView } from './MGRDashboardView';
 import { MGRSettingsView } from './MGRSettingsView';
 import { MGRCustomersView } from './MGRCustomersView';
+import { MGRHistoryView } from './MGRHistoryView';
 import { Customer } from '../../types';
 import { UserAccount, getMGRPersona } from '../../utils/auth';
 import { ShieldCheck, Car } from 'lucide-react';
@@ -351,6 +352,14 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
           owners={owners}
           currentUser={currentUser}
           convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
+        />
+      )}
+
+      {activeTab === 'mgr-history' && (
+        <MGRHistoryView
+          currentUser={currentUser}
+          isAdmin={isAdminUser}
+          themeMode={themeMode}
         />
       )}
 

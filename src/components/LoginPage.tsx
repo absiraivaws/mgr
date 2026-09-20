@@ -337,7 +337,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {settings.businessName || 'Mannar Green Ride'}
             </h1>
             <p className={`text-xs ${t.textMuted} mt-1`}>
-              {view === 'login' && 'Cashier, Staff, Passenger & Owner Sign In'}
+              {view === 'login' && 'Passenger & Owner Sign In'}
               {view === 'register' && 'Passenger & Owner Registration Portal'}
               {view === 'forgot' && 'Password Recovery'}
             </p>

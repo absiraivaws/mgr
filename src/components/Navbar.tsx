@@ -63,12 +63,14 @@ interface NavbarProps {
   onSelectAccent?: (accent: AccentColor) => void;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (v: boolean) => void;
-  systemMode?: 'bicycle_pos' | 'mgr_booking' | 'prh_rental';
-  onToggleSystemMode?: (mode: 'bicycle_pos' | 'mgr_booking' | 'prh_rental') => void;
+  systemMode?: 'bicycle_pos' | 'mgr_booking' | 'prh_rental' | 'user_role';
+  onToggleSystemMode?: (mode: 'bicycle_pos' | 'mgr_booking' | 'prh_rental' | 'user_role') => void;
   mgrActiveTab?: MGRTabType;
   onSelectMGRTab?: (tab: MGRTabType) => void;
   prhActiveTab?: PRHTabType;
   onSelectPRHTab?: (tab: PRHTabType) => void;
+  userRoleActiveTab?: 'bicycle_pos' | 'mgr_transport' | 'prh_rental';
+  onSelectUserRoleTab?: (tab: 'bicycle_pos' | 'mgr_transport' | 'prh_rental') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -96,6 +98,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectMGRTab,
   prhActiveTab = 'prh-dashboard',
   onSelectPRHTab,
+  userRoleActiveTab = 'bicycle_pos',
+  onSelectUserRoleTab,
 }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -112,7 +116,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isPassenger = persona === 'passenger';
   const isOwner = persona === 'owner';
   const isAdminUser = persona === 'admin' || isAdmin || isRootAdmin;
-  const isMGRTransportAdmin = (activeUser.email || '').toLowerCase() === 'admin@mannargreenride.lk';
+  const isMGRTransportAdmin = (activeUser.email || '').toLowerCase() === 'admin@mannargreenride.lk' || isAdminUser;
   const userPerms = getUserPermissions(activeUser);
   const handleOpenAuth = onOpenAuthModal || onOpenCashierModal || (() => {});
   const handleAccentChange = onSelectAccent || onChangeAccent || (() => {});
@@ -202,9 +206,9 @@ export const Navbar: React.FC<NavbarProps> = ({
     },
     {
       id: 'users' as const,
-      label: 'Users & Role',
-      icon: <ShieldCheck className="w-4 h-4 shrink-0" />,
-      show: isAdmin ? true : Boolean(userPerms.accessUsers || isRootAdmin),
+      label: 'Message Templates',
+      icon: <FileText className="w-4 h-4 shrink-0" />,
+      show: isAdmin ? true : Boolean(userPerms.accessMessages || userPerms.accessUsers),
       badge: null as number | null,
       activeClass: 'bg-purple-500/20 text-purple-400 border border-purple-500/40',
     },
@@ -250,6 +254,14 @@ export const Navbar: React.FC<NavbarProps> = ({
       icon: <Calendar className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
       show: true,
+      activeClass: 'bg-teal-50 text-teal-800 border border-teal-300 font-bold shadow-xs',
+    },
+    {
+      id: 'mgr-history' as const,
+      label: 'History',
+      icon: <History className="w-4 h-4 shrink-0" />,
+      badge: null as number | null,
+      show: true, // Visible for ALL users (Admin, Fleet Owner, Passenger)
       activeClass: 'bg-teal-50 text-teal-800 border border-teal-300 font-bold shadow-xs',
     },
     {
@@ -432,14 +444,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
             <span className={`font-bold text-base sm:text-lg tracking-tight ${systemMode === 'mgr_booking' ? 'text-slate-900' : t.textHeading}`}>
-              {systemMode === 'prh_rental' ? 'Pesalai Rental Hub (PRH)' : (settings.businessName || (settings as any).shopName || 'Cycly Rent')}
+              {systemMode === 'user_role' ? 'User Role & Permissions' : systemMode === 'prh_rental' ? 'Pesalai Rental Hub (PRH)' : (settings.businessName || (settings as any).shopName || 'Cycly Rent')}
             </span>
           </div>
         </div>
 
-        {/* Center: Module Switcher (Bicycle POS <-> MGR Transport Booking <-> PRH Rental Hub) */}
+        {/* Center: Module Switcher (Bicycle POS <-> MGR Transport Booking <-> PRH Rental Hub <-> User Role) */}
         {onToggleSystemMode && (
-          !isPassenger && !isOwner && !isMGRTransportAdmin ? (
+          isAdminUser || (!isPassenger && !isOwner) ? (
             <div className={`flex items-center p-1 rounded-xl shadow-inner border ${
               systemMode === 'mgr_booking'
                 ? 'bg-slate-100 border-slate-300'
@@ -481,6 +493,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <HardHat className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">PRH Rental Hub</span>
               </button>
+              {isAdminUser && (
+                <button
+                  type="button"
+                  onClick={() => onToggleSystemMode('user_role')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    systemMode === 'user_role'
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
+                      : (systemMode === 'mgr_booking' ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">User Role</span>
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 shadow-xs">
@@ -659,11 +685,13 @@ export const Navbar: React.FC<NavbarProps> = ({
         }`}>
           {!sidebarCollapsed && (
             <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-              systemMode === 'mgr_booking'
+              systemMode === 'user_role'
+                ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
+                : systemMode === 'mgr_booking'
                 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                 : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
             }`}>
-              {systemMode === 'mgr_booking' ? 'MGR Transport' : 'Bicycle Rental POS'}
+              {systemMode === 'user_role' ? 'User Role Admin' : systemMode === 'mgr_booking' ? 'MGR Transport' : systemMode === 'prh_rental' ? 'Pesalai Rental Hub' : 'Bicycle Rental POS'}
             </span>
           )}
           <button
@@ -696,7 +724,38 @@ export const Navbar: React.FC<NavbarProps> = ({
           style={{ scrollbarWidth: 'none' }}
         >
           <div className={`flex flex-col gap-1 ${sidebarCollapsed ? 'px-1.5' : 'px-2'}`}>
-            {systemMode === 'prh_rental' ? (
+            {systemMode === 'user_role' ? (
+              /* User Role Master Console Nav Items */
+              [
+                { id: 'bicycle_pos' as const, label: 'Bicycle POS Access', icon: <Bike className="w-4 h-4 shrink-0" /> },
+                { id: 'mgr_transport' as const, label: 'MGR Transport Access', icon: <Car className="w-4 h-4 shrink-0" /> },
+                { id: 'prh_rental' as const, label: 'PRH Rental Access', icon: <HardHat className="w-4 h-4 shrink-0" /> },
+              ].map((item) => {
+                const isActive = (userRoleActiveTab || 'bicycle_pos') === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    id={`tab-user-role-${item.id}`}
+                    type="button"
+                    onClick={() => onSelectUserRoleTab && onSelectUserRoleTab(item.id)}
+                    title={sidebarCollapsed ? item.label : undefined}
+                    className={`
+                      relative flex items-center gap-2.5 rounded-xl transition-all cursor-pointer
+                      ${sidebarCollapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5'}
+                      ${isActive
+                        ? (themeMode === 'light'
+                            ? 'bg-emerald-50 text-emerald-950 border border-emerald-400 font-bold shadow-xs'
+                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold shadow-xs')
+                        : inactiveItemClass}
+                      text-xs sm:text-sm whitespace-nowrap
+                    `}
+                  >
+                    {item.icon}
+                    {!sidebarCollapsed && <span>{item.label}</span>}
+                  </button>
+                );
+              })
+            ) : systemMode === 'prh_rental' ? (
               /* PRH Rental Hub Nav Items */
               prhNavItems.filter(item => item.show).map(item => {
                 const isActive = prhActiveTab === item.id;

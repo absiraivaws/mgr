@@ -42,7 +42,7 @@ import { triggerLifecycleNotifications, getWhatsAppUrl } from '../../utils/mgrTr
 import { UserAccount, getMGRPersona } from '../../utils/auth';
 import { formatVehicleCode, formatBookingCode, formatScheduleCode } from '../../utils/mgrUniqueId';
 import { fetchTransportRequestsV2, syncTransportRequestV2ToSupabase } from '../../lib/supabaseSync';
-import { LankaQrPaymentModal } from '../LankaQrPaymentModal';
+import { MGRPaymentModal } from './MGRPaymentModal';
 
 export interface MGRTransportBookingProps {
   view: 'search' | 'requests' | 'owner-listings';
@@ -699,13 +699,18 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   };
 
   // 5. PASSENGER PAYS FOR TRIP BOOKING (Confirmed upon payment)
-  const handleCompletePayment = async (req: TransportV2Request, paymentReference?: string) => {
+  const handleCompletePayment = async (
+    req: TransportV2Request,
+    paymentReference?: string,
+    paymentMethod: 'cash' | 'card' | 'qr' = 'cash'
+  ) => {
     const paymentRef = paymentReference || `PAY-MGR-${Math.floor(100000 + Math.random() * 900000)}`;
 
     const updated: TransportV2Request = {
       ...req,
       requestStatus: 'confirmed',
       paymentStatus: 'paid',
+      paymentMethod: paymentMethod === 'qr' ? 'lankaqr' : paymentMethod,
       paymentRef,
       updatedAt: Date.now(),
     };
@@ -2231,25 +2236,16 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL: PASSENGER PAYMENT (for Trip bookings) — LankaQR
+          MODAL: PASSENGER PAYMENT (for Trip bookings) — Cash, LankaQR, Card
       ───────────────────────────────────────────────────────────── */}
-      <LankaQrPaymentModal
+      <MGRPaymentModal
         isOpen={!!payingRequest}
-        amount={payingRequest?.finalAmount || 0}
-        purpose="booking"
-        recordId={payingRequest?.id}
-        description={
-          payingRequest
-            ? `Booking ${payingRequest.requestNumber} — ${payingRequest.routeFrom} to ${payingRequest.routeTo}`
-            : undefined
-        }
-        createdBy={currentUser?.name}
-        themeMode="light"
-        accent="emerald"
-        onSuccess={(reference) => {
+        request={payingRequest}
+        currentUserName={currentUser?.name}
+        onSuccess={(reference, method) => {
           const req = payingRequest;
           setPayingRequest(null);
-          if (req) handleCompletePayment(req, reference);
+          if (req) handleCompletePayment(req, reference, method);
         }}
         onClose={() => setPayingRequest(null)}
       />

@@ -43,18 +43,20 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
     // If opened from a recovery URL with hash tokens, extract and establish session
     if (typeof window !== 'undefined' && window.location.hash) {
       try {
-        const hash = window.location.hash.startsWith('#') ? window.location.hash.substring(1) : window.location.hash;
-        const params = new URLSearchParams(hash);
+        const cleaned = window.location.hash.replace(/^#+/, '').replace(/#/g, '&');
+        const params = new URLSearchParams(cleaned);
         const accessToken = params.get('access_token');
         const refreshToken = params.get('refresh_token');
 
         if (accessToken) {
           const parts = accessToken.split('.');
           if (parts.length === 3) {
-            const payload = JSON.parse(atob(parts[1]));
-            if (payload?.email && !userEmail) {
-              setEffectiveEmail(payload.email);
-            }
+            try {
+              const payload = JSON.parse(atob(parts[1]));
+              if (payload?.email && !userEmail) {
+                setEffectiveEmail(payload.email);
+              }
+            } catch {}
           }
           if (isSupabaseConfigured()) {
             const supaAuth = getSupabaseAuth();
@@ -66,7 +68,7 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
                 if (!error && data?.user?.email && !userEmail) {
                   setEffectiveEmail(data.user.email);
                 }
-              });
+              }).catch(() => {});
             }
           }
         }
@@ -103,24 +105,48 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await changePassword(newPassword);
+      // 1. Establish session from recovery URL hash if present
+      if (typeof window !== 'undefined' && window.location.hash) {
+        const cleaned = window.location.hash.replace(/^#+/, '').replace(/#/g, '&');
+        const params = new URLSearchParams(cleaned);
+        const accessToken = params.get('access_token');
+        const refreshToken = params.get('refresh_token');
+
+        if (accessToken && isSupabaseConfigured()) {
+          const supaAuth = getSupabaseAuth();
+          if (supaAuth) {
+            try {
+              await supaAuth.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken || '',
+              });
+            } catch (sessionErr) {
+              console.warn('[PasswordResetModal] Session establishment notice:', sessionErr);
+            }
+          }
+        }
+      }
+
+      // 2. Change password and persist cryptographic hash for target email
+      const targetEmail = effectiveEmail || userEmail;
+      const res = await changePassword(newPassword, targetEmail);
 
       if (!res.success) {
-        setErrorMsg(res.error || 'Failed to update password in Supabase Auth. Please ensure your session is active.');
+        setErrorMsg(res.error || 'Failed to update password. Please check your network or request a new reset link.');
         setLoading(false);
         return;
       }
 
-      // Clear recovery hash from URL if present
+      // Clear recovery hash from URL
       if (typeof window !== 'undefined' && window.location.hash) {
         window.history.replaceState(null, '', window.location.pathname);
       }
 
-      setSuccessMsg('Password successfully changed.');
+      setSuccessMsg('Password successfully changed! You can now log in with your new password.');
       setTimeout(() => {
         onSuccess?.();
         onClose();
-      }, 1500);
+      }, 1400);
     } catch (err: any) {
       console.error('[PasswordReset] Error:', err);
       setErrorMsg(err.message || 'An unexpected error occurred.');

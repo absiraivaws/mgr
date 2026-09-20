@@ -269,6 +269,7 @@ export type MGRTabType =
   | 'mgr-dashboard'
   | 'mgr-search'
   | 'mgr-bookings'
+  | 'mgr-history'
   | 'mgr-fleet'
   | 'mgr-customers'
   | 'mgr-owners'
