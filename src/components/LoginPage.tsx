@@ -301,10 +301,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       } catch {}
     }
 
-    setSuccessMessage(`Account registered successfully as ${regRole === 'owner' ? 'Vehicle / Boat Owner' : 'Passenger'}! Logging in...`);
-    setTimeout(() => {
-      onLoginSuccess(newUser);
-    }, 700);
+    setSuccessMessage(`Account registered successfully as ${regRole === 'owner' ? 'Vehicle / Boat Owner' : 'Passenger'}! You can now log in using your registered email: ${regEmail.trim().toLowerCase()}`);
+    setView('login');
+    setEmail(regEmail.trim().toLowerCase());
+    setPassword(regPassword);
   };
 
   return (

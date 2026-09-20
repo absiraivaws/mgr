@@ -329,6 +329,12 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
   };
 
   const handleToggleTripDate = (dateStr: string) => {
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+    if (dateStr < todayStr) {
+      alert(`Cannot mark availability for past dates (${dateStr}). Availability can only be set for today (${todayStr}) or upcoming future dates.`);
+      return;
+    }
+
     // Cross-Type Date Conflict Validation (MD Section 6):
     // Check if vehicle is already scheduled for a Planned Trip on this date
     if (availabilityVehicle?.schedules && availabilityVehicle.schedules.some(s => s.date === dateStr)) {
@@ -359,6 +365,12 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
     e.preventDefault();
     if (!schedDate || !schedFrom || !schedTo) {
       alert('Please fill in Date, Starting Location, and Ending Location.');
+      return;
+    }
+
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+    if (schedDate < todayStr) {
+      alert(`Cannot schedule trips on past dates (${schedDate}). Please select today (${todayStr}) or a future date.`);
       return;
     }
 
@@ -1600,8 +1612,14 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
               <div className="flex items-center justify-between px-2 py-1.5 bg-slate-50 rounded-xl border border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setCalMonthOffset(prev => prev - 1)}
-                  className="px-2.5 py-1 rounded-lg font-bold text-slate-600 hover:bg-white hover:shadow-xs transition"
+                  onClick={() => setCalMonthOffset(prev => Math.max(0, prev - 1))}
+                  disabled={calMonthOffset <= 0}
+                  className={`px-2.5 py-1 rounded-lg font-bold text-xs transition ${
+                    calMonthOffset <= 0
+                      ? 'text-slate-300 cursor-not-allowed bg-transparent'
+                      : 'text-slate-700 hover:bg-white hover:shadow-xs cursor-pointer'
+                  }`}
+                  title={calMonthOffset <= 0 ? "Cannot navigate to past months" : "Previous Month"}
                 >
                   ‹ Prev
                 </button>
@@ -1609,7 +1627,7 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setCalMonthOffset(prev => prev + 1)}
-                  className="px-2.5 py-1 rounded-lg font-bold text-slate-600 hover:bg-white hover:shadow-xs transition"
+                  className="px-2.5 py-1 rounded-lg font-bold text-xs text-slate-700 hover:bg-white hover:shadow-xs transition cursor-pointer"
                 >
                   Next ›
                 </button>
@@ -1631,6 +1649,9 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                     if (!dateStr) {
                       return <div key={`empty-${idx}`} className="h-9 rounded-lg bg-slate-50/50" />;
                     }
+                    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+                    const isPast = dateStr < todayStr;
+                    const isToday = dateStr === todayStr;
                     const isSelected = tempTripDates.includes(dateStr);
                     const dayNumber = Number(dateStr.split('-')[2]);
                     return (
@@ -1638,14 +1659,25 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                         key={dateStr}
                         type="button"
                         onClick={() => handleToggleTripDate(dateStr)}
-                        className={`h-9 rounded-lg font-bold text-xs transition flex flex-col items-center justify-center cursor-pointer border ${
-                          isSelected
-                            ? 'bg-emerald-600 border-emerald-700 text-white shadow-xs'
-                            : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-400 hover:bg-emerald-50/50'
+                        title={
+                          isPast
+                            ? `Cannot mark availability: ${dateStr} is in the past`
+                            : isToday
+                            ? `Today (${dateStr})`
+                            : dateStr
+                        }
+                        className={`h-9 rounded-lg font-bold text-xs transition flex flex-col items-center justify-center border relative ${
+                          isPast
+                            ? 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed opacity-60 line-through'
+                            : isSelected
+                            ? 'bg-emerald-600 border-emerald-700 text-white shadow-xs cursor-pointer'
+                            : isToday
+                            ? 'bg-emerald-50/60 border-emerald-400 text-emerald-800 hover:border-emerald-500 hover:bg-emerald-100/50 ring-1 ring-emerald-400 cursor-pointer'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-400 hover:bg-emerald-50/50 cursor-pointer'
                         }`}
                       >
                         <span>{dayNumber}</span>
-                        {isSelected && <span className="w-1 h-1 rounded-full bg-white mt-0.5" />}
+                        {isSelected && !isPast && <span className="w-1 h-1 rounded-full bg-white mt-0.5" />}
                       </button>
                     );
                   })}
@@ -1757,6 +1789,7 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                   <input
                     type="date"
                     required
+                    min={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' })}
                     value={schedDate}
                     onChange={e => setSchedDate(e.target.value)}
                     className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white"

@@ -79,45 +79,85 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
   // Dynamic Grid Columns Selector State (1, 2, 3, 4)
   const [columnsCount, setColumnsCount] = useState<number>(3);
 
-  // State Initialization with LocalStorage Persistence
+  // State Initialization with LocalStorage Persistence (Hardcoded mock data stripped)
   const [owners, setOwners] = useState<TransportOwner[]>(() => {
-    const saved = localStorage.getItem('mgr_transport_owners');
-    return saved ? JSON.parse(saved) : INITIAL_OWNERS;
+    try {
+      const saved = localStorage.getItem('mgr_transport_owners');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed.filter((o: any) => !o.id?.startsWith('OWN-MGR-0000')) : [];
+      }
+    } catch {}
+    return INITIAL_OWNERS;
   });
 
   const [vehicles, setVehicles] = useState<TransportVehicle[]>(() => {
     try {
       const saved = localStorage.getItem('mgr_transport_vehicles');
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed.filter((v: any) => 
+          !v.id?.startsWith('MGR-CAR-0000') &&
+          !v.id?.startsWith('MGR-VAN-0000') &&
+          !v.id?.startsWith('MGR-BUS-0000') &&
+          !v.id?.startsWith('MGR-BOAT-0000') &&
+          !v.id?.startsWith('MGR-SAFARI-0000')
+        ) : [];
       }
     } catch {}
     return INITIAL_VEHICLES;
   });
 
   const [drivers, setDrivers] = useState<TransportDriver[]>(() => {
-    const saved = localStorage.getItem('mgr_transport_drivers');
-    return saved ? JSON.parse(saved) : INITIAL_DRIVERS;
+    try {
+      const saved = localStorage.getItem('mgr_transport_drivers');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed.filter((d: any) => !d.id?.startsWith('DRV-MGR-0000')) : [];
+      }
+    } catch {}
+    return INITIAL_DRIVERS;
   });
 
   const [routes, setRoutes] = useState<TransportRoute[]>(() => {
-    const saved = localStorage.getItem('mgr_transport_routes');
-    return saved ? JSON.parse(saved) : INITIAL_ROUTES;
+    try {
+      const saved = localStorage.getItem('mgr_transport_routes');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed.filter((r: any) => !r.id?.startsWith('ROUTE-00')) : [];
+      }
+    } catch {}
+    return INITIAL_ROUTES;
   });
 
   const [schedules, setSchedules] = useState<TransportSchedule[]>(() => {
-    const saved = localStorage.getItem('mgr_transport_schedules');
-    return saved ? JSON.parse(saved) : INITIAL_SCHEDULES;
+    try {
+      const saved = localStorage.getItem('mgr_transport_schedules');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed.filter((s: any) => !s.id?.startsWith('SCH-00')) : [];
+      }
+    } catch {}
+    return INITIAL_SCHEDULES;
   });
 
   const [bookings, setBookings] = useState<TransportBooking[]>(() => {
-    const saved = localStorage.getItem('mgr_transport_bookings');
-    return saved ? JSON.parse(saved) : INITIAL_BOOKINGS;
+    try {
+      const saved = localStorage.getItem('mgr_transport_bookings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed.filter((b: any) => !b.id?.startsWith('BK-00')) : [];
+      }
+    } catch {}
+    return INITIAL_BOOKINGS;
   });
 
   const [settings, setSettings] = useState<MarketplaceSettings>(() => {
-    const saved = localStorage.getItem('mgr_marketplace_settings');
-    return saved ? JSON.parse(saved) : INITIAL_MARKETPLACE_SETTINGS;
+    try {
+      const saved = localStorage.getItem('mgr_marketplace_settings');
+      return saved ? JSON.parse(saved) : INITIAL_MARKETPLACE_SETTINGS;
+    } catch {}
+    return INITIAL_MARKETPLACE_SETTINGS;
   });
 
   // Sync to localStorage
@@ -383,14 +423,14 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
       )}
 
       {activeTab === 'mgr-customers' && (
-        isPassenger ? (
+        !isAdminUser ? (
           <div className="p-8 rounded-2xl bg-white border border-slate-200 text-center space-y-3 shadow-xs">
             <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
               <Car className="w-6 h-6" />
             </div>
             <h3 className="text-base font-bold text-slate-900">Access Restricted</h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto">
-              Customer and operator directories are restricted to operators and administrators.
+              The Customers directory is restricted to system administrators.
             </p>
             <button
               type="button"

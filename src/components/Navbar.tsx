@@ -265,7 +265,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Customers',
       icon: <UserCheck className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: isAdminUser ? true : !isPassenger, // Admin and Staff
+      show: isAdminUser, // Admin only (hidden for Owner & Passenger)
       activeClass: 'bg-amber-50 text-amber-800 border border-amber-300 font-bold shadow-xs',
     },
     {

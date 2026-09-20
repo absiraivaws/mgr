@@ -34,7 +34,7 @@ export const DEFAULT_TAB_BY_PERSONA: Record<RolePersona, MGRTabType> = {
 };
 
 const PASSENGER_TABS: MGRTabType[] = ['mgr-search', 'mgr-bookings'];
-const OWNER_TABS: MGRTabType[] = ['mgr-fleet', 'mgr-bookings', 'mgr-customers', 'mgr-owners', 'mgr-requests'];
+const OWNER_TABS: MGRTabType[] = ['mgr-fleet', 'mgr-bookings', 'mgr-owners', 'mgr-requests'];
 
 export function isRolePersona(value: string | null | undefined): value is RolePersona {
   return value === 'passenger' || value === 'owner' || value === 'admin';

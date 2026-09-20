@@ -974,7 +974,7 @@ export async function registerNewUser(params: {
             name: params.name.trim(),
             role: params.role || 'cashier',
             phone: params.phone?.trim() || '',
-            must_change_password: requirePasswordChange,
+            must_change_password: false,
           },
         },
       });
@@ -1010,9 +1010,7 @@ export async function registerNewUser(params: {
           role: params.role || existing?.role || 'cashier',
           phone: params.phone?.trim() || existing?.phone || undefined,
           status: existing?.status || 'active',
-          must_change_password: Boolean(
-            data.user.user_metadata?.must_change_password ?? existing?.must_change_password ?? requirePasswordChange
-          ),
+          must_change_password: false,
           createdAt: existing?.createdAt || Date.now(),
           avatarColor: existing?.avatarColor || 'emerald',
         };
@@ -1035,7 +1033,7 @@ export async function registerNewUser(params: {
               phone: resolvedUser.phone || null,
               role: resolvedUser.role,
               status: 'active',
-              must_change_password: resolvedUser.must_change_password,
+              must_change_password: false,
               created_at: resolvedUser.createdAt,
             }, { onConflict: 'id' });
           }

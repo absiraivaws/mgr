@@ -258,7 +258,7 @@ export default function App() {
       if (isPassenger && ['mgr-dashboard', 'mgr-fleet', 'mgr-customers', 'mgr-routes', 'mgr-owners', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
         applyMGRTab('mgr-search');
       }
-      if (isOwner && ['mgr-dashboard', 'mgr-search', 'mgr-routes', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
+      if (isOwner && ['mgr-dashboard', 'mgr-search', 'mgr-routes', 'mgr-customers', 'mgr-admin', 'mgr-settings'].includes(mgrActiveTab)) {
         applyMGRTab('mgr-fleet');
       }
     }
@@ -528,15 +528,9 @@ export default function App() {
         }
       }
 
-      // Check if user has temporary password flag active
-      const mustChange = localStorage.getItem('v_rental_must_change_password') === 'true';
-      if (mustChange) {
-        setIsPasswordResetModalOpen(true);
-        setIsForcedPasswordChange(true);
-        const curr = getCurrentUser();
-        if (curr?.email) {
-          setResetModalEmail(curr.email);
-        }
+      // Clean up any stale temporary password flag
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('v_rental_must_change_password');
       }
     }
 
@@ -1299,11 +1293,6 @@ export default function App() {
               } catch {}
               setActiveTab('rentals');
               go('/', { replace: true });
-            }
-            if (user.must_change_password || (typeof window !== 'undefined' && localStorage.getItem('v_rental_must_change_password') === 'true')) {
-              setIsPasswordResetModalOpen(true);
-              setIsForcedPasswordChange(true);
-              setResetModalEmail(user.email);
             }
           }}
           settings={settings}

@@ -390,21 +390,15 @@ export const MGROwnersDriversView: React.FC<MGROwnersDriversViewProps> = ({
                             <MessageSquare className="w-4 h-4" />
                           </a>
 
-                          {/* Edit Driver */}
-                          {isAdmin || driver.status === 'pending' ? (
-                            <button
-                              type="button"
-                              onClick={() => setEditingDriver(driver)}
-                              title={isAdmin ? "Edit Driver (Admin)" : "Edit Pending Driver"}
-                              className="p-1.5 rounded-lg text-slate-600 hover:text-blue-700 hover:bg-blue-50 transition cursor-pointer"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                          ) : (
-                            <span title="Edit locked once verified" className="p-1.5 text-slate-300 cursor-not-allowed">
-                              <Lock className="w-3.5 h-3.5" />
-                            </span>
-                          )}
+                          {/* Edit Driver (Available to Owner & Admin) */}
+                          <button
+                            type="button"
+                            onClick={() => setEditingDriver({ ...driver })}
+                            title="Edit Driver & Captain Details"
+                            className="p-1.5 rounded-lg text-slate-600 hover:text-blue-700 hover:bg-blue-50 transition cursor-pointer"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
 
                           {/* Delete Driver (Admin Only) */}
                           {isAdmin ? (
@@ -562,97 +556,204 @@ export const MGROwnersDriversView: React.FC<MGROwnersDriversViewProps> = ({
 
 
 
-      {/* EDIT DRIVER MODAL (ADMIN ONLY) */}
-      {editingDriver && isAdmin && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl border border-slate-200 text-xs">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900">Admin Mode</span>
-                <h3 className="text-base font-bold text-slate-900">Edit Driver: {editingDriver.id}</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingDriver(null)}
-                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {/* EDIT DRIVER MODAL (AVAILABLE TO OWNER & ADMIN) */}
+      {editingDriver && (() => {
+        const eligibleVehiclesForEdit = vehicles.filter(v => {
+          if (editingDriver.ownerId) {
+            return v.ownerId === editingDriver.ownerId;
+          }
+          if (!isAdmin) {
+            return (registeredOwner && v.ownerId === registeredOwner.id) ||
+                   (v.ownerName && userName && v.ownerName.toLowerCase() === userName) ||
+                   (currentUser?.id && v.ownerId === currentUser.id);
+          }
+          return true;
+        });
 
-            <form
-              onSubmit={e => {
-                e.preventDefault();
-                if (onEditDriver && editingDriver) {
-                  onEditDriver(editingDriver);
-                  setEditingDriver(null);
-                }
-              }}
-              className="space-y-3"
-            >
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Full Name</label>
-                <input
-                  type="text"
-                  required
-                  value={editingDriver.fullName}
-                  onChange={e => setEditingDriver({ ...editingDriver, fullName: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Mobile</label>
-                <input
-                  type="text"
-                  required
-                  value={editingDriver.mobile}
-                  onChange={e => setEditingDriver({ ...editingDriver, mobile: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Licence Number</label>
-                <input
-                  type="text"
-                  required
-                  value={editingDriver.licenceNumber}
-                  onChange={e => setEditingDriver({ ...editingDriver, licenceNumber: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Licence Expiry</label>
-                <input
-                  type="date"
-                  required
-                  value={editingDriver.licenceExpiry}
-                  onChange={e => setEditingDriver({ ...editingDriver, licenceExpiry: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                />
-              </div>
-
-              <div className="pt-3 border-t flex justify-end gap-2">
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-2xl max-w-xl w-full p-5 sm:p-6 space-y-4 shadow-2xl border border-slate-200 text-xs max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div className="flex items-center gap-2">
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${isAdmin ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-emerald-100 text-emerald-900 border border-emerald-300'}`}>
+                    {isAdmin ? 'Admin Mode' : 'Owner Edit'}
+                  </span>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Edit Driver / Captain: {editingDriver.fullName || editingDriver.id}
+                  </h3>
+                </div>
                 <button
                   type="button"
                   onClick={() => setEditingDriver(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold"
+                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-                >
-                  Save Changes
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </form>
+
+              <form
+                onSubmit={e => {
+                  e.preventDefault();
+                  if (onEditDriver && editingDriver) {
+                    onEditDriver(editingDriver);
+                    setEditingDriver(null);
+                  }
+                }}
+                className="space-y-3.5"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingDriver.fullName}
+                      onChange={e => setEditingDriver({ ...editingDriver, fullName: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Role / Driver Type *</label>
+                    <select
+                      value={editingDriver.driverType}
+                      onChange={e => setEditingDriver({ ...editingDriver, driverType: e.target.value as 'driver' | 'captain' })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                    >
+                      <option value="driver">Driver (Road Vehicles)</option>
+                      <option value="captain">Captain (Boat & Ferry)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">NIC / Passport Number *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingDriver.nic}
+                      onChange={e => setEditingDriver({ ...editingDriver, nic: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Mobile Phone *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingDriver.mobile}
+                      onChange={e => setEditingDriver({ ...editingDriver, mobile: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">WhatsApp Number</label>
+                    <input
+                      type="text"
+                      value={editingDriver.whatsapp || ''}
+                      onChange={e => setEditingDriver({ ...editingDriver, whatsapp: e.target.value })}
+                      placeholder="Optional, defaults to mobile"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Residential Address</label>
+                    <input
+                      type="text"
+                      value={editingDriver.address || ''}
+                      onChange={e => setEditingDriver({ ...editingDriver, address: e.target.value })}
+                      placeholder="e.g. Mannar Town"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Licence Number *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingDriver.licenceNumber}
+                      onChange={e => setEditingDriver({ ...editingDriver, licenceNumber: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Licence Class</label>
+                    <input
+                      type="text"
+                      value={editingDriver.licenceClass || ''}
+                      onChange={e => setEditingDriver({ ...editingDriver, licenceClass: e.target.value })}
+                      placeholder="e.g. Light & Heavy Passenger"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Licence Expiry *</label>
+                    <input
+                      type="date"
+                      required
+                      value={editingDriver.licenceExpiry}
+                      onChange={e => setEditingDriver({ ...editingDriver, licenceExpiry: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Assigned Vehicle</label>
+                    <select
+                      value={editingDriver.assignedVehicleId || ''}
+                      onChange={e => setEditingDriver({ ...editingDriver, assignedVehicleId: e.target.value || undefined })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                    >
+                      <option value="">-- None / Unassigned --</option>
+                      {eligibleVehiclesForEdit.map(v => (
+                        <option key={v.id} value={v.id}>
+                          {v.registrationNumber} ({v.make} {v.model})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {isAdmin && (
+                    <div className="sm:col-span-2">
+                      <label className="block font-bold text-slate-700 mb-1">Verification Status (Admin Only)</label>
+                      <select
+                        value={editingDriver.status}
+                        onChange={e => setEditingDriver({ ...editingDriver, status: e.target.value as any })}
+                        className="w-full px-3 py-2 rounded-xl border border-amber-300 bg-amber-50/40 text-amber-900 font-bold"
+                      >
+                        <option value="verified">Verified (Approved)</option>
+                        <option value="pending">Pending Verification</option>
+                        <option value="rejected">Rejected</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-3 border-t flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingDriver(null)}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition shadow-xs"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
 
 
