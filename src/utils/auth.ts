@@ -88,6 +88,9 @@ export interface RoleDefinition {
   permissions: RolePermissionSet;
 }
 
+export type UserStatus = 'active' | 'deactivated' | 'suspended';
+export type BusinessScope = 'bicycle_pos' | 'mgr_transport' | 'prh_rental';
+
 export interface UserAccount {
   id: string;
   auth_user_id?: string;
@@ -95,7 +98,12 @@ export interface UserAccount {
   email: string;
   role: UserRole;
   phone?: string;
-  status?: 'active' | 'suspended' | 'inactive';
+  status?: UserStatus;
+  statusUpdatedAt?: string;
+  statusUpdatedBy?: string;
+  businessStatus?: Partial<Record<BusinessScope, UserStatus>>;
+  businessStatusUpdatedAt?: Partial<Record<BusinessScope, string>>;
+  businessStatusUpdatedBy?: Partial<Record<BusinessScope, string>>;
   must_change_password?: boolean;
   createdAt: number;
   avatarColor?: string;
@@ -104,6 +112,7 @@ export interface UserAccount {
 const STORAGE_USERS_KEY = 'v_rental_users';
 const STORAGE_CURRENT_USER_KEY = 'v_rental_current_user';
 const STORAGE_ROLES_KEY = 'v_rental_roles';
+const STORAGE_DELETED_USERS_KEY = 'v_rental_deleted_users';
 
 export const DEFAULT_ROLES: RoleDefinition[] = [
   {
@@ -577,193 +586,249 @@ export function updateRolePermissions(
   return { success: true };
 }
 
+/**
+ * Get user status for a specific business, defaulting to global status or 'active'
+ */
+export function getUserBusinessStatus(
+  user: UserAccount | null | undefined,
+  business: BusinessScope
+): UserStatus {
+  if (!user) return 'deactivated';
+  if (user.businessStatus && user.businessStatus[business]) {
+    return user.businessStatus[business]!;
+  }
+  return user.status || 'active';
+}
+
+/**
+ * Check if a user can actively access a business module
+ * Validates root admin bypass, role permission flag, and business-level status.
+ */
+export function canAccessBusiness(
+  user: UserAccount | null | undefined,
+  business: BusinessScope
+): boolean {
+  if (!user) return false;
+  const isRoot = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || 
+                 user.email.toLowerCase() === 'absiraiva@gmail.com' ||
+                 user.email.toLowerCase() === 'admin@mannargreenride.lk';
+  if (isRoot) return true;
+
+  const bStatus = getUserBusinessStatus(user, business);
+  if (bStatus === 'deactivated' || bStatus === 'suspended') {
+    return false;
+  }
+
+  const perms = getUserPermissions(user);
+  if (business === 'bicycle_pos') return Boolean(perms.accessBicyclePOS);
+  if (business === 'mgr_transport') return Boolean(perms.accessMGRTransport);
+  if (business === 'prh_rental') return Boolean(perms.accessPRHRental);
+
+  return false;
+}
+
+/**
+ * List all businesses the user has active, permitted access to
+ */
+export function getAuthorizedBusinesses(user: UserAccount | null | undefined): BusinessScope[] {
+  if (!user) return [];
+  const list: BusinessScope[] = [];
+  if (canAccessBusiness(user, 'bicycle_pos')) list.push('bicycle_pos');
+  if (canAccessBusiness(user, 'mgr_transport')) list.push('mgr_transport');
+  if (canAccessBusiness(user, 'prh_rental')) list.push('prh_rental');
+  return list;
+}
+
 export function getUserPermissions(user: UserAccount | null | undefined): RolePermissionSet {
-  if (!user) {
-    return {
-      accessDashboard: false,
-      accessRentals: false,
-      accessHistory: false,
-      accessCustomers: false,
-      accessMessages: false,
-      accessUsers: false,
-      accessSettings: false,
-      accessIncome: false,
-      accessFinance: false,
-      canAddFinanceTransaction: false,
-      canEditFinanceTransaction: false,
-      canDeleteFinanceTransaction: false,
-      canViewPL: false,
-      canViewStatement: false,
-      canExportFinanceReports: false,
-      canRent: false,
-      canSettle: false,
-      canExportReports: false,
-      canEditPricing: false,
-      canEditFleet: false,
-      canManageUsers: false,
-      canManageRoles: false,
-    };
-  }
-
-  if (user.role === 'admin') {
-    return {
-      accessDashboard: true,
-      accessRentals: true,
-      accessHistory: true,
-      accessCustomers: true,
-      accessMessages: true,
-      accessUsers: true,
-      accessSettings: true,
-      accessIncome: true,
-      accessFinance: true,
-      accessBicyclePOS: true,
-      accessMGRTransport: true,
-      accessPRHRental: true,
-      accessMGRDashboard: true,
-      accessMGRSearch: true,
-      accessMGRBookings: true,
-      accessMGRHistory: true,
-      accessMGRFleet: true,
-      accessMGRCustomers: true,
-      accessMGROwners: true,
-      accessMGRSettings: true,
-      accessPRHDashboard: true,
-      accessPRHNewRental: true,
-      accessPRHActiveRentals: true,
-      accessPRHReturns: true,
-      accessPRHCustomers: true,
-      accessPRHEquipment: true,
-      accessPRHInventory: true,
-      accessPRHReservations: true,
-      accessPRHPayments: true,
-      accessPRHFinance: true,
-      accessPRHMaintenance: true,
-      accessPRHReminders: true,
-      accessPRHReports: true,
-      accessPRHSettings: true,
-      canRent: true,
-      canSettle: true,
-      canExportReports: true,
-      canEditPricing: true,
-      canEditFleet: true,
-      canManageUsers: true,
-      canManageRoles: true,
-      canAddFinanceTransaction: true,
-      canEditFinanceTransaction: true,
-      canDeleteFinanceTransaction: true,
-      canViewPL: true,
-      canViewStatement: true,
-      canExportFinanceReports: true,
-    };
-  }
-
-  const isRootAdmin = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
-                      user.email.toLowerCase() === 'absiraiva@gmail.com' ||
-                      user.email.toLowerCase() === 'admin@mannargreenride.lk';
-  const roles = getStoredRoles();
-  const found = roles.find(r => r.id === user.role);
-  if (found) {
-    const perms = { ...found.permissions };
-    if (isRootAdmin) {
-      perms.accessUsers = true;
-      perms.canManageUsers = true;
-      perms.canManageRoles = true;
-      perms.accessBicyclePOS = true;
-      perms.accessMGRTransport = true;
-      perms.accessPRHRental = true;
-    }
-    return perms;
-  }
-
-  if (isRootAdmin || user.role === 'admin') {
-    return {
-      accessDashboard: true,
-      accessRentals: true,
-      accessHistory: true,
-      accessCustomers: true,
-      accessMessages: true,
-      accessUsers: true,
-      accessSettings: true,
-      accessIncome: true,
-      accessFinance: true,
-      accessBicyclePOS: true,
-      accessMGRTransport: true,
-      accessPRHRental: true,
-      accessMGRDashboard: true,
-      accessMGRSearch: true,
-      accessMGRBookings: true,
-      accessMGRHistory: true,
-      accessMGRFleet: true,
-      accessMGRCustomers: true,
-      accessMGROwners: true,
-      accessMGRSettings: true,
-      accessPRHDashboard: true,
-      accessPRHNewRental: true,
-      accessPRHActiveRentals: true,
-      accessPRHReturns: true,
-      accessPRHCustomers: true,
-      accessPRHEquipment: true,
-      accessPRHInventory: true,
-      accessPRHReservations: true,
-      accessPRHPayments: true,
-      accessPRHFinance: true,
-      accessPRHMaintenance: true,
-      accessPRHReminders: true,
-      accessPRHReports: true,
-      accessPRHSettings: true,
-      canAddFinanceTransaction: true,
-      canEditFinanceTransaction: true,
-      canDeleteFinanceTransaction: true,
-      canViewPL: true,
-      canViewStatement: true,
-      canExportFinanceReports: true,
-      canRent: true,
-      canSettle: true,
-      canExportReports: true,
-      canEditPricing: true,
-      canEditFleet: true,
-      canManageUsers: true,
-      canManageRoles: true,
-    };
-  }
-
-  // Default fallback for any unspecified role
-  return {
-    accessDashboard: true,
-    accessRentals: true,
-    accessHistory: true,
-    accessCustomers: true,
-    accessMessages: true,
+  const EMPTY_PERMS: RolePermissionSet = {
+    accessDashboard: false,
+    accessRentals: false,
+    accessHistory: false,
+    accessCustomers: false,
+    accessMessages: false,
     accessUsers: false,
     accessSettings: false,
     accessIncome: false,
     accessFinance: false,
+    accessBicyclePOS: false,
+    accessMGRTransport: false,
+    accessPRHRental: false,
+    accessMGRDashboard: false,
+    accessMGRSearch: false,
+    accessMGRBookings: false,
+    accessMGRHistory: false,
+    accessMGRFleet: false,
+    accessMGRCustomers: false,
+    accessMGROwners: false,
+    accessMGRSettings: false,
+    accessPRHDashboard: false,
+    accessPRHNewRental: false,
+    accessPRHActiveRentals: false,
+    accessPRHReturns: false,
+    accessPRHCustomers: false,
+    accessPRHEquipment: false,
+    accessPRHInventory: false,
+    accessPRHReservations: false,
+    accessPRHPayments: false,
+    accessPRHFinance: false,
+    accessPRHMaintenance: false,
+    accessPRHReminders: false,
+    accessPRHReports: false,
+    accessPRHSettings: false,
     canAddFinanceTransaction: false,
     canEditFinanceTransaction: false,
     canDeleteFinanceTransaction: false,
     canViewPL: false,
     canViewStatement: false,
     canExportFinanceReports: false,
-    canRent: true,
-    canSettle: true,
+    canRent: false,
+    canSettle: false,
     canExportReports: false,
     canEditPricing: false,
     canEditFleet: false,
     canManageUsers: false,
     canManageRoles: false,
   };
+
+  if (!user || user.status === 'deactivated' || user.status === 'suspended') {
+    return EMPTY_PERMS;
+  }
+
+  const isRootAdmin = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+                      user.email.toLowerCase() === 'absiraiva@gmail.com' ||
+                      user.email.toLowerCase() === 'admin@mannargreenride.lk';
+
+  let rawPerms: RolePermissionSet;
+  if (user.role === 'admin' || isRootAdmin) {
+    rawPerms = {
+      accessDashboard: true,
+      accessRentals: true,
+      accessHistory: true,
+      accessCustomers: true,
+      accessMessages: true,
+      accessUsers: true,
+      accessSettings: true,
+      accessIncome: true,
+      accessFinance: true,
+      accessBicyclePOS: true,
+      accessMGRTransport: true,
+      accessPRHRental: true,
+      accessMGRDashboard: true,
+      accessMGRSearch: true,
+      accessMGRBookings: true,
+      accessMGRHistory: true,
+      accessMGRFleet: true,
+      accessMGRCustomers: true,
+      accessMGROwners: true,
+      accessMGRSettings: true,
+      accessPRHDashboard: true,
+      accessPRHNewRental: true,
+      accessPRHActiveRentals: true,
+      accessPRHReturns: true,
+      accessPRHCustomers: true,
+      accessPRHEquipment: true,
+      accessPRHInventory: true,
+      accessPRHReservations: true,
+      accessPRHPayments: true,
+      accessPRHFinance: true,
+      accessPRHMaintenance: true,
+      accessPRHReminders: true,
+      accessPRHReports: true,
+      accessPRHSettings: true,
+      canRent: true,
+      canSettle: true,
+      canExportReports: true,
+      canEditPricing: true,
+      canEditFleet: true,
+      canManageUsers: true,
+      canManageRoles: true,
+      canAddFinanceTransaction: true,
+      canEditFinanceTransaction: true,
+      canDeleteFinanceTransaction: true,
+      canViewPL: true,
+      canViewStatement: true,
+      canExportFinanceReports: true,
+    };
+  } else {
+    const roles = getStoredRoles();
+    const found = roles.find(r => r.id === user.role);
+    if (found) {
+      rawPerms = { ...found.permissions };
+    } else {
+      rawPerms = { ...EMPTY_PERMS };
+    }
+  }
+
+  if (isRootAdmin) {
+    return rawPerms;
+  }
+
+  // Enforce business-by-business status scoping:
+  const perms: RolePermissionSet = { ...rawPerms };
+
+  // 1. Bicycle POS Status Check
+  const bicycleStatus = getUserBusinessStatus(user, 'bicycle_pos');
+  if (bicycleStatus === 'deactivated' || bicycleStatus === 'suspended') {
+    perms.accessBicyclePOS = false;
+    perms.accessDashboard = false;
+    perms.accessRentals = false;
+    perms.accessHistory = false;
+    perms.accessCustomers = false;
+    perms.accessMessages = false;
+    perms.accessUsers = false;
+    perms.accessSettings = false;
+    perms.accessIncome = false;
+    perms.accessFinance = false;
+    perms.canRent = false;
+    perms.canSettle = false;
+  }
+
+  // 2. MGR Transport Status Check
+  const mgrStatus = getUserBusinessStatus(user, 'mgr_transport');
+  if (mgrStatus === 'deactivated' || mgrStatus === 'suspended') {
+    perms.accessMGRTransport = false;
+    perms.accessMGRDashboard = false;
+    perms.accessMGRSearch = false;
+    perms.accessMGRBookings = false;
+    perms.accessMGRHistory = false;
+    perms.accessMGRFleet = false;
+    perms.accessMGRCustomers = false;
+    perms.accessMGROwners = false;
+    perms.accessMGRSettings = false;
+  }
+
+  // 3. PRH Rental Hub Status Check
+  const prhStatus = getUserBusinessStatus(user, 'prh_rental');
+  if (prhStatus === 'deactivated' || prhStatus === 'suspended') {
+    perms.accessPRHRental = false;
+    perms.accessPRHDashboard = false;
+    perms.accessPRHNewRental = false;
+    perms.accessPRHActiveRentals = false;
+    perms.accessPRHReturns = false;
+    perms.accessPRHCustomers = false;
+    perms.accessPRHEquipment = false;
+    perms.accessPRHInventory = false;
+    perms.accessPRHReservations = false;
+    perms.accessPRHPayments = false;
+    perms.accessPRHFinance = false;
+    perms.accessPRHMaintenance = false;
+    perms.accessPRHReminders = false;
+    perms.accessPRHReports = false;
+    perms.accessPRHSettings = false;
+  }
+
+  return perms;
 }
 
 export function hasPermission(
   user: UserAccount | null | undefined,
   permission: keyof RolePermissionSet
 ): boolean {
-  if (!user) return false;
-  if (user.role === 'admin') {
-    return true;
-  }
-  const isRootAdmin = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || user.email.toLowerCase() === 'absiraiva@gmail.com';
-  if (isRootAdmin && (permission === 'accessUsers' || permission === 'canManageUsers' || permission === 'canManageRoles')) {
+  if (!user || user.status === 'deactivated' || user.status === 'suspended') return false;
+  const isRootAdmin = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || 
+                      user.email.toLowerCase() === 'absiraiva@gmail.com' ||
+                      user.email.toLowerCase() === 'admin@mannargreenride.lk';
+  if (isRootAdmin) {
     return true;
   }
   const perms = getUserPermissions(user);
@@ -946,9 +1011,33 @@ export function getMGRPersona(user: UserAccount | null | undefined): MGRUserPers
   return 'staff';
 }
 
+export function getDeletedUserEmails(): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_USERS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.map((e: string) => String(e).trim().toLowerCase());
+    }
+  } catch {}
+  return [];
+}
+
+export function markUserAsDeleted(email: string): void {
+  try {
+    const norm = (email || '').trim().toLowerCase();
+    if (!norm) return;
+    const existing = getDeletedUserEmails();
+    if (!existing.includes(norm)) {
+      existing.push(norm);
+      localStorage.setItem(STORAGE_DELETED_USERS_KEY, JSON.stringify(existing));
+    }
+  } catch {}
+}
+
 export function getStoredUsers(): UserAccount[] {
   try {
     const raw = localStorage.getItem(STORAGE_USERS_KEY);
+    const deletedEmails = getDeletedUserEmails();
     let validUsers: UserAccount[] = [];
     if (raw) {
       try {
@@ -956,10 +1045,12 @@ export function getStoredUsers(): UserAccount[] {
         if (Array.isArray(parsed)) {
           validUsers = parsed
             .filter((u): u is UserAccount => Boolean(u && typeof u === 'object' && typeof u.email === 'string' && u.email.trim().length > 0))
+            .filter((u) => !deletedEmails.includes(u.email.trim().toLowerCase()))
             .map((u) => {
-              // Strip plaintext passwords from local caches
+              // Strip plaintext passwords from local caches and sanitize status
               const { password: _, ...rest } = u as any;
-              return { ...rest, status: rest.status || 'active' };
+              const statusVal: UserStatus = (rest.status === 'deactivated' || rest.status === 'suspended') ? rest.status : 'active';
+              return { ...rest, status: statusVal };
             });
         }
       } catch {}
@@ -970,8 +1061,12 @@ export function getStoredUsers(): UserAccount[] {
 
     const allStandardUsers = [DEFAULT_USER, ...MGR_INITIAL_ACCOUNTS];
     for (const standardUser of allStandardUsers) {
+      const standardEmail = standardUser.email ? standardUser.email.trim().toLowerCase() : '';
+      if (deletedEmails.includes(standardEmail)) {
+        continue; // Strictly NEVER re-seed a user that was deleted by admin
+      }
       const idx = updatedUsers.findIndex(
-        (u) => u.email && u.email.toLowerCase() === standardUser.email.toLowerCase()
+        (u) => u.email && u.email.trim().toLowerCase() === standardEmail
       );
       if (idx === -1) {
         updatedUsers.push({ ...standardUser });
@@ -982,7 +1077,7 @@ export function getStoredUsers(): UserAccount[] {
     if (needsUpdate || !raw) {
       localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(updatedUsers));
     }
-    return updatedUsers.length > 0 ? updatedUsers : allStandardUsers;
+    return updatedUsers.length > 0 ? updatedUsers : allStandardUsers.filter(u => !deletedEmails.includes(u.email.toLowerCase()));
   } catch (err) {
     return [DEFAULT_USER, ...MGR_INITIAL_ACCOUNTS];
   }
@@ -1007,23 +1102,24 @@ export function getCurrentUser(): UserAccount | null {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed.email === 'string' && parsed.email.trim().length > 0) {
+        const norm = parsed.email.trim().toLowerCase();
+        // If user was deleted, revoke session immediately
+        if (getDeletedUserEmails().includes(norm)) {
+          localStorage.removeItem(STORAGE_CURRENT_USER_KEY);
+          return null;
+        }
+
         // Validate against current users in storage
         const users = getStoredUsers();
-        const found = users.find((u) => u.email.toLowerCase() === parsed.email.toLowerCase());
+        const found = users.find((u) => u.email.toLowerCase() === norm);
         if (found) {
           const { password: _, ...cleanFound } = found as any;
           return cleanFound as UserAccount;
         }
-        return {
-          id: parsed.id || DEFAULT_USER.id,
-          name: parsed.name || DEFAULT_USER.name,
-          email: parsed.email || DEFAULT_USER.email,
-          role: parsed.role || DEFAULT_USER.role,
-          phone: parsed.phone || DEFAULT_USER.phone,
-          status: parsed.status || 'active',
-          createdAt: parsed.createdAt || DEFAULT_USER.createdAt,
-          avatarColor: parsed.avatarColor || DEFAULT_USER.avatarColor,
-        };
+
+        // If user not in active stored users, invalidate and clear session
+        localStorage.removeItem(STORAGE_CURRENT_USER_KEY);
+        return null;
       }
     }
   } catch (err) {
@@ -1121,6 +1217,14 @@ export async function authenticateUser(
     };
   }
 
+  // 1. Check if user account was deleted by administrator
+  if (getDeletedUserEmails().includes(normalizedEmail)) {
+    return {
+      success: false,
+      error: 'Account not found. This user account has been deleted by the administrator.',
+    };
+  }
+
   if (!isSupabaseConfigured()) {
     // Offline / Demo mode fallback: verify password strictly against hash or seed
     const isValid = await verifyLocalPassword(normalizedEmail, password);
@@ -1138,14 +1242,29 @@ export async function authenticateUser(
         ((u.email && u.email.toLowerCase() === normalizedEmail) ||
          (u.name && u.name.toLowerCase() === normalizedEmail))
     );
-    if (found) {
-      setCurrentUserSession(found);
-      return { success: true, user: found };
+    if (!found) {
+      return {
+        success: false,
+        error: 'Account not found. This user account does not exist or has been deleted.',
+      };
     }
-    return {
-      success: false,
-      error: 'Account not found. Please register or verify your email address.',
-    };
+
+    // Check account status
+    if (found.status === 'deactivated') {
+      return {
+        success: false,
+        error: 'Account Access Denied: Your account has been deactivated by the administrator.',
+      };
+    }
+    if (found.status === 'suspended') {
+      return {
+        success: false,
+        error: 'Account Access Denied: Your account has been suspended by the administrator.',
+      };
+    }
+
+    setCurrentUserSession(found);
+    return { success: true, user: found };
   }
 
   // 1. PRIMARY CHECK: Supabase Auth verifies the password
@@ -1178,14 +1297,31 @@ export async function authenticateUser(
              (normalizedEmail === 'owner' && (u.role === 'owner' || u.email.includes('owner'))) ||
              (normalizedEmail === 'passenger' && (u.role === 'passenger' || u.email.includes('passenger'))))
         );
-        if (localFound) {
-          setCurrentUserSession(localFound);
-          return { success: true, user: localFound };
+        if (!localFound) {
+          return {
+            success: false,
+            error: 'Account not found. This user account does not exist or has been deleted.',
+          };
         }
+
+        if (localFound.status === 'deactivated') {
+          return {
+            success: false,
+            error: 'Account Access Denied: Your account has been deactivated by the administrator.',
+          };
+        }
+        if (localFound.status === 'suspended') {
+          return {
+            success: false,
+            error: 'Account Access Denied: Your account has been suspended by the administrator.',
+          };
+        }
+
+        setCurrentUserSession(localFound);
+        return { success: true, user: localFound };
       }
 
       // If local verification also failed, reject with invalid credentials error.
-      // Strict password checking: NO arbitrary keys accepted!
       return {
         success: false,
         error: 'Invalid login credentials. Please check your email and password.',
@@ -1282,6 +1418,25 @@ export async function changePassword(
 
   const current = getCurrentUser();
   const effectiveEmail = (targetEmail || current?.email || '').trim().toLowerCase();
+
+  if (!effectiveEmail) {
+    return { success: false, error: 'Target user email is required.' };
+  }
+
+  // Security check: deleted users cannot change password
+  if (getDeletedUserEmails().includes(effectiveEmail)) {
+    return { success: false, error: 'This user account has been deleted and cannot change password.' };
+  }
+
+  // Security check: deactivated or suspended users cannot change password
+  const storedUsersList = getStoredUsers();
+  const targetUserObj = storedUsersList.find((u) => u.email.toLowerCase() === effectiveEmail);
+  if (targetUserObj && (targetUserObj.status === 'deactivated' || targetUserObj.status === 'suspended')) {
+    return {
+      success: false,
+      error: `Account is ${targetUserObj.status}. Password change is not permitted. Please contact administrator.`,
+    };
+  }
 
   const supaAuth = getSupabaseAuth();
   let supaError: string | null = null;
@@ -1517,6 +1672,21 @@ export async function sendStaffPasswordResetEmail(
     return { success: false, error: 'Please provide a valid registered email address.' };
   }
 
+  // Security check: deleted accounts cannot reset password
+  if (getDeletedUserEmails().includes(normalizedEmail)) {
+    return { success: false, error: 'This account has been deleted. Password reset is not permitted.' };
+  }
+
+  // Security check: deactivated or suspended accounts cannot reset password
+  const storedUsersList = getStoredUsers();
+  const targetUserObj = storedUsersList.find((u) => u.email.toLowerCase() === normalizedEmail);
+  if (targetUserObj && (targetUserObj.status === 'deactivated' || targetUserObj.status === 'suspended')) {
+    return {
+      success: false,
+      error: `This account is ${targetUserObj.status}. Password reset is not permitted. Please contact administrator.`,
+    };
+  }
+
   const supaAuth = getSupabaseAuth();
   if (supaAuth) {
     try {
@@ -1529,13 +1699,49 @@ export async function sendStaffPasswordResetEmail(
         return { success: false, error: error.message };
       }
 
+      // Also dispatch a backup notification email directly via the system sender mannargreenride@gmail.com
+      try {
+        const originUrl = typeof window !== 'undefined' ? window.location.origin : 'https://booking.mannargreenride.com';
+        fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: normalizedEmail,
+            subject: 'Mannar Green Ride — Staff Password Reset Request',
+            html: `
+              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px;">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+                  <h2 style="color: #059669; margin: 0; font-size: 20px;">Mannar Green Ride</h2>
+                </div>
+                <h3 style="color: #0f172a; margin-top: 0; font-size: 16px;">Password Reset Notice</h3>
+                <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+                  A password reset request has been dispatched for your staff account (<strong>${normalizedEmail}</strong>). Please check your inbox for the secure authentication link or open the system portal to proceed.
+                </p>
+                <div style="margin: 24px 0;">
+                  <a href="${originUrl}/" style="display: inline-block; background: #059669; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 10px; font-weight: 600; font-size: 14px;">
+                    Open Mannar Green Ride Portal
+                  </a>
+                </div>
+                <p style="color: #64748b; font-size: 12px; line-height: 1.5;">
+                  If you did not request this password reset, please contact your system administrator immediately.
+                </p>
+                <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+                <p style="color: #94a3b8; font-size: 11px; margin: 0;">
+                  Mannar Green Ride Multi-Business Hub &bull; Sent securely from mannargreenride@gmail.com
+                </p>
+              </div>
+            `,
+          }),
+        }).catch(() => {});
+      } catch {}
+
       // Record in audit log
       recordAuditLog({
         user: adminUser?.name || 'Admin',
         userEmail: adminUser?.email,
         action: 'Password Reset Requested',
         reference: normalizedEmail,
-        details: `Password recovery email dispatched via Supabase Auth for ${normalizedEmail}`,
+        details: `Password recovery email dispatched via Supabase Auth and mannargreenride@gmail.com for ${normalizedEmail}`,
       });
 
       return { success: true };
@@ -1560,7 +1766,8 @@ export async function resetUserPassword(email: string): Promise<{ success: boole
 export function updateUserRoleAndDetails(
   userId: string, 
   newRole: UserRole,
-  updatedData?: Partial<Pick<UserAccount, 'name' | 'phone' | 'status'>>
+  updatedData?: Partial<Pick<UserAccount, 'name' | 'phone' | 'status' | 'statusUpdatedAt' | 'statusUpdatedBy' | 'businessStatus' | 'businessStatusUpdatedAt' | 'businessStatusUpdatedBy'>>,
+  targetBusiness?: BusinessScope
 ): { success: boolean; user?: UserAccount; error?: string } {
   const users = getStoredUsers();
   const idx = users.findIndex((u) => u.id === userId);
@@ -1569,12 +1776,45 @@ export function updateUserRoleAndDetails(
     return { success: false, error: 'User not found in system records.' };
   }
 
+  const prevStatus = users[idx].status || 'active';
+  const newStatus = updatedData?.status || prevStatus;
+  const statusChanged = newStatus !== prevStatus;
+
+  // Handle per-business status
+  const currentBusinessStatus = { ...(users[idx].businessStatus || {}) };
+  const currentBusinessStatusUpdatedAt = { ...(users[idx].businessStatusUpdatedAt || {}) };
+  const currentBusinessStatusUpdatedBy = { ...(users[idx].businessStatusUpdatedBy || {}) };
+
+  if (updatedData?.businessStatus) {
+    (Object.keys(updatedData.businessStatus) as BusinessScope[]).forEach((scope) => {
+      const val = updatedData.businessStatus![scope];
+      if (val) {
+        currentBusinessStatus[scope] = val;
+        currentBusinessStatusUpdatedAt[scope] = updatedData.businessStatusUpdatedAt?.[scope] || new Date().toISOString();
+        currentBusinessStatusUpdatedBy[scope] = updatedData.businessStatusUpdatedBy?.[scope] || 'Administrator';
+      }
+    });
+  } else if (targetBusiness && updatedData?.status) {
+    currentBusinessStatus[targetBusiness] = updatedData.status;
+    currentBusinessStatusUpdatedAt[targetBusiness] = updatedData.statusUpdatedAt || new Date().toISOString();
+    currentBusinessStatusUpdatedBy[targetBusiness] = updatedData.statusUpdatedBy || 'Administrator';
+  }
+
   users[idx] = {
     ...users[idx],
     role: newRole,
     name: updatedData?.name?.trim() || users[idx].name,
     phone: updatedData?.phone !== undefined ? updatedData.phone.trim() : users[idx].phone,
-    status: updatedData?.status || users[idx].status || 'active',
+    status: newStatus,
+    statusUpdatedAt: statusChanged 
+      ? (updatedData?.statusUpdatedAt || new Date().toISOString()) 
+      : (updatedData?.statusUpdatedAt || users[idx].statusUpdatedAt),
+    statusUpdatedBy: statusChanged 
+      ? (updatedData?.statusUpdatedBy || 'Administrator') 
+      : (updatedData?.statusUpdatedBy || users[idx].statusUpdatedBy),
+    businessStatus: currentBusinessStatus,
+    businessStatusUpdatedAt: currentBusinessStatusUpdatedAt,
+    businessStatusUpdatedBy: currentBusinessStatusUpdatedBy,
   };
 
   saveStoredUsers(users);
@@ -1590,6 +1830,8 @@ export function updateUserRoleAndDetails(
         phone: users[idx].phone || null,
         role: users[idx].role,
         status: users[idx].status || 'active',
+        status_updated_at: users[idx].statusUpdatedAt || null,
+        status_updated_by: users[idx].statusUpdatedBy || null,
       }, { onConflict: 'id' }).then(() => {});
     }
   }
@@ -1600,13 +1842,40 @@ export function updateUserRoleAndDetails(
     setCurrentUserSession(users[idx]);
   }
 
+  // Broadcast real-time status update to all open tabs and windows
+  try {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      const channel = new BroadcastChannel('bicycle_pos_channel');
+      channel.postMessage({
+        type: 'USER_STATUS_CHANGED',
+        payload: {
+          userId: users[idx].id,
+          email: users[idx].email,
+          status: users[idx].status,
+          statusUpdatedAt: users[idx].statusUpdatedAt,
+          statusUpdatedBy: users[idx].statusUpdatedBy,
+          businessStatus: users[idx].businessStatus,
+          businessStatusUpdatedAt: users[idx].businessStatusUpdatedAt,
+          businessStatusUpdatedBy: users[idx].businessStatusUpdatedBy,
+        },
+      });
+      channel.close();
+    }
+  } catch (e) {
+    // Ignore BroadcastChannel errors
+  }
+
   return { success: true, user: users[idx] };
 }
 
 /**
  * Admin action: Delete user account
+ * Permanently removes user, revokes session, marks as deleted to prevent recreation, and broadcasts revocation.
  */
-export function deleteUserAccount(userId: string): { success: boolean; error?: string } {
+export function deleteUserAccount(
+  userId: string,
+  adminUser?: UserAccount
+): { success: boolean; error?: string } {
   const users = getStoredUsers();
   const target = users.find((u) => u.id === userId);
 
@@ -1618,16 +1887,61 @@ export function deleteUserAccount(userId: string): { success: boolean; error?: s
     return { success: false, error: 'Primary root admin account cannot be deleted.' };
   }
 
+  // 1. Mark email as permanently deleted so it cannot be re-seeded or resurrected
+  markUserAsDeleted(target.email);
+
+  // 2. Clear any local password hash stored
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(`v_pwd_hash_${target.email.toLowerCase()}`);
+    }
+  } catch (e) {}
+
+  // 3. Remove from users and save
   const filtered = users.filter((u) => u.id !== userId);
   saveStoredUsers(filtered);
 
-  // Sync delete to Supabase user_accounts table
+  // 4. Invalidate session immediately if deleted user is currently logged in
+  const current = getCurrentUser();
+  if (current && (current.id === userId || current.email.toLowerCase() === target.email.toLowerCase())) {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(STORAGE_CURRENT_USER_KEY);
+      }
+    } catch (e) {}
+  }
+
+  // 5. Broadcast real-time deletion revocation to all open tabs
+  try {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      const channel = new BroadcastChannel('bicycle_pos_channel');
+      channel.postMessage({
+        type: 'USER_DELETED',
+        payload: {
+          userId: target.id,
+          email: target.email,
+        },
+      });
+      channel.close();
+    }
+  } catch (e) {}
+
+  // 6. Sync delete to Supabase user_accounts table
   if (isSupabaseConfigured()) {
     const supa = getSupabase();
     if (supa) {
       supa.from('user_accounts').delete().eq('id', userId).then(() => {});
     }
   }
+
+  // 7. Audit log
+  recordAuditLog({
+    user: adminUser?.name || 'Administrator',
+    userEmail: adminUser?.email,
+    action: 'User Account Deleted',
+    reference: target.email,
+    details: `User account ${target.name} (${target.email}, role: ${target.role}) was permanently deleted and revoked.`,
+  });
 
   return { success: true };
 }

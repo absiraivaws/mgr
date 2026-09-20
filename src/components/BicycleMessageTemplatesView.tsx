@@ -247,8 +247,8 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
     if (onUpdateSettings) {
       onUpdateSettings({ autoLogoutMinutes });
     }
-    if (isSupabaseConfigured()) {
-      syncSettingsToSupabase({ autoLogoutMinutes });
+    if (isSupabaseConfigured() && settings) {
+      syncSettingsToSupabase({ ...settings, autoLogoutMinutes });
     }
     setAutoLogoutSaved(true);
     setTimeout(() => setAutoLogoutSaved(false), 3000);

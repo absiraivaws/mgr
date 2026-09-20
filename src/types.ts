@@ -152,6 +152,9 @@ export interface FinanceCategoryConfig {
 
 export type AuditActionType =
   | 'Password Reset Requested'
+  | 'User Account Deleted'
+  | 'User Status Changed'
+  | 'User Role Updated'
   | 'Rental Started by QR'
   | 'Rental Stopped by QR'
   | 'Manual Rental Started'

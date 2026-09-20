@@ -40,6 +40,7 @@ import {
   CalendarDays,
   MessageSquare,
   Tag,
+  AlertCircle,
 } from 'lucide-react';
 import { 
   INITIAL_CUSTOMERS,
@@ -151,7 +152,9 @@ import {
   getMGRPersona,
   logoutUser,
   getUserPermissions,
-  hasPermission
+  hasPermission,
+  canAccessBusiness,
+  getAuthorizedBusinesses
 } from './utils/auth';
 
 export default function App() {
@@ -244,6 +247,7 @@ export default function App() {
     activeUser.role === 'admin' ||
     (activeUser.email || '').toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
     userPersona === 'admin';
+  const isAdminUser = isMGRTransportAdmin || activeUser.role === 'admin';
   const rolePersona: RolePersona | null = isPassenger
     ? 'passenger'
     : isOwner
@@ -345,6 +349,15 @@ export default function App() {
     if (mode === 'user_role' && !isMGRTransportAdmin && activeUser.role !== 'admin') {
       return; // Accessible to Admin users only
     }
+    if (mode === 'bicycle_pos' && !canAccessBusiness(activeUser, 'bicycle_pos')) {
+      return;
+    }
+    if (mode === 'mgr_booking' && !canAccessBusiness(activeUser, 'mgr_transport')) {
+      return;
+    }
+    if (mode === 'prh_rental' && !canAccessBusiness(activeUser, 'prh_rental')) {
+      return;
+    }
     setSystemMode(mode);
     try {
       localStorage.setItem('mgr_system_mode', mode);
@@ -363,6 +376,7 @@ export default function App() {
   };
 
   // Route protection for Passenger and Owner personas (locked strictly to MGR Transport)
+  // and staff users based on their active business permissions
   useEffect(() => {
     if (!currentUser) return;
     if ((isPassenger || isOwner) && !isMGRTransportAdmin) {
@@ -391,13 +405,49 @@ export default function App() {
 
     // Protect User Role from non-admin users
     if (systemMode === 'user_role' && !isMGRTransportAdmin && activeUser.role !== 'admin') {
-      setSystemMode('bicycle_pos');
+      const auth = getAuthorizedBusinesses(activeUser);
+      const fallback = auth.includes('bicycle_pos') ? 'bicycle_pos' : auth.includes('mgr_transport') ? 'mgr_booking' : 'prh_rental';
+      setSystemMode(fallback);
       try {
-        localStorage.setItem('mgr_system_mode', 'bicycle_pos');
+        localStorage.setItem('mgr_system_mode', fallback);
       } catch {}
-      go(buildBicyclePath(activeTab), { replace: true });
+      if (fallback === 'bicycle_pos') go(buildBicyclePath(activeTab), { replace: true });
+      else if (fallback === 'mgr_booking') go(buildRolePath('admin', mgrActiveTab), { replace: true });
+      else go(buildPRHPath(prhActiveTab), { replace: true });
+      return;
     }
-  }, [currentUser, isPassenger, isOwner, isMGRTransportAdmin, systemMode, mgrActiveTab, activeTab, activeUser.role, go]);
+
+    // Protect individual businesses for staff users
+    if (!isMGRTransportAdmin && activeUser.role !== 'admin') {
+      const auth = getAuthorizedBusinesses(activeUser);
+      if (auth.length > 0) {
+        if (systemMode === 'bicycle_pos' && !canAccessBusiness(activeUser, 'bicycle_pos')) {
+          const fallback = auth.includes('mgr_transport') ? 'mgr_booking' : 'prh_rental';
+          setSystemMode(fallback);
+          try { localStorage.setItem('mgr_system_mode', fallback); } catch {}
+          if (fallback === 'mgr_booking') go(buildRolePath('admin', mgrActiveTab), { replace: true });
+          else go(buildPRHPath(prhActiveTab), { replace: true });
+          return;
+        }
+        if (systemMode === 'mgr_booking' && !canAccessBusiness(activeUser, 'mgr_transport')) {
+          const fallback = auth.includes('bicycle_pos') ? 'bicycle_pos' : 'prh_rental';
+          setSystemMode(fallback);
+          try { localStorage.setItem('mgr_system_mode', fallback); } catch {}
+          if (fallback === 'bicycle_pos') go(buildBicyclePath(activeTab), { replace: true });
+          else go(buildPRHPath(prhActiveTab), { replace: true });
+          return;
+        }
+        if (systemMode === 'prh_rental' && !canAccessBusiness(activeUser, 'prh_rental')) {
+          const fallback = auth.includes('bicycle_pos') ? 'bicycle_pos' : 'mgr_booking';
+          setSystemMode(fallback);
+          try { localStorage.setItem('mgr_system_mode', fallback); } catch {}
+          if (fallback === 'bicycle_pos') go(buildBicyclePath(activeTab), { replace: true });
+          else go(buildRolePath('admin', mgrActiveTab), { replace: true });
+          return;
+        }
+      }
+    }
+  }, [currentUser, isPassenger, isOwner, isMGRTransportAdmin, systemMode, mgrActiveTab, activeTab, prhActiveTab, activeUser, go]);
 
   // If at root '/' on page load/refresh, normalize URL to current active module & tab without changing the active module
   useEffect(() => {
@@ -433,7 +483,7 @@ export default function App() {
     setPermissionsVersion((v) => v + 1);
   };
 
-  // Route protection: automatically redirect if activeTab is not permitted after admin changes
+  // Route protection: automatically redirect if activeTab is not permitted after admin changes (Bicycle POS)
   useEffect(() => {
     if (systemMode !== 'bicycle_pos') return;
     const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
@@ -457,6 +507,59 @@ export default function App() {
       }
     }
   }, [activeUser, permissionsVersion, activeTab, systemMode]);
+
+  // Route protection: automatically redirect if PRH activeTab is not permitted for staff
+  useEffect(() => {
+    if (systemMode !== 'prh_rental' || isMGRTransportAdmin || activeUser.role === 'admin') return;
+    const perms = getUserPermissions(activeUser);
+    const prhTabPermMap: Partial<Record<PRHTabType, boolean | undefined>> = {
+      'prh-dashboard': perms.accessPRHDashboard,
+      'prh-new-rental': perms.accessPRHNewRental,
+      'prh-active-rentals': perms.accessPRHActiveRentals,
+      'prh-returns': perms.accessPRHReturns,
+      'prh-customers': perms.accessPRHCustomers,
+      'prh-equipment': perms.accessPRHEquipment,
+      'prh-inventory': perms.accessPRHInventory,
+      'prh-reservations': perms.accessPRHReservations,
+      'prh-payments': perms.accessPRHPayments,
+      'prh-finance': perms.accessPRHFinance,
+      'prh-maintenance': perms.accessPRHMaintenance,
+      'prh-reminders': perms.accessPRHReminders,
+      'prh-reports': perms.accessPRHReports,
+      'prh-settings': perms.accessPRHSettings,
+    };
+    if (prhActiveTab in prhTabPermMap && prhTabPermMap[prhActiveTab] === false) {
+      const allowed = (Object.keys(prhTabPermMap) as PRHTabType[]).find(t => prhTabPermMap[t] === true);
+      if (allowed) {
+        setPrhActiveTabState(allowed);
+        go(buildPRHPath(allowed), { replace: true });
+      }
+    }
+  }, [activeUser, permissionsVersion, prhActiveTab, systemMode, isMGRTransportAdmin, go]);
+
+  // Route protection: automatically redirect if MGR activeTab is not permitted for staff
+  useEffect(() => {
+    if (systemMode !== 'mgr_booking' || isMGRTransportAdmin || activeUser.role === 'admin' || isPassenger || isOwner) return;
+    const perms = getUserPermissions(activeUser);
+    const mgrTabPermMap: Partial<Record<MGRTabType, boolean | undefined>> = {
+      'mgr-dashboard': perms.accessMGRDashboard,
+      'mgr-search': perms.accessMGRSearch,
+      'mgr-bookings': perms.accessMGRBookings,
+      'mgr-history': perms.accessMGRHistory,
+      'mgr-fleet': perms.accessMGRFleet,
+      'mgr-customers': perms.accessMGRCustomers,
+      'mgr-owners': perms.accessMGROwners,
+      'mgr-settings': perms.accessMGRSettings,
+      'mgr-requests': false,
+    };
+    if (mgrActiveTab in mgrTabPermMap && mgrTabPermMap[mgrActiveTab] === false) {
+      const allowed = (Object.keys(mgrTabPermMap) as MGRTabType[]).find(t => mgrTabPermMap[t] === true);
+      if (allowed) {
+        setMgrActiveTabState(allowed);
+        go(buildRolePath('admin', allowed), { replace: true });
+      }
+    }
+  }, [activeUser, permissionsVersion, mgrActiveTab, systemMode, isMGRTransportAdmin, isPassenger, isOwner, go]);
 
   // Income & Expenses entries
   const [incomeEntries, setIncomeEntries] = useState<IncomeEntry[]>(() => {
@@ -944,6 +1047,27 @@ export default function App() {
         } else if (type === 'LOGOUT') {
           setCurrentUser(null);
           setIsFullLoginPage(true);
+        } else if (type === 'USER_DELETED') {
+          const { userId, email } = event.data?.payload || {};
+          const current = getCurrentUser();
+          if (!current || current.id === userId || current.email?.toLowerCase() === (email || '').toLowerCase()) {
+            logoutUser();
+            setCurrentUser(null);
+            setIsFullLoginPage(true);
+          }
+        } else if (type === 'USER_STATUS_CHANGED') {
+          const { userId, email, status, statusUpdatedAt, statusUpdatedBy } = event.data?.payload || {};
+          const current = getCurrentUser();
+          if (current && (current.id === userId || current.email?.toLowerCase() === (email || '').toLowerCase())) {
+            const updated: UserAccount = {
+              ...current,
+              status,
+              statusUpdatedAt: statusUpdatedAt || current.statusUpdatedAt,
+              statusUpdatedBy: statusUpdatedBy || current.statusUpdatedBy,
+            };
+            setCurrentUser(updated);
+            setCurrentUserSession(updated);
+          }
         }
       };
     } catch {}
@@ -961,9 +1085,15 @@ export default function App() {
         try {
           setVehicles(JSON.parse(e.newValue));
         } catch {}
-      } else if (e.key === 'v_rental_current_user' && !e.newValue) {
-        setCurrentUser(null);
-        setIsFullLoginPage(true);
+      } else if (e.key === 'v_rental_current_user') {
+        if (!e.newValue) {
+          setCurrentUser(null);
+          setIsFullLoginPage(true);
+        } else {
+          try {
+            setCurrentUser(JSON.parse(e.newValue));
+          } catch {}
+        }
       }
     };
 
@@ -1363,60 +1493,138 @@ export default function App() {
             setSidebarCollapsed(true);
             setSettings((prev) => ({ ...prev, cashierName: user.name }));
 
-            // Check if current browser URL already specifies a valid business module & tab
-            const currentRoute = parseAppRoute(window.location.pathname);
-            if (currentRoute.systemMode) {
-              setSystemMode(currentRoute.systemMode);
-              try {
-                localStorage.setItem('mgr_system_mode', currentRoute.systemMode);
-              } catch {}
-              if (currentRoute.userRoleTab) {
-                setUserRoleActiveTab(currentRoute.userRoleTab);
-              }
-              if (currentRoute.bicycleTab) {
-                setActiveTabState(currentRoute.bicycleTab);
-              }
-              if (currentRoute.prhTab) {
-                setPrhActiveTabState(currentRoute.prhTab);
-              }
-              if (currentRoute.mgrTab) {
-                setMgrActiveTabState(currentRoute.mgrTab);
-              }
-              return;
-            }
-
+            // Check if user is passenger or owner (strictly locked to MGR Transport)
             const persona = getMGRPersona(user);
-            const isAdminEmail = (user.email || '').toLowerCase() === 'admin@mannargreenride.lk' || user.role === 'admin';
-            const mgrRole: RolePersona | null =
-              persona === 'passenger'
-                ? 'passenger'
-                : persona === 'owner'
-                  ? 'owner'
-                  : isAdminEmail
-                    ? 'admin'
-                    : null;
-            if (mgrRole === 'passenger' || mgrRole === 'owner') {
+            const isRootAdmin = (user.email || '').toLowerCase() === DEFAULT_USER.email.toLowerCase() || (user.email || '').toLowerCase() === 'absiraiva@gmail.com';
+            const isAdmin = user.role === 'admin' || (user.email || '').toLowerCase() === 'admin@mannargreenride.lk' || isRootAdmin;
+
+            if (persona === 'passenger' || persona === 'owner') {
               setSystemMode('mgr_booking');
               try {
                 localStorage.setItem('mgr_system_mode', 'mgr_booking');
               } catch {}
-              const tab = DEFAULT_TAB_BY_PERSONA[mgrRole];
+              const tab = DEFAULT_TAB_BY_PERSONA[persona];
               setMgrActiveTabState(tab);
-              go(buildRolePath(mgrRole, tab), { replace: true });
-            } else {
-              // Admin or Staff: check last saved system mode or default to bicycle_pos
-              const savedMode = localStorage.getItem('mgr_system_mode') as SystemMode;
-              const effectiveMode: SystemMode = (savedMode === 'user_role' || savedMode === 'prh_rental' || savedMode === 'mgr_booking' || savedMode === 'bicycle_pos') ? savedMode : 'bicycle_pos';
-              setSystemMode(effectiveMode);
-              if (effectiveMode === 'user_role') {
-                go(buildUserRolePath(userRoleActiveTab), { replace: true });
-              } else if (effectiveMode === 'prh_rental') {
-                go(buildPRHPath(prhActiveTab), { replace: true });
-              } else if (effectiveMode === 'mgr_booking') {
-                go(buildRolePath('admin', mgrActiveTab), { replace: true });
-              } else {
-                go(buildBicyclePath(activeTab), { replace: true });
+              go(buildRolePath(persona, tab), { replace: true });
+              return;
+            }
+
+            // Admin or Staff User: Validate assigned business access before displaying system
+            const authBusinesses = getAuthorizedBusinesses(user);
+            const currentRoute = parseAppRoute(window.location.pathname);
+            let targetMode: SystemMode | null = null;
+
+            // 1. Check if current URL route is permitted for this user
+            if (currentRoute.systemMode) {
+              if (currentRoute.systemMode === 'user_role' && isAdmin) {
+                targetMode = 'user_role';
+              } else if (currentRoute.systemMode === 'bicycle_pos' && canAccessBusiness(user, 'bicycle_pos')) {
+                targetMode = 'bicycle_pos';
+              } else if (currentRoute.systemMode === 'mgr_booking' && canAccessBusiness(user, 'mgr_transport')) {
+                targetMode = 'mgr_booking';
+              } else if (currentRoute.systemMode === 'prh_rental' && canAccessBusiness(user, 'prh_rental')) {
+                targetMode = 'prh_rental';
               }
+            }
+
+            // 2. If no valid target from route, try saved mode in localStorage
+            if (!targetMode) {
+              const savedMode = localStorage.getItem('mgr_system_mode') as SystemMode | null;
+              if (savedMode === 'user_role' && isAdmin) {
+                targetMode = 'user_role';
+              } else if (savedMode === 'bicycle_pos' && canAccessBusiness(user, 'bicycle_pos')) {
+                targetMode = 'bicycle_pos';
+              } else if (savedMode === 'mgr_booking' && canAccessBusiness(user, 'mgr_transport')) {
+                targetMode = 'mgr_booking';
+              } else if (savedMode === 'prh_rental' && canAccessBusiness(user, 'prh_rental')) {
+                targetMode = 'prh_rental';
+              }
+            }
+
+            // 3. If still no target mode, pick their first authorized business
+            if (!targetMode) {
+              if (isAdmin) {
+                targetMode = 'user_role';
+              } else if (authBusinesses.includes('bicycle_pos')) {
+                targetMode = 'bicycle_pos';
+              } else if (authBusinesses.includes('mgr_transport')) {
+                targetMode = 'mgr_booking';
+              } else if (authBusinesses.includes('prh_rental')) {
+                targetMode = 'prh_rental';
+              } else {
+                targetMode = 'bicycle_pos'; // Fallback, lockout screen will display if no businesses authorized
+              }
+            }
+
+            setSystemMode(targetMode);
+            try {
+              localStorage.setItem('mgr_system_mode', targetMode);
+            } catch {}
+
+            const perms = getUserPermissions(user);
+            if (targetMode === 'user_role') {
+              if (currentRoute.userRoleTab) setUserRoleActiveTab(currentRoute.userRoleTab);
+              go(buildUserRolePath(currentRoute.userRoleTab || userRoleActiveTab), { replace: true });
+            } else if (targetMode === 'prh_rental') {
+              const prhTabs: { tab: PRHTabType; perm: keyof typeof perms }[] = [
+                { tab: 'prh-dashboard', perm: 'accessPRHDashboard' },
+                { tab: 'prh-new-rental', perm: 'accessPRHNewRental' },
+                { tab: 'prh-active-rentals', perm: 'accessPRHActiveRentals' },
+                { tab: 'prh-returns', perm: 'accessPRHReturns' },
+                { tab: 'prh-customers', perm: 'accessPRHCustomers' },
+                { tab: 'prh-equipment', perm: 'accessPRHEquipment' },
+                { tab: 'prh-inventory', perm: 'accessPRHInventory' },
+                { tab: 'prh-reservations', perm: 'accessPRHReservations' },
+                { tab: 'prh-payments', perm: 'accessPRHPayments' },
+                { tab: 'prh-finance', perm: 'accessPRHFinance' },
+                { tab: 'prh-maintenance', perm: 'accessPRHMaintenance' },
+                { tab: 'prh-reminders', perm: 'accessPRHReminders' },
+                { tab: 'prh-reports', perm: 'accessPRHReports' },
+                { tab: 'prh-settings', perm: 'accessPRHSettings' },
+              ];
+              const permittedTab = isAdmin ? (currentRoute.prhTab || prhActiveTab) : (
+                currentRoute.prhTab && perms[prhTabs.find(t => t.tab === currentRoute.prhTab)?.perm || 'accessPRHDashboard']
+                  ? currentRoute.prhTab
+                  : (prhTabs.find(t => perms[t.perm])?.tab || 'prh-dashboard')
+              );
+              setPrhActiveTabState(permittedTab);
+              go(buildPRHPath(permittedTab), { replace: true });
+            } else if (targetMode === 'mgr_booking') {
+              const mgrTabs: { tab: MGRTabType; perm: keyof typeof perms }[] = [
+                { tab: 'mgr-dashboard', perm: 'accessMGRDashboard' },
+                { tab: 'mgr-search', perm: 'accessMGRSearch' },
+                { tab: 'mgr-bookings', perm: 'accessMGRBookings' },
+                { tab: 'mgr-history', perm: 'accessMGRHistory' },
+                { tab: 'mgr-fleet', perm: 'accessMGRFleet' },
+                { tab: 'mgr-customers', perm: 'accessMGRCustomers' },
+                { tab: 'mgr-owners', perm: 'accessMGROwners' },
+                { tab: 'mgr-settings', perm: 'accessMGRSettings' },
+              ];
+              const permittedTab = isAdmin ? (currentRoute.mgrTab || mgrActiveTab) : (
+                currentRoute.mgrTab && perms[mgrTabs.find(t => t.tab === currentRoute.mgrTab)?.perm || 'accessMGRSearch']
+                  ? currentRoute.mgrTab
+                  : (mgrTabs.find(t => perms[t.perm])?.tab || 'mgr-search')
+              );
+              setMgrActiveTabState(permittedTab);
+              go(buildRolePath('admin', permittedTab), { replace: true });
+            } else {
+              const bicycleTabs: { tab: NavTabType; perm: keyof typeof perms }[] = [
+                { tab: 'rentals', perm: 'accessRentals' },
+                { tab: 'dashboard', perm: 'accessDashboard' },
+                { tab: 'customers', perm: 'accessCustomers' },
+                { tab: 'messages', perm: 'accessMessages' },
+                { tab: 'history', perm: 'accessHistory' },
+                { tab: 'users', perm: 'accessUsers' },
+                { tab: 'settings', perm: 'accessSettings' },
+                { tab: 'finance', perm: 'accessFinance' },
+              ];
+              const permittedTab = isAdmin ? (currentRoute.bicycleTab || activeTab) : (
+                currentRoute.bicycleTab && perms[bicycleTabs.find(t => t.tab === currentRoute.bicycleTab)?.perm || 'accessRentals']
+                  ? currentRoute.bicycleTab
+                  : (bicycleTabs.find(t => perms[t.perm])?.tab || 'rentals')
+              );
+              setActiveTabState(permittedTab);
+              go(buildBicyclePath(permittedTab), { replace: true });
             }
           }}
           settings={settings}
@@ -1443,6 +1651,66 @@ export default function App() {
           }}
         />
       </>
+    );
+  }
+
+  // CRITICAL SECURITY: If user account is deactivated/suspended or has no active business access
+  const isGlobalBlocked = currentUser && (currentUser.status === 'deactivated' || currentUser.status === 'suspended');
+  const userAuthBusinesses = currentUser ? getAuthorizedBusinesses(currentUser) : [];
+  const isStaffWithoutAnyBusiness = currentUser && !isAdminUser && !isPassenger && !isOwner && userAuthBusinesses.length === 0;
+
+  if (isGlobalBlocked || isStaffWithoutAnyBusiness) {
+    const isSuspended = currentUser?.status === 'suspended';
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 text-center shadow-2xl space-y-5">
+          <div className={`w-16 h-16 rounded-2xl mx-auto flex items-center justify-center border shadow-lg ${
+            isSuspended 
+              ? 'bg-purple-950/50 border-purple-800 text-purple-400' 
+              : 'bg-rose-950/50 border-rose-800 text-rose-400'
+          }`}>
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-white tracking-tight">
+              {isGlobalBlocked 
+                ? (isSuspended ? 'Account Access Suspended' : 'Account Deactivated')
+                : 'No Active Business Access'}
+            </h2>
+            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+              {isGlobalBlocked ? (
+                <>
+                  Your staff account (<span className="text-slate-200 font-mono font-medium">{currentUser?.email}</span>) has been {currentUser?.status} by the system administrator.
+                  All business module access, navigation menus, and operational privileges have been immediately blocked.
+                </>
+              ) : (
+                <>
+                  Your staff account (<span className="text-slate-200 font-mono font-medium">{currentUser?.email}</span>) does not currently have active access to any business module (Bicycle POS, MGR Transport, or PRH Rental Hub). All business modules are either deactivated or suspended. Please contact your system administrator to assign or reactivate access.
+                </>
+              )}
+            </p>
+            {currentUser?.statusUpdatedAt && (
+              <p className="text-[11px] text-slate-500 mt-2.5 font-mono">
+                Status modified on {new Date(currentUser.statusUpdatedAt).toLocaleString()}
+                {currentUser.statusUpdatedBy ? ` by ${currentUser.statusUpdatedBy}` : ''}
+              </p>
+            )}
+          </div>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                logoutUser();
+                setCurrentUser(null);
+                setIsFullLoginPage(true);
+              }}
+              className="w-full py-3 px-4 rounded-xl font-bold text-xs bg-rose-600 hover:bg-rose-500 text-white transition shadow-lg cursor-pointer"
+            >
+              Sign Out from Account
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 

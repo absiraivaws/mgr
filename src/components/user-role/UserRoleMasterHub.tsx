@@ -37,6 +37,9 @@ import {
   RolePermissionSet, 
   UserAccount, 
   UserRole, 
+  UserStatus,
+  BusinessScope,
+  getUserBusinessStatus,
   createCustomRole, 
   deleteCustomRole, 
   deleteUserAccount, 
@@ -60,8 +63,6 @@ import {
 import { AccentColor, ThemeMode } from '../../utils/theme';
 import { AppSettings } from '../../types';
 
-export type BusinessScope = 'bicycle_pos' | 'mgr_transport' | 'prh_rental';
-
 interface UserRoleMasterHubProps {
   currentUser: UserAccount;
   themeMode?: ThemeMode;
@@ -79,7 +80,7 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
   currentUser,
   themeMode = 'light',
   settings,
-  activeBusiness = 'bicycle_pos',
+  activeBusiness = 'bicycle_pos' as BusinessScope,
   onUpdateSettings,
   onUserListChange,
   onRolePermissionsChange,
@@ -161,6 +162,10 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editRole, setEditRole] = useState<UserRole>('cashier');
+  const [editStatus, setEditStatus] = useState<UserStatus>('active');
+  const [editBicycleStatus, setEditBicycleStatus] = useState<UserStatus>('active');
+  const [editMGRStatus, setEditMGRStatus] = useState<UserStatus>('active');
+  const [editPRHStatus, setEditPRHStatus] = useState<UserStatus>('active');
 
   // Create Custom Role Modal
   const [isCreatingRole, setIsCreatingRole] = useState(false);
@@ -206,8 +211,9 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
         { key: 'accessDashboard' as keyof RolePermissionSet, label: 'Dashboard', desc: 'Real-time fleet counters, daily KPI charts, revenue widgets', icon: <Compass className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessRentals' as keyof RolePermissionSet, label: 'Rental Desk', desc: 'Live counter checkout, rental timers, return stop modal', icon: <Clock className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessCustomers' as keyof RolePermissionSet, label: 'Customers', desc: 'Customer directory, contact numbers, NIC, and rental history', icon: <Users className="w-4 h-4 text-emerald-600" /> },
-        { key: 'accessMessages' as keyof RolePermissionSet, label: 'Message Templates', desc: 'WhatsApp & SMS notification templates, placeholders, alerts', icon: <FileText className="w-4 h-4 text-emerald-600" /> },
+        { key: 'accessMessages' as keyof RolePermissionSet, label: 'Messages', desc: 'Customer messaging, WhatsApp quick notifications, direct chat alerts', icon: <MessageSquare className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessHistory' as keyof RolePermissionSet, label: 'History', desc: 'Daily completed rental records, settle receipts & audit log', icon: <History className="w-4 h-4 text-emerald-600" /> },
+        { key: 'accessUsers' as keyof RolePermissionSet, label: 'Message Templates', desc: 'WhatsApp & SMS notification templates, placeholders, alerts', icon: <FileText className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessSettings' as keyof RolePermissionSet, label: 'Rates & Inventory', desc: 'Bicycle fleet inventory, rates, currency & system settings', icon: <SettingsIcon className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessFinance' as keyof RolePermissionSet, label: 'Finance', desc: 'Income & expenses, cash register, P&L statement, deposits', icon: <DollarSign className="w-4 h-4 text-emerald-600" /> },
       ],
@@ -566,11 +572,49 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
     setEditEmail(user.email);
     setEditPhone(user.phone || '');
     setEditRole(user.role);
+    setEditStatus(user.status || 'active');
+    setEditBicycleStatus(getUserBusinessStatus(user, 'bicycle_pos'));
+    setEditMGRStatus(getUserBusinessStatus(user, 'mgr_transport'));
+    setEditPRHStatus(getUserBusinessStatus(user, 'prh_rental'));
   };
 
   const handleUpdateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
+
+    const prevBicycle = getUserBusinessStatus(editingUser, 'bicycle_pos');
+    const prevMGR = getUserBusinessStatus(editingUser, 'mgr_transport');
+    const prevPRH = getUserBusinessStatus(editingUser, 'prh_rental');
+
+    const now = new Date().toISOString();
+    const adminName = activeAccount.name || 'Administrator';
+
+    const newBusinessStatus = {
+      bicycle_pos: editBicycleStatus,
+      mgr_transport: editMGRStatus,
+      prh_rental: editPRHStatus,
+    };
+
+    const newBusinessStatusUpdatedAt = {
+      ...editingUser.businessStatusUpdatedAt,
+      bicycle_pos: editBicycleStatus !== prevBicycle ? now : editingUser.businessStatusUpdatedAt?.bicycle_pos,
+      mgr_transport: editMGRStatus !== prevMGR ? now : editingUser.businessStatusUpdatedAt?.mgr_transport,
+      prh_rental: editPRHStatus !== prevPRH ? now : editingUser.businessStatusUpdatedAt?.prh_rental,
+    };
+
+    const newBusinessStatusUpdatedBy = {
+      ...editingUser.businessStatusUpdatedBy,
+      bicycle_pos: editBicycleStatus !== prevBicycle ? adminName : editingUser.businessStatusUpdatedBy?.bicycle_pos,
+      mgr_transport: editMGRStatus !== prevMGR ? adminName : editingUser.businessStatusUpdatedBy?.mgr_transport,
+      prh_rental: editPRHStatus !== prevPRH ? adminName : editingUser.businessStatusUpdatedBy?.prh_rental,
+    };
+
+    const overallStatus: UserStatus = 
+      (editBicycleStatus === 'active' || editMGRStatus === 'active' || editPRHStatus === 'active')
+        ? 'active'
+        : (editBicycleStatus === 'suspended' || editMGRStatus === 'suspended' || editPRHStatus === 'suspended')
+        ? 'suspended'
+        : 'deactivated';
 
     const updatedUser: UserAccount = {
       ...editingUser,
@@ -578,24 +622,33 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
       email: editEmail.trim(),
       phone: editPhone.trim(),
       role: editRole,
+      status: overallStatus,
+      statusUpdatedAt: now,
+      statusUpdatedBy: adminName,
+      businessStatus: newBusinessStatus,
+      businessStatusUpdatedAt: newBusinessStatusUpdatedAt,
+      businessStatusUpdatedBy: newBusinessStatusUpdatedBy,
     };
 
     if (isSupabaseConfigured()) {
       await syncUserAccountToSupabase(updatedUser);
     }
 
-    const allUsers = getStoredUsers();
-    const nextList = allUsers.map((u) => (u.id === editingUser.id ? updatedUser : u));
-    saveStoredUsers(nextList);
-
-    if (currentUser.id === editingUser.id) {
-      setCurrentUserSession(updatedUser);
-    }
+    updateUserRoleAndDetails(editingUser.id, editRole, {
+      name: editName.trim(),
+      phone: editPhone.trim(),
+      status: overallStatus,
+      statusUpdatedAt: now,
+      statusUpdatedBy: adminName,
+      businessStatus: newBusinessStatus,
+      businessStatusUpdatedAt: newBusinessStatusUpdatedAt,
+      businessStatusUpdatedBy: newBusinessStatusUpdatedBy,
+    });
 
     setEditingUser(null);
     refreshState();
     onUserListChange?.();
-    setSuccessMessage(`User "${updatedUser.name}" updated successfully.`);
+    setSuccessMessage(`User "${updatedUser.name}" access and business statuses updated successfully.`);
     setTimeout(() => setSuccessMessage(null), 2500);
   };
 
@@ -606,14 +659,14 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
       return;
     }
 
-    if (confirm(`Are you sure you want to permanently delete user "${user.name}" (${user.email})?`)) {
+    if (confirm(`Are you sure you want to permanently delete user "${user.name}" (${user.email})?\n\nSecurity Notice:\n- The user will immediately lose access and be logged out.\n- The user will NOT be able to log in or reset password.\n- Their active session will be revoked across all devices.`)) {
       if (isSupabaseConfigured()) {
         await deleteUserAccountFromSupabase(user.id);
       }
-      deleteUserAccount(user.id);
+      deleteUserAccount(user.id, activeAccount);
       refreshState();
       onUserListChange?.();
-      setSuccessMessage(`User "${user.name}" removed.`);
+      setSuccessMessage(`User "${user.name}" permanently deleted and revoked.`);
       setTimeout(() => setSuccessMessage(null), 2500);
     }
   };
@@ -745,7 +798,7 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
             return (
               <div
                 key={role.id}
-                onClick={() => !isRoleAdmin && handleToggleTopMenuAccess(role.id, activeBusiness)}
+                onClick={() => !isRoleAdmin && handleToggleTopMenuAccess(role.id, activeBusiness as BusinessScope)}
                 className={`p-3.5 rounded-xl border transition cursor-pointer flex items-center justify-between ${
                   isAllowed
                     ? (isLight
@@ -1017,7 +1070,7 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
                 <th className="py-3 px-4">Staff Member</th>
                 <th className="py-3 px-4">Contact</th>
                 <th className="py-3 px-4">Assigned Role</th>
-                <th className="py-3 px-4 text-center">Status</th>
+                <th className="py-3 px-4 text-center">Status ({currentBusinessConfig.name})</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -1028,6 +1081,8 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
                 const initials = u.name
                   ? u.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
                   : 'U';
+                const bStatus = getUserBusinessStatus(u, activeBusiness as BusinessScope);
+                const bUpdatedAt = u.businessStatusUpdatedAt?.[activeBusiness as BusinessScope] || u.statusUpdatedAt;
 
                 return (
                   <tr key={u.id} className={`transition ${styles.tableRowHover}`}>
@@ -1060,9 +1115,20 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
                       </select>
                     </td>
                     <td className="py-3 px-4 text-center">
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${styles.emeraldBadge}`}>
-                        Active
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+                        bStatus === 'deactivated'
+                          ? 'bg-rose-50 text-rose-700 border-rose-300'
+                          : bStatus === 'suspended'
+                          ? 'bg-purple-50 text-purple-700 border-purple-300'
+                          : styles.emeraldBadge
+                      }`}>
+                        {bStatus}
                       </span>
+                      {bUpdatedAt && (
+                        <span className={`block text-[9px] mt-0.5 ${styles.textMuted}`}>
+                          {new Date(bUpdatedAt).toLocaleDateString()}
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
@@ -1308,6 +1374,99 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              {/* Business-by-Business Status Controls */}
+              <div className={`p-4 rounded-xl border space-y-3.5 ${styles.cardBg} ${styles.divider}`}>
+                <div>
+                  <h4 className={`text-xs font-bold uppercase tracking-wider ${styles.textHeading}`}>
+                    Business-by-Business Access Status
+                  </h4>
+                  <p className={`text-[11px] ${styles.textMuted} mt-0.5`}>
+                    Maintain separate access statuses per business. If deactivated or suspended for a business, that module is locked.
+                  </p>
+                </div>
+
+                {/* 1. Bicycle POS Status */}
+                <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold shrink-0">
+                      <Bike className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">Bicycle POS</span>
+                      {editingUser.businessStatusUpdatedAt?.bicycle_pos && (
+                        <span className="text-[10px] text-slate-500 block">
+                          Updated {new Date(editingUser.businessStatusUpdatedAt.bicycle_pos).toLocaleDateString()}
+                          {editingUser.businessStatusUpdatedBy?.bicycle_pos ? ` by ${editingUser.businessStatusUpdatedBy.bicycle_pos}` : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <select
+                    value={editBicycleStatus}
+                    onChange={(e) => setEditBicycleStatus(e.target.value as UserStatus)}
+                    className="rounded-lg px-2.5 py-1 text-xs font-bold border border-slate-300 bg-white text-slate-800 cursor-pointer"
+                  >
+                    <option value="active">Active</option>
+                    <option value="deactivated">Deactivated</option>
+                    <option value="suspended">Suspended</option>
+                  </select>
+                </div>
+
+                {/* 2. MGR Transport Status */}
+                <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-cyan-100 flex items-center justify-center text-cyan-700 font-bold shrink-0">
+                      <Car className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">MGR Transport</span>
+                      {editingUser.businessStatusUpdatedAt?.mgr_transport && (
+                        <span className="text-[10px] text-slate-500 block">
+                          Updated {new Date(editingUser.businessStatusUpdatedAt.mgr_transport).toLocaleDateString()}
+                          {editingUser.businessStatusUpdatedBy?.mgr_transport ? ` by ${editingUser.businessStatusUpdatedBy.mgr_transport}` : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <select
+                    value={editMGRStatus}
+                    onChange={(e) => setEditMGRStatus(e.target.value as UserStatus)}
+                    className="rounded-lg px-2.5 py-1 text-xs font-bold border border-slate-300 bg-white text-slate-800 cursor-pointer"
+                  >
+                    <option value="active">Active</option>
+                    <option value="deactivated">Deactivated</option>
+                    <option value="suspended">Suspended</option>
+                  </select>
+                </div>
+
+                {/* 3. PRH Rental Hub Status */}
+                <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-amber-100 flex items-center justify-center text-amber-700 font-bold shrink-0">
+                      <HardHat className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">PRH Rental Hub</span>
+                      {editingUser.businessStatusUpdatedAt?.prh_rental && (
+                        <span className="text-[10px] text-slate-500 block">
+                          Updated {new Date(editingUser.businessStatusUpdatedAt.prh_rental).toLocaleDateString()}
+                          {editingUser.businessStatusUpdatedBy?.prh_rental ? ` by ${editingUser.businessStatusUpdatedBy.prh_rental}` : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <select
+                    value={editPRHStatus}
+                    onChange={(e) => setEditPRHStatus(e.target.value as UserStatus)}
+                    className="rounded-lg px-2.5 py-1 text-xs font-bold border border-slate-300 bg-white text-slate-800 cursor-pointer"
+                  >
+                    <option value="active">Active</option>
+                    <option value="deactivated">Deactivated</option>
+                    <option value="suspended">Suspended</option>
+                  </select>
+                </div>
               </div>
 
               <div className={`flex items-center justify-end gap-2.5 pt-3 border-t ${styles.divider}`}>

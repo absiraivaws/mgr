@@ -3,6 +3,10 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import nodemailer from 'nodemailer';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +28,85 @@ if (!fs.existsSync(indexHtml)) {
 const app = express();
 
 app.use(express.json());
+
+// System Email Transporter configuration (strictly mannargreenride@gmail.com)
+const SYSTEM_SENDER_EMAIL = process.env.SYSTEM_EMAIL_SENDER || 'mannargreenride@gmail.com';
+const SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || '465', 10);
+const SMTP_USER = process.env.SMTP_USER || 'mannargreenride@gmail.com';
+const SMTP_PASS = process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || '';
+
+let mailTransporter = null;
+if (SMTP_PASS) {
+  mailTransporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS,
+    },
+  });
+}
+
+// System Email Sender Endpoint (Notifications, Account alerts, Confirmations, Automated messages)
+// All system-generated emails must originate from mannargreenride@gmail.com
+app.post('/api/email/send', async (req, res) => {
+  try {
+    const { to, subject, html, text } = req.body || {};
+    if (!to || (!html && !text)) {
+      return res.status(400).json({ error: 'Recipient (to) and content (html or text) are required' });
+    }
+
+    if (!process.env.SMTP_PASS) {
+      dotenv.config();
+    }
+
+    const currentPass = process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || SMTP_PASS;
+    const currentHost = process.env.SMTP_HOST || SMTP_HOST;
+    const currentPort = parseInt(process.env.SMTP_PORT || String(SMTP_PORT), 10);
+    const currentUser = process.env.SMTP_USER || SMTP_USER;
+    const currentSender = process.env.SYSTEM_EMAIL_SENDER || SYSTEM_SENDER_EMAIL;
+
+    if (!currentPass) {
+      console.warn(`[System Email] SMTP credentials not yet configured in server environment. Simulated dispatch to ${to}`);
+      return res.status(200).json({
+        success: true,
+        mode: 'simulated_pending_smtp_credentials',
+        from: `Mannar Green Ride <${currentSender}>`,
+        to,
+        subject: subject || 'Mannar Green Ride Notification',
+        message: 'Email dispatch registered. To deliver actual emails, set SMTP_PASS (Google App Password) in your server environment.'
+      });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: currentHost,
+      port: currentPort,
+      secure: currentPort === 465,
+      auth: { user: currentUser, pass: currentPass },
+    });
+
+    const info = await transporter.sendMail({
+      from: `"Mannar Green Ride" <${currentSender}>`,
+      to,
+      subject: subject || 'Mannar Green Ride Notification',
+      text,
+      html,
+    });
+
+    console.log(`[System Email] Successfully delivered email to ${to}: ${info.messageId}`);
+    return res.status(200).json({
+      success: true,
+      from: `Mannar Green Ride <${currentSender}>`,
+      to,
+      messageId: info.messageId,
+    });
+  } catch (err) {
+    console.error('[System Email] Delivery failure:', err);
+    return res.status(500).json({ error: err.message || 'Email delivery failed' });
+  }
+});
 
 // WhatsApp Proxy Endpoint (for SMS / WhatsApp API gateways)
 app.post('/api/whatsapp/send', async (req, res) => {

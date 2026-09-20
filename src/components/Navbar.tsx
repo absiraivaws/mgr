@@ -36,7 +36,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { AppSettings, RentalRecord, Vehicle } from '../types';
-import { DEFAULT_USER, UserAccount, getUserPermissions, getMGRPersona } from '../utils/auth';
+import { DEFAULT_USER, UserAccount, getUserPermissions, getMGRPersona, canAccessBusiness } from '../utils/auth';
 import { ACCENT_COLORS, AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { MGRTabType } from '../types/mgrBooking';
 import { PRHTabType } from '../types/prhTypes';
@@ -208,7 +208,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'users' as const,
       label: 'Message Templates',
       icon: <FileText className="w-4 h-4 shrink-0" />,
-      show: isAdmin ? true : Boolean(userPerms.accessMessages || userPerms.accessUsers),
+      show: isAdmin ? true : Boolean(userPerms.accessUsers),
       badge: null as number | null,
       activeClass: 'bg-purple-500/20 text-purple-400 border border-purple-500/40',
     },
@@ -237,7 +237,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Dashboard',
       icon: <Sparkles className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: isAdminUser, // Admin only
+      show: isAdminUser ? true : Boolean(userPerms.accessMGRDashboard),
       activeClass: 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold shadow-xs',
     },
     {
@@ -245,7 +245,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Find Transport',
       icon: <Search className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: isAdminUser ? true : !isOwner, // Accessible to Admin, Passenger & Staff
+      show: isAdminUser ? true : (isPassenger ? true : (isOwner ? false : Boolean(userPerms.accessMGRSearch))),
       activeClass: 'bg-cyan-50 text-cyan-800 border border-cyan-300 font-bold shadow-xs',
     },
     {
@@ -253,7 +253,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: isPassenger ? 'My Bookings' : 'Bookings & Seats',
       icon: <Calendar className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: true,
+      show: isPassenger ? true : (isAdminUser ? true : Boolean(userPerms.accessMGRBookings)),
       activeClass: 'bg-teal-50 text-teal-800 border border-teal-300 font-bold shadow-xs',
     },
     {
@@ -261,7 +261,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'History',
       icon: <History className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: true, // Visible for ALL users (Admin, Fleet Owner, Passenger)
+      show: isPassenger || isOwner ? true : (isAdminUser ? true : Boolean(userPerms.accessMGRHistory)),
       activeClass: 'bg-teal-50 text-teal-800 border border-teal-300 font-bold shadow-xs',
     },
     {
@@ -269,7 +269,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Fleet & Listings',
       icon: <Car className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: isAdminUser ? true : !isPassenger, // Admin and Fleet Owner
+      show: isPassenger ? false : (isAdminUser || isOwner ? true : Boolean(userPerms.accessMGRFleet)),
       activeClass: 'bg-indigo-50 text-indigo-800 border border-indigo-300 font-bold shadow-xs',
     },
     {
@@ -277,7 +277,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Customers',
       icon: <UserCheck className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: isAdminUser, // Admin only (hidden for Owner & Passenger)
+      show: isAdminUser ? true : (!isPassenger && !isOwner && Boolean(userPerms.accessMGRCustomers)),
       activeClass: 'bg-amber-50 text-amber-800 border border-amber-300 font-bold shadow-xs',
     },
     {
@@ -285,7 +285,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Driver',
       icon: <Users className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: isAdminUser ? true : !isPassenger, // Admin and Driver/Owner
+      show: isPassenger ? false : (isAdminUser || isOwner ? true : Boolean(userPerms.accessMGROwners)),
       activeClass: 'bg-purple-50 text-purple-800 border border-purple-300 font-bold shadow-xs',
     },
     {
@@ -293,7 +293,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Settings & SQL',
       icon: <SettingsIcon className="w-4 h-4 shrink-0" />,
       badge: null as number | null,
-      show: isAdminUser, // Admin only
+      show: isAdminUser ? true : (!isPassenger && !isOwner && Boolean(userPerms.accessMGRSettings)),
       activeClass: 'bg-rose-50 text-rose-800 border border-rose-300 font-bold shadow-xs',
     },
   ];
@@ -309,98 +309,98 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'prh-dashboard',
       label: 'PRH Dashboard',
       icon: <Compass className="w-4 h-4 text-amber-500 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHDashboard),
       activeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-new-rental',
       label: 'New Rental',
       icon: <HardHat className="w-4 h-4 text-amber-500 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHNewRental),
       activeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-active-rentals',
       label: 'Active Rentals',
       icon: <Clock className="w-4 h-4 text-amber-400 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHActiveRentals),
       activeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-returns',
       label: 'Returns & Inspection',
       icon: <RotateCcw className="w-4 h-4 text-emerald-400 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHReturns),
       activeClass: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-customers',
       label: 'Customers & Contractors',
       icon: <Users className="w-4 h-4 text-sky-400 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHCustomers),
       activeClass: 'bg-sky-500/20 text-sky-300 border border-sky-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-equipment',
       label: 'Equipment & Rates',
       icon: <Boxes className="w-4 h-4 text-orange-400 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHEquipment),
       activeClass: 'bg-orange-500/20 text-orange-300 border border-orange-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-inventory',
       label: 'Inventory / Units',
       icon: <Boxes className="w-4 h-4 text-emerald-400 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHInventory),
       activeClass: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-reservations',
       label: 'Reservations',
       icon: <Calendar className="w-4 h-4 text-purple-400 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHReservations),
       activeClass: 'bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-payments',
       label: 'Payments & Deposits',
       icon: <DollarSign className="w-4 h-4 text-blue-400 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHPayments),
       activeClass: 'bg-blue-500/20 text-blue-300 border border-blue-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-finance',
       label: 'PRH Finance & P&L',
       icon: <DollarSign className="w-4 h-4 text-emerald-400 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHFinance),
       activeClass: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-maintenance',
       label: 'Maintenance Workshop',
       icon: <Wrench className="w-4 h-4 text-amber-500 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHMaintenance),
       activeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-reminders',
       label: 'Messages / Reminders',
       icon: <MessageSquare className="w-4 h-4 text-emerald-400 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHReminders),
       activeClass: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-reports',
       label: 'Reports & Utilisation',
       icon: <FileText className="w-4 h-4 text-teal-400 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHReports),
       activeClass: 'bg-teal-500/20 text-teal-300 border border-teal-500/40 font-bold shadow-xs',
     },
     {
       id: 'prh-settings',
       label: 'PRH Settings',
       icon: <SettingsIcon className="w-4 h-4 text-slate-400 shrink-0" />,
-      show: true,
+      show: isAdmin ? true : Boolean(userPerms.accessPRHSettings),
       activeClass: 'bg-slate-700/50 text-slate-200 border border-slate-600 font-bold shadow-xs',
     },
   ];
@@ -457,42 +457,48 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ? 'bg-slate-100 border-slate-300'
                 : 'bg-slate-800/80 border-slate-700/80'
             }`}>
-              <button
-                type="button"
-                onClick={() => onToggleSystemMode('bicycle_pos')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                  systemMode === 'bicycle_pos'
-                    ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                    : (systemMode === 'mgr_booking' ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
-                }`}
-              >
-                <Bike className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Bicycle POS</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onToggleSystemMode('mgr_booking')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                  systemMode === 'mgr_booking'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Car className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">MGR Transport</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onToggleSystemMode('prh_rental')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                  systemMode === 'prh_rental'
-                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
-                    : (systemMode === 'mgr_booking' ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
-                }`}
-              >
-                <HardHat className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">PRH Rental Hub</span>
-              </button>
+              {canAccessBusiness(activeUser, 'bicycle_pos') && (
+                <button
+                  type="button"
+                  onClick={() => onToggleSystemMode('bicycle_pos')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    systemMode === 'bicycle_pos'
+                      ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                      : (systemMode === 'mgr_booking' ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
+                  }`}
+                >
+                  <Bike className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Bicycle POS</span>
+                </button>
+              )}
+              {canAccessBusiness(activeUser, 'mgr_transport') && (
+                <button
+                  type="button"
+                  onClick={() => onToggleSystemMode('mgr_booking')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    systemMode === 'mgr_booking'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Car className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">MGR Transport</span>
+                </button>
+              )}
+              {canAccessBusiness(activeUser, 'prh_rental') && (
+                <button
+                  type="button"
+                  onClick={() => onToggleSystemMode('prh_rental')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    systemMode === 'prh_rental'
+                      ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                      : (systemMode === 'mgr_booking' ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
+                  }`}
+                >
+                  <HardHat className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">PRH Rental Hub</span>
+                </button>
+              )}
               {isAdminUser && (
                 <button
                   type="button"

@@ -470,3 +470,153 @@ To verify on `http://localhost:9898`:
     - No redirect to another module, dashboard, or default page occurs.
     - Login page is only shown if the user explicitly signs out (`handleLogout`) or if session data is genuinely invalid.
 
+---
+
+## 15. User Status Lifecycle, Immediate Access Revocation & Permanent Deletion Security
+
+### 1. User Status Field (`active` | `deactivated` | `suspended`)
+- Added `status: UserStatus` field to `UserAccount` with 3 lifecycle states:
+  - **`active`**: Full standard access according to assigned business and operational permissions.
+  - **`deactivated`**: Immediate and complete revocation of access. Account is locked out across all tabs, blocked from logging in, and blocked from resetting or changing passwords.
+  - **`suspended`**: Immediate temporary suspension of access. Menus, modules, and operational privileges are locked with a dedicated notification screen.
+- Status changes are tracked with audit metadata:
+  - `statusUpdatedAt`: ISO timestamp of the change.
+  - `statusUpdatedBy`: Admin identifier who enacted the status change.
+
+### 2. Immediate Multi-Tab Access Revocation
+- When an Administrator updates a user's status to **Deactivated** or **Suspended**:
+  - `updateUserRoleAndDetails()` updates local storage, syncs the new status to the Supabase `user_accounts` table, and broadcasts a `USER_STATUS_CHANGED` event via `BroadcastChannel('bicycle_pos_channel')`.
+  - Open tabs listening to the channel immediately update their user session state.
+  - In `App.tsx`, if the current authenticated user is deactivated or suspended:
+    - All business modules, side menus, and operational buttons are instantly locked out.
+    - A dedicated, high-security **Lockout Screen** is rendered detailing the suspension/deactivation and the timestamp/admin who modified the account.
+    - The user is provided a single **Sign Out** button to terminate the session cleanly.
+  - In `getUserPermissions()` and `hasPermission()`:
+    - If `user.status === 'deactivated'` or `'suspended'`, all permissions evaluate strictly to `false`.
+
+### 3. Permanent User Deletion Security & Prevention of Resurrection
+- **Problem**: Previously, deleted default/seed accounts could be re-created upon subsequent application launches due to seed re-hydration routines. Furthermore, deleted users could remain logged into existing sessions or reset their passwords via recovery links.
+- **Security Solution**:
+  1. **Permanent Deletion Blocklist (`v_rental_deleted_users`)**:
+     - `markUserAsDeleted(email)` registers deleted email addresses into a persistent deleted user registry.
+     - `getStoredUsers()` filters out any email found in the deleted registry, preventing accounts from ever being re-seeded or resurrected.
+  2. **Immediate Session Revocation**:
+     - `deleteUserAccount(userId, adminUser)` removes the user from `localStorage`, deletes the cryptographic SHA-256 password hash (`v_pwd_hash_{email}`), and if the target user is currently active in the browser, purges the session.
+     - A `USER_DELETED` event is broadcast across `BroadcastChannel('bicycle_pos_channel')`. Any tab running with that user's session immediately logs out and displays the login screen.
+  3. **Blocking Password Reset & Password Change**:
+     - In `sendStaffPasswordResetEmail()` and `resetUserPassword()`: requests for deleted, deactivated, or suspended emails are strictly rejected with an explicit security error.
+     - In `changePassword()`: attempts to set a new password for deleted, deactivated, or suspended accounts are strictly blocked.
+     - In `authenticateUser()`: login attempts for deleted accounts or accounts with `deactivated`/`suspended` status are rejected with clear error messages.
+  4. **Root Administrator Protection**:
+     - The root administrator account (`DEFAULT_USER.email` / `absiraiva@gmail.com`) is protected from deletion or status demotion.
+
+### 4. Edit Staff User Modal Enhancements
+- In `UserRoleMasterHub.tsx`:
+  - Clearly displays current account status badge using the 4-color palette (Emerald for Active, Rose for Deactivated, Purple for Suspended).
+  - Displays audit trail indicating when the status was last changed and by whom.
+  - Provides a status dropdown allowing the Administrator to switch between `Active`, `Deactivated`, and `Suspended`.
+  - Saves the new status, updates audit timestamps, and dispatches real-time broadcast synchronization.
+- In Section 4 (User Accounts Table):
+  - Dynamic status badges rendered for each staff member with formatted date subtitles.
+
+### 5. URL & View Persistence on Page Refresh
+- URLs like `https://booking.mannargreenride.com/user-role/bicycle-pos` or `http://localhost:9898/user-role/bicycle-pos` persist seamlessly on refresh:
+  - `getCurrentUser()` restores the authenticated admin session.
+  - `isFullLoginPage` evaluates to `false`.
+  - `initialRoute` parses `systemMode: 'user_role'` and `userRoleTab: 'bicycle_pos'`.
+  - The view restores immediately with zero flashes of the login screen or error screens, keeping the exact business sub-view intact.
+
+---
+
+## 16. Business-by-Business Access Control, Login Validation & System Email Sender Architecture
+
+### 1. Validate Staff Access at Login
+- When a staff user logs in via `LoginPage.tsx`:
+  - The system evaluates their assigned permissions and status across all three businesses (`bicycle_pos`, `mgr_transport`, `prh_rental`) via `getAuthorizedBusinesses(user)`.
+  - If the user has access to their requested or saved business module, that business is opened.
+  - If their saved or current business is deactivated, suspended, or unassigned, the system automatically routes them to their **first authorized, active business**.
+  - Within that authorized business, the system automatically navigates to their **first permitted side-menu tab** instead of an arbitrary default.
+  - If a staff user has **no active business access** (deactivated or suspended across all modules), the system blocks entry and displays a dedicated **No Active Business Access** lockout screen with an explicit Sign Out button.
+
+### 2. Business-by-Business User Status
+- User status is managed and persisted independently per business in `UserAccount`:
+  - `businessStatus?: Partial<Record<BusinessScope, UserStatus>>`
+  - `businessStatusUpdatedAt?: Partial<Record<BusinessScope, number>>`
+  - `businessStatusUpdatedBy?: Partial<Record<BusinessScope, string>>`
+- Three independent business scopes:
+  1. **Bicycle POS** (`bicycle_pos`)
+  2. **MGR Transport** (`mgr_transport`)
+  3. **PRH Rental Hub** (`prh_rental`)
+- Example scenario: A staff member can be **Active** for Bicycle POS, but **Suspended** or **Deactivated** for MGR Transport.
+- Helper functions in `src/utils/auth.ts`:
+  - `getUserBusinessStatus(user, business)`: returns the business-specific status (defaults to global status if unconfigured).
+  - `canAccessBusiness(user, business)`: returns `true` only if root admin, or user has active business status and at least one tab or business access permission enabled.
+  - `getAuthorizedBusinesses(user)`: returns an array of business keys where the user has active status and valid permissions.
+- In `getUserPermissions(user)`:
+  - If a user's business status for a given business is not `'active'`, all permissions for that specific business are strictly zeroed out / set to `false`.
+
+### 3. Business Access Visibility & Side-Menu Item Filtering
+- **Top Module Switcher Filtering**:
+  - In `Navbar.tsx`, top switcher buttons (`Bicycle POS`, `MGR Transport`, `PRH Rental Hub`) are conditionally wrapped using `canAccessBusiness(activeUser, scope)`.
+  - Staff users only see the tabs for businesses they are actively authorized to access.
+  - The `User Role` switcher button is strictly restricted to Administrators.
+- **Side-Menu Item Filtering**:
+  - **Bicycle POS**: All 8 items (`Dashboard`, `Rental Desk`, `Customers`, `Messages`, `History`, `Message Templates`, `Rates & Inventory`, `Finance`) check their respective granular permissions (`accessDashboard`, `accessRentals`, `accessCustomers`, `accessMessages`, `accessHistory`, `accessUsers`, `accessSettings`, `accessFinance`).
+  - **MGR Transport**: In `mgrNavItems`, staff users only see items enabled by their role permissions (`accessMGRDashboard`, `accessMGRSearch`, `accessMGRBookings`, `accessMGRHistory`, `accessMGRFleet`, `accessMGRCustomers`, `accessMGROwners`, `accessMGRSettings`).
+  - **PRH Rental Hub**: In `prhNavItems`, all 14 items check `isAdmin ? true : Boolean(userPerms[key])`, completely preventing unauthorized tab links from being rendered.
+- **Runtime Route Protection**:
+  - In `App.tsx`, `useEffect` route guards monitor the active business and tab.
+  - If an unauthorized URL is directly entered, the user is immediately redirected to their first permitted business and tab.
+
+### 4. Bicycle POS Side-Menu Permission Matrix & Correct Ordering
+- **Added Missing "Messages" Menu Item**:
+  - Added `accessMessages` ("Messages" - SMS / WhatsApp direct chat desk) to the Bicycle POS permission matrix in `UserRoleMasterHub.tsx`.
+  - Differentiated between `accessMessages` ("Messages") and `accessUsers` ("Message Templates").
+- **Strict Order Alignment Across All Modules**:
+  - In `UserRoleMasterHub.tsx`, the tab permissions matrix order now matches the exact visual top-to-bottom order of the actual side menus:
+    - **Bicycle POS**: Dashboard → Rental Desk → Customers → Messages → History → Message Templates → Rates & Inventory → Finance.
+    - **MGR Transport**: Dashboard → Find Transport → Bookings & Seats → History → Fleet & Listings → Customers → Driver → Settings & SQL.
+    - **PRH Rental Hub**: PRH Dashboard → New Rental Desk → Active Rentals → Returns & Inspection → Contractors / Customers → Equipment & Rates → Inventory Units → Reservations → Payments & Deposits → Finance & P&L → Maintenance Workshop → Messages / Reminders → Reports & Utilisation → PRH Settings.
+
+### 5. System Email Sender & Password Reset Email Architecture
+- **System Sender Requirement**:
+  - All system-generated emails (notifications, account alerts, confirmations, booking receipts, automated messages, and password reset emails) must originate from:
+    `mannargreenride@gmail.com`
+  - Display sender name: **"Mannar Green Ride"**.
+- **Backend Email Service (`server.js`)**:
+  - Integrated `nodemailer` with a dedicated proxy endpoint: `POST /api/email/send`.
+  - Transporter configuration:
+    - `SYSTEM_EMAIL_SENDER=mannargreenride@gmail.com`
+    - `SMTP_HOST=smtp.gmail.com`
+    - `SMTP_PORT=465` (SSL) or `587` (TLS)
+    - `SMTP_USER=mannargreenride@gmail.com`
+    - `SMTP_PASS`: 16-character Google App Password (kept securely in server environment variables).
+  - Safe fallback: if SMTP credentials are not yet set, the endpoint logs a simulated dispatch acknowledgment without crashing.
+
+### 6. Guidance for Administrator on Email & SMTP Setup
+1. **Google App Password for Gmail SMTP (Verified & Configured)**:
+   - Configured in server `.env` as `SMTP_PASS` (Google App Password).
+   - Live SMTP transmission tested and verified with Google's SMTP server (`smtp.gmail.com:465`).
+   - Verification message successfully received by `mannargreenride@gmail.com` (Message ID: `<0e4e0f53-78ee-95e5-8c2e-6e59c44e98b5@gmail.com>`).
+2. **Supabase Auth Custom SMTP (for Password Reset Emails)**:
+   - In Supabase Dashboard → **Project Settings** → **Authentication** → **SMTP Settings**:
+     - Enable **Custom SMTP**.
+     - Sender Email: `mannargreenride@gmail.com`
+     - Sender Name: `Mannar Green Ride`
+     - Host: `smtp.gmail.com`
+     - Port: `465` (SSL)
+     - Username: `mannargreenride@gmail.com`
+     - Password: `[Google App Password]`
+   - In Supabase Dashboard → **Authentication** → **Email Templates** → **Reset Password**:
+     - Subject: `Reset Your Mannar Green Ride Password`
+     - Body clearly stating Mannar Green Ride and providing the secure confirmation link:
+       ```html
+       <h2>Reset Your Password - Mannar Green Ride</h2>
+       <p>Follow this secure link to reset your password for your Mannar Green Ride staff account:</p>
+       <p><a href="{{ .ConfirmationURL }}">Reset Your Password</a></p>
+       <p>If you did not request this, please contact your system administrator immediately.</p>
+       ```
+
+
+
+
