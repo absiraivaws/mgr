@@ -150,7 +150,15 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
       const saved = localStorage.getItem('mgr_transport_bookings');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed.filter((b: any) => !b.id?.startsWith('BK-00')) : [];
+        return Array.isArray(parsed) ? parsed.filter((b: any) => 
+          !b.id?.startsWith('BK-00') &&
+          b.vehicleRegNumber !== 'VAN' &&
+          b.vehicleRegNumber !== 'KR - 1927' &&
+          b.vehicleRegNumber !== 'WP NG-9911' &&
+          b.vehicleRegNumber !== 'EP CAB-3180' &&
+          !b.vehicleName?.includes('Aquasports') &&
+          !b.vehicleName?.includes('Scania Metrolink')
+        ) : [];
       }
     } catch {}
     return INITIAL_BOOKINGS;
