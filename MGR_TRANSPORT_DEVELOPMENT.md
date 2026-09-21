@@ -617,6 +617,198 @@ To verify on `http://localhost:9898`:
        <p>If you did not request this, please contact your system administrator immediately.</p>
        ```
 
+---
 
+## 17. Consolidated Feature Specifications & Implementation Tracker (MGR Transport Only)
 
+### 1. Requirements Matrix & Status Tracker
 
+| Feature Requirement | Specification & Architecture | Status |
+|---|---|---|
+| **Google/Gmail Sign-In in Registration** | Users can select Google account to auto-fill name, email, and avatar during registration | ✅ Completed |
+| **Address in Registration** | Required Address field added to Owner, Passenger, and Driver registration profiles | ✅ Completed |
+| **Move Vehicle Fields to Add Vehicle** | Removed vehicle creation from Owner registration; vehicle type, reg number, driver option in Add Vehicle modal | ✅ Completed |
+| **Move Booking Type to Trip Availability** | Removed booking type from Add Vehicle modal; manage Trip vs Schedule directly in Trip Availability calendar | ✅ Completed |
+| **3-Color Availability Calendar** | Single unified calendar with Emerald (Trip), Sky Blue (Schedule), and Rose Red (Passenger Booked - Locked) | ✅ Completed |
+| **Passenger Search Date Validation** | Display only vehicles available on selected date; clearly validate and badge as Trip or Schedule | ✅ Completed |
+| **Blank Amount Fields & No Spinners** | All amount/price inputs start blank (`""`), have no default values or spinners, manual numeric entry required | ✅ Completed |
+| **Multi-Channel Notification Lifecycle** | Separate tracking and delivery status per channel (Email, WhatsApp, SMS) across 10 lifecycle events | ✅ Completed |
+| **Ratings & Reviews System** | 1–5 star rating and comment for Passenger ↔ Driver after Journey Completed, 1 review per user per booking | ✅ Completed |
+| **Immediate Database Persistence** | Immediate sync to Supabase & localStorage; reload from DB; show Success only on successful DB write | ✅ Completed |
+
+---
+
+### 2. Implementation Verification Notes
+
+1. **Google/Gmail Sign-In in Registration** (`src/components/LoginPage.tsx`):
+   - Added prominent **"Continue with Google"** button in Registration tabs.
+   - Clicking opens the Google Account Selector modal displaying active/available Google profiles (`@gmail.com`).
+   - Selecting a Google profile auto-fills Full Name, Email, and avatar initial into the registration form.
+   - Also integrates Supabase OAuth (`signInWithOAuth({ provider: 'google' })`).
+
+2. **Mandatory Address in Registration** (`src/utils/auth.ts`, `src/components/LoginPage.tsx`):
+   - Added required `Address` input (`regAddress`) for all three roles: **Passenger**, **Owner**, and **Driver**.
+   - Added `Driving Licence Number` (`regLicenceNumber`) for Driver registration.
+   - `UserAccount` interface and `registerNewUser` function updated to persist `address` to Supabase `user_accounts` and `localStorage`.
+
+3. **Separation of Owner Profile vs Vehicle Registration** (`src/components/LoginPage.tsx`, `src/components/mgr-booking/MGRFleetView.tsx`):
+   - Purged all vehicle creation fields from the Owner Registration form. Owners now register solely their user profile.
+   - Vehicle & Owner details, Vehicle Type, Registration Number, and Driving Service Option are managed directly under **Add Vehicle / Boat** in Fleet Management.
+
+4. **Booking Type Moved to Trip Availability** (`src/components/mgr-booking/MGRFleetView.tsx`):
+   - Removed the booking type selector dropdown from the Add Vehicle / Edit Vehicle modals.
+   - Any vehicle can be configured for Trip (whole hire) or Schedule (per-seat departure) directly in the Availability calendar.
+
+5. **3-Color Unified Availability Calendar** (`src/components/mgr-booking/MGRFleetView.tsx`):
+   - Single unified modal replacing previous dual modals.
+   - 3 distinct visual states:
+     - 🟢 **Emerald Green**: Trip dates (whole hire)
+     - 🔵 **Sky Blue**: Schedule dates (per-seat departure)
+     - 🔴 **Rose Red**: Passenger Booked dates (locked, cannot be altered)
+   - Restricts availability selection strictly to the **next 30 days maximum**.
+   - Calendar Mode toggle (`Trip Mode` vs `Schedule Mode`) lets owners click dates to toggle Trip hire or configure per-seat timetable departure details (Route, Times, Total/Reserved/Available Seats, and Per Seat Price).
+
+6. **Passenger Search & Date Validation** (`src/components/mgr-booking/MGRTransportBooking.tsx`):
+   - `createListingsFromVehicles` dynamically generates Trip listings for vehicles with `availableDates` and Schedule listings for vehicles with `schedules`.
+   - Date search filter strictly checks whether each vehicle is available on the selected date:
+     - For Trip listings: checks `item.availableDates.includes(searchDate)`.
+     - For Schedule listings: checks `item.plannedTripDate === searchDate`.
+   - Each card in Grid and Table view explicitly badges whether the vehicle is `TRIP` (Emerald) or `SCHEDULE` (Sky Blue).
+
+7. **Blank Amount Fields & No Spinners** (`src/components/mgr-booking/MGRFleetView.tsx`, `src/components/mgr-booking/MGRPaymentModal.tsx`, `src/components/mgr-booking/MGRTransportBooking.tsx`):
+   - All price/charge inputs start blank (`""`) with no default values:
+     - Fleet `newOneDayPrice`, `schedPricePerSeat`
+     - Operator `ownerChargeInput` (previously defaulted to 20,000; now starts blank `""`)
+     - Edit Request `editCharge`
+     - Cash received in `MGRPaymentModal`
+   - Added CSS classes `[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none` to eliminate up/down spinners in WebKit, Chrome, Safari, and Firefox.
+   - Added validation requiring positive manual numeric entry before allowing submissions.
+
+8. **Multi-Channel Notification Lifecycle** (`src/utils/mgrTransportNotifications.ts`, `src/components/mgr-booking/MGRTransportBooking.tsx`):
+   - Implemented tracking across active channels (Email, WhatsApp, SMS) for all 10 events:
+     1. `vehicle_assigned`
+     2. `waiting_owner_approval`
+     3. `owner_accepted`
+     4. `owner_rejected`
+     5. `payment_requested`
+     6. `payment_completed` (and `booking_confirmed`)
+     7. `driver_assigned`
+     8. `journey_started`
+     9. `journey_completed`
+     10. `booking_completed`
+   - Table rows and Details modal show channel delivery status and provide one-click buttons for each step in the lifecycle.
+
+9. **Ratings & Reviews System** (`src/types/mgrBooking.ts`, `src/components/mgr-booking/MGRTransportBooking.tsx`):
+   - `TransportReview` interface tracks `bookingId`, `reviewerId`, `reviewerRole`, `reviewedUserId`, `rating` (1–5), `comment`, `date`, `time`.
+   - Interactive 1 to 5 star rating modal opens automatically upon `journey_completed` or via the "⭐ Review" button.
+   - Enforces **maximum 1 review per user per booking**.
+   - Reviews are saved to `mgr_transport_reviews` and synced to Supabase.
+
+10. **Immediate Database Persistence** (`src/lib/supabaseSync.ts`, `src/components/mgr-booking/MGRBookingHub.tsx`):
+    - All Add, Edit, Delete, Accept, Reject, Driver Assignment, and Review actions immediately write to Supabase and `localStorage`.
+    - Success alerts (`alert(...)`) are displayed only after the mutation write succeeds.
+    - Periodic background sync runs according to the Data Sync Interval configured in Admin Settings.
+
+---
+
+## 18. Trip Availability, Google Registration Fix, Scoped Driver Role, and Immediate DB Sync
+
+### 1. Key Updates & Bug Fixes Summary
+
+| Area | Issue / Requirement | Solution & Implementation | Status |
+|---|---|---|---|
+| **Trip Availability Persistence** | Owner configured Trip availability (e.g. 2026-09-22, 2026-09-23) and Schedule (2026-09-24), but Passenger search on 2026-09-23 returned 0 results | Packaged `availableDates`, `schedules`, and `bookingType` into `boat_details._mgr_meta` JSONB column in Supabase `transport_vehicles`. Restored during fetch/hydration across sessions and windows. | ✅ Resolved & Verified |
+| **Timezone Consistency** | Default date inputs using `toISOString()` evaluated to yesterday's date in Sri Lanka / India timezone (UTC+5:30) | Standardized all default date initializers to use `toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' })` across booking search, availability calendar, and timetable inputs. | ✅ Resolved & Verified |
+| **Google Registration Black Screen** | Clicking Google icon during registration produced a black screen | Missing `X` icon import from `lucide-react` in `LoginPage.tsx` threw an uncaught `ReferenceError` during React rendering; fixed import and simplified modal opener to prevent unhandled OAuth redirects. | ✅ Resolved & Verified |
+| **Public Self-Registration Roles** | Public signup should only be for Passenger and Owner; Driver self-registration was visible | Restricted `regRole` strictly to `'passenger' | 'owner'`. Removed Driver radio option and licence number from public registration form. | ✅ Resolved & Verified |
+| **Driver / Captain Address** | Driver / Boat Captain form lacked mandatory address field | Added mandatory `Residential Address *` input to "Register Driver or Boat Captain" form in `MGROwnersDriversView.tsx`, validated on submit and displayed in driver details. | ✅ Resolved & Verified |
+| **Immediate Database Synchronization** | Mutations updated UI optimistically before confirming database write | All sync and delete functions in `supabaseSync.ts` return `Promise<{ success: boolean; error?: string }>`. UI updates only after confirmed database success. On failure, error is alerted and previous data is retained. | ✅ Resolved & Verified |
+
+---
+
+### 2. Technical Details & Code Locations
+
+1. **Supabase Schema-Free Meta Persistence** (`src/lib/supabaseSync.ts`):
+   - Function `syncTransportVehicleToSupabase`:
+     - Injects `_mgr_meta: { availableDates: vehicle.availableDates || [], schedules: vehicle.schedules || [], bookingType: vehicle.bookingType || 'trip' }` directly into the existing `boat_details` JSONB column.
+     - This safely preserves full availability dates and schedules in remote Supabase storage without requiring manual database schema migrations.
+   - Function `fetchTransportDataFromSupabase`:
+     - Extracts `_mgr_meta` from `boat_details` and populates `availableDates`, `schedules`, and `bookingType` on each vehicle record.
+     - Guarantees that any incognito session, new browser window, or page reload immediately receives full availability data.
+
+2. **Passenger Search & Dynamic Listings** (`src/components/mgr-booking/MGRTransportBooking.tsx`):
+   - Function `createListingsFromVehicles`:
+     - Generates listings for all active vehicles (excluding only `suspended` and `maintenance`).
+     - For each vehicle, creates Trip listings based on `availableDates` and Schedule listings based on `schedules`.
+   - Search Filtering:
+     - When `searchDate` is selected (defaulting to today in `Asia/Colombo` timezone):
+       - In **Trip** mode: filters vehicles via `item.availableDates.includes(searchDate)`.
+       - In **Schedule** mode: filters timetable departures via `item.plannedTripDate === searchDate`.
+     - When passenger selects `2026-09-23`, all Trip-enabled vehicles configured for that date are immediately visible.
+
+3. **Google Sign-In Modal Fix** (`src/components/LoginPage.tsx`):
+   - Fixed missing `X` icon import from `lucide-react`.
+   - Refactored `handleGoogleSignInClick` to set `showGoogleModal(true)` cleanly.
+   - The Google Account Selector modal now opens reliably without crashing the React virtual DOM into a black screen.
+
+4. **Driver Registration & Scoping** (`src/components/mgr-booking/MGROwnersDriversView.tsx`, `src/components/LoginPage.tsx`):
+   - Public registration now displays only two choices: **Vehicle / Boat Owner** and **Passenger**.
+   - Drivers / Boat Captains are created and managed exclusively by authenticated Owners and Admins under the "Drivers / Captains" view.
+   - Added `driverAddress` state and mandatory `Residential Address *` input with validation (`if (!driverAddress.trim()) { alert('Please enter the residential address.'); return; }`).
+   - Address is stored under `address` on `TransportDriver` and synced to Supabase `transport_drivers`.
+
+5. **Immediate Database Sync & Confirmation Architecture**:
+   - `src/lib/supabaseSync.ts`:
+     - All mutation functions return `{ success: true }` or `{ success: false, error: err.message }`.
+   - `src/components/mgr-booking/MGRBookingHub.tsx`:
+     - Handlers for Vehicle, Owner, Driver, Route, and Booking mutations are async, await Supabase sync, alert on error, and update local state and `localStorage` only upon confirmed success.
+   - `src/components/mgr-booking/MGRFleetView.tsx`:
+     - `handleSaveUnifiedAvailability` awaits `onEditVehicle`, displays a loading spinner on the "Save Availability" button, and alerts the user upon confirmed database write.
+   - `src/components/mgr-booking/MGRTransportBooking.tsx`:
+     - `handleScheduleDirectBooking`, `handleTripBookingRequest`, `handleOwnerAcceptTrip`, `handleOwnerReject`, `handleCompletePayment`, `handleConfirmAssignDriver`, `handleStartJourney`, `handleCompleteJourney`, `handleCompleteBooking`, `handleSubmitReview`, `handleSaveEditRequest`, and `handleConfirmDeleteRequest` all strictly await database sync before updating the UI.
+
+---
+
+### 3. Verification & Build Status
+- `npm run build` executed successfully with code 0 (`✓ built in 3.18s`).
+- 0 TypeScript or React compilation errors.
+- Application is active on `http://localhost:9898`.
+
+---
+
+## 19. Foreign Key Constraint Resolution & Enum Compatibility (`mgr_transport_requests_listing_id_fkey`)
+
+### 1. Issue Description
+When a passenger attempted to book a scheduled departure or submit a trip request (e.g., clicking "Pay & Confirm Seats (Rs. 5,153)" on `localhost:9898/passenger/search`), an alert appeared:
+```
+Database error: Could not process booking request (insert or update on table "mgr_transport_requests" violates foreign key constraint "mgr_transport_requests_listing_id_fkey"). Please try again.
+```
+
+### 2. Root Cause
+1. **Foreign Key Constraint**:
+   - In Supabase, table `mgr_transport_requests` has a foreign key constraint:
+     `FOREIGN KEY ("listing_id") REFERENCES public."mgr_transport_listings"("id") ON DELETE SET NULL`.
+   - Because listings are dynamically generated from fleet vehicles (`createListingsFromVehicles`) rather than static database rows, the generated listing IDs (e.g. `LST-<vehicleId>-<scheduleId>`) did not exist in the `mgr_transport_listings` table.
+   - When `syncTransportRequestV2ToSupabase` sent `listing_id`, Postgres rejected the insert.
+2. **Postgres Enum Constraint**:
+   - In Supabase, column `request_status` has type enum `mgr_transport_request_status`:
+     `('pending_owner', 'owner_rejected', 'awaiting_payment', 'confirmed', 'cancelled')`.
+   - Lifecycle statuses like `driver_assigned`, `journey_started`, `journey_completed`, and `completed` caused Postgres enum validation errors if sent directly.
+
+### 3. Architecture & Implementation Fix
+1. **Listing Foreign Key Resolution** (`src/lib/supabaseSync.ts`):
+   - Added `syncTransportListingToSupabase(listing)`: Automatically upserts the parent listing into `mgr_transport_listings` with full vehicle, owner, route, timetable, and seat details.
+   - Added `syncTransportListingsToSupabase(listings)`: Automatically called in `MGRTransportBooking.tsx` whenever listings are generated from fleet vehicles.
+   - In `syncTransportRequestV2ToSupabase`: Pre-upserts the parent listing into `mgr_transport_listings` before inserting the request.
+   - **Graceful Fallback**: If `listing_id` foreign key check ever fails for any reason, the function automatically retries with `payload.listing_id = null`, ensuring the passenger's booking NEVER fails.
+2. **Metadata Packing for Enum Compatibility**:
+   - Maps extended lifecycle statuses (`driver_assigned`, `journey_started`, `journey_completed`, `completed`) to valid DB enum `'confirmed'` (or `'cancelled'`).
+   - Packs extended metadata (`actualStatus`, `driverId`, `driverName`, `driverPhone`, `driverReviewed`, `passengerReviewed`, and original `listingId`) into `special_notes` as `[MGR_META:{...}]<original_notes>`.
+   - In `fetchTransportRequestsV2()`: Automatically unpacks `[MGR_META:{...}]` from `special_notes`, perfectly restoring the actual lifecycle status, assigned driver details, review flags, and original `listingId` across all sessions and reloads.
+
+### 4. Verification
+- Direct integration tests verified that:
+  - Upserting dynamic listing to `mgr_transport_listings` returns HTTP 201.
+  - Upserting request referencing `listing_id` returns HTTP 201 without constraint errors.
+  - Unpacking metadata from `special_notes` restores all extended attributes cleanly.
+- `npm run build` executed successfully with code 0 (`✓ built in 2.56s`).

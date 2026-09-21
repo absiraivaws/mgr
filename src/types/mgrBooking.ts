@@ -33,10 +33,28 @@ export type BookingStatus =
   | 'confirmed'
   | 'driver_assigned'
   | 'ready'
+  | 'journey_started'
   | 'trip_started'
+  | 'journey_completed'
   | 'completed'
   | 'passenger_cancelled'
   | 'owner_cancelled';
+
+export interface TransportReview {
+  id: string; // e.g. REV-MGR-0000001
+  bookingId: string; // Booking or Request ID
+  bookingNumber: string;
+  reviewerId: string;
+  reviewerName: string;
+  reviewerRole: 'passenger' | 'driver' | 'owner' | 'admin';
+  reviewedUserId: string;
+  reviewedUserName: string;
+  rating: number; // 1 to 5 stars
+  comment: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+  createdAt: number;
+}
 
 export type PricingMethod = 'fixed' | 'per_km' | 'per_hour' | 'per_day' | 'per_seat';
 

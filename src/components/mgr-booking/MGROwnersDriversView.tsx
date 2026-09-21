@@ -79,6 +79,7 @@ export const MGROwnersDriversView: React.FC<MGROwnersDriversViewProps> = ({
   const [driverName, setDriverName] = useState('');
   const [driverNic, setDriverNic] = useState('');
   const [driverMobile, setDriverMobile] = useState('');
+  const [driverAddress, setDriverAddress] = useState('');
   const [driverType, setDriverType] = useState<'driver' | 'captain'>('driver');
   const [driverLicenceNo, setDriverLicenceNo] = useState('');
   const [driverLicenceClass, setDriverLicenceClass] = useState('Light & Heavy Passenger');
@@ -183,7 +184,10 @@ export const MGROwnersDriversView: React.FC<MGROwnersDriversViewProps> = ({
 
   const handleSaveDriver = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!driverName || !driverMobile || !driverLicenceNo) return;
+    if (!driverName.trim() || !driverMobile.trim() || !driverLicenceNo.trim() || !driverAddress.trim()) {
+      alert('Please enter all required fields: Full Name, Address, Mobile, and Licence Number.');
+      return;
+    }
 
     const finalOwnerId = !isAdmin
       ? (registeredOwnerId || registeredOwner?.id || 'OWN-MGR-00001')
@@ -192,13 +196,13 @@ export const MGROwnersDriversView: React.FC<MGROwnersDriversViewProps> = ({
     const newDriver: TransportDriver = {
       id: `DRV-MGR-${Math.floor(10000 + Math.random() * 90000)}`,
       ownerId: finalOwnerId,
-      fullName: driverName,
-      nic: driverNic || 'N/A',
-      mobile: driverMobile,
-      whatsapp: driverMobile,
-      address: 'Mannar Town',
+      fullName: driverName.trim(),
+      nic: driverNic.trim() || 'N/A',
+      mobile: driverMobile.trim(),
+      whatsapp: driverMobile.trim(),
+      address: driverAddress.trim(),
       driverType,
-      licenceNumber: driverLicenceNo,
+      licenceNumber: driverLicenceNo.trim(),
       licenceClass: driverLicenceClass,
       licenceExpiry: driverLicenceExpiry,
       assignedVehicleId: driverAssignedVehicleId || undefined,
@@ -212,6 +216,7 @@ export const MGROwnersDriversView: React.FC<MGROwnersDriversViewProps> = ({
     setDriverName('');
     setDriverNic('');
     setDriverMobile('');
+    setDriverAddress('');
     setDriverLicenceNo('');
     setDriverAssignedVehicleId('');
   };
@@ -513,6 +518,10 @@ export const MGROwnersDriversView: React.FC<MGROwnersDriversViewProps> = ({
               <div className="p-3 bg-slate-50 rounded-xl">
                 <span className="text-slate-400 block text-[10px] uppercase">Mobile Number</span>
                 <strong className="text-slate-800">{viewingDriver.mobile}</strong>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl">
+                <span className="text-slate-400 block text-[10px] uppercase">Residential Address</span>
+                <strong className="text-slate-800">{viewingDriver.address || 'Mannar Town'}</strong>
               </div>
               <div className="p-3 bg-slate-50 rounded-xl">
                 <span className="text-slate-400 block text-[10px] uppercase">Assigned Vehicle / Boat</span>
@@ -900,6 +909,18 @@ export const MGROwnersDriversView: React.FC<MGROwnersDriversViewProps> = ({
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Residential Address *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 42 Main Street, Mannar Town"
+                  value={driverAddress}
+                  onChange={e => setDriverAddress(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

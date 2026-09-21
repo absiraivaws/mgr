@@ -98,6 +98,7 @@ export interface UserAccount {
   email: string;
   role: UserRole;
   phone?: string;
+  address?: string;
   status?: UserStatus;
   statusUpdatedAt?: string;
   statusUpdatedBy?: string;
@@ -1602,6 +1603,7 @@ export async function registerNewUser(params: {
   password: string;
   role?: UserRole;
   phone?: string;
+  address?: string;
   requirePasswordChange?: boolean;
 }): Promise<{ success: boolean; user?: UserAccount; error?: string }> {
   const normalizedEmail = (params.email || '').trim().toLowerCase();
@@ -1619,6 +1621,7 @@ export async function registerNewUser(params: {
             name: params.name.trim(),
             role: params.role || 'cashier',
             phone: params.phone?.trim() || '',
+            address: params.address?.trim() || '',
             must_change_password: false,
           },
         },
@@ -1654,6 +1657,7 @@ export async function registerNewUser(params: {
           email: data.user.email || normalizedEmail,
           role: params.role || existing?.role || 'cashier',
           phone: params.phone?.trim() || existing?.phone || undefined,
+          address: params.address?.trim() || existing?.address || undefined,
           status: existing?.status || 'active',
           must_change_password: false,
           createdAt: existing?.createdAt || Date.now(),
@@ -1676,6 +1680,7 @@ export async function registerNewUser(params: {
               name: resolvedUser.name,
               email: resolvedUser.email,
               phone: resolvedUser.phone || null,
+              address: resolvedUser.address || null,
               role: resolvedUser.role,
               status: 'active',
               must_change_password: false,
@@ -1706,6 +1711,7 @@ export async function registerNewUser(params: {
     email: normalizedEmail,
     role: params.role || 'cashier',
     phone: params.phone?.trim() || '',
+    address: params.address?.trim() || '',
     status: 'active',
     must_change_password: false,
     createdAt: Date.now(),

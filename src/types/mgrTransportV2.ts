@@ -12,6 +12,10 @@ export type TransportRequestStatus =
   | 'owner_rejected'
   | 'awaiting_payment'
   | 'confirmed'
+  | 'driver_assigned'
+  | 'journey_started'
+  | 'journey_completed'
+  | 'completed'
   | 'cancelled';
 
 export type TransportPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
@@ -84,6 +88,11 @@ export interface TransportV2Request {
   seatCount: number; // 1 for full vehicle, or N seats for planned trip
   specialNotes?: string;
 
+  // Driver Assignment
+  driverId?: string;
+  driverName?: string;
+  driverPhone?: string;
+
   // Financials
   ownerTravelCharge?: number; // Entered by Owner on Accept
   convenienceFee?: number; // Auto calculated
@@ -98,6 +107,13 @@ export interface TransportV2Request {
   rejectionReason?: string;
   holdExpiresAt?: number; // FIFO temporary hold expiration timestamp
 
+  // Notification delivery status per channel
+  channelDeliveryStatus?: Partial<Record<NotificationChannel, 'sent' | 'failed' | 'disabled'>>;
+
+  // Ratings & Reviews tracking
+  passengerReviewed?: boolean;
+  driverReviewed?: boolean;
+
   createdAt: number;
   updatedAt: number;
 }
@@ -108,11 +124,18 @@ export type NotificationRecipientRole = 'passenger' | 'owner' | 'admin' | 'drive
 export interface NotificationEvent {
   id: string;
   eventType:
+    | 'vehicle_assigned'
+    | 'waiting_owner_approval'
     | 'request_created'
     | 'owner_accepted'
     | 'owner_rejected'
+    | 'payment_requested'
     | 'payment_pending'
     | 'payment_completed'
+    | 'driver_assigned'
+    | 'journey_started'
+    | 'journey_completed'
+    | 'booking_completed'
     | 'booking_confirmed'
     | 'booking_cancelled';
   requestId: string;

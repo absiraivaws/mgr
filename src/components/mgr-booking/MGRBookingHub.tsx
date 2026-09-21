@@ -342,119 +342,280 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
     return () => clearInterval(timer);
   }, [settings.dataSyncInterval]);
 
-  const handleUpdateBookingStatus = (bookingId: string, newStatus: BookingStatus) => {
+  const handleUpdateBookingStatus = async (bookingId: string, newStatus: BookingStatus) => {
+    const target = bookings.find(b => b.id === bookingId);
+    if (!target) return;
+    const updated = { ...target, status: newStatus };
+    const res = await syncTransportBookingToSupabase(updated);
+    if (!res.success) {
+      alert(`Database error: Failed to update booking status (${res.error || 'Sync error'}). Previous status retained.`);
+      return;
+    }
     setBookings(prev => {
-      const updated = prev.map(b => (b.id === bookingId ? { ...b, status: newStatus } : b));
-      const target = updated.find(b => b.id === bookingId);
-      if (target) syncTransportBookingToSupabase(target);
-      return updated;
+      const list = prev.map(b => (b.id === bookingId ? updated : b));
+      localStorage.setItem('mgr_transport_bookings', JSON.stringify(list));
+      return list;
     });
   };
 
-  const handleEditBooking = (updated: TransportBooking) => {
-    setBookings(prev => prev.map(b => (b.id === updated.id ? updated : b)));
-    syncTransportBookingToSupabase(updated);
+  const handleEditBooking = async (updated: TransportBooking): Promise<boolean> => {
+    const res = await syncTransportBookingToSupabase(updated);
+    if (!res.success) {
+      alert(`Database error: Failed to save booking updates (${res.error || 'Sync error'}). Previous data retained.`);
+      return false;
+    }
+    setBookings(prev => {
+      const list = prev.map(b => (b.id === updated.id ? updated : b));
+      localStorage.setItem('mgr_transport_bookings', JSON.stringify(list));
+      return list;
+    });
+    return true;
   };
 
-  const handleDeleteBooking = (id: string) => {
-    setBookings(prev => prev.filter(b => b.id !== id));
-    deleteTransportBookingFromSupabase(id);
+  const handleDeleteBooking = async (id: string): Promise<boolean> => {
+    const res = await deleteTransportBookingFromSupabase(id);
+    if (!res.success) {
+      alert(`Database error: Could not delete booking from database (${res.error || 'Sync error'}).`);
+      return false;
+    }
+    setBookings(prev => {
+      const list = prev.filter(b => b.id !== id);
+      localStorage.setItem('mgr_transport_bookings', JSON.stringify(list));
+      return list;
+    });
+    return true;
   };
 
-  const handleAddVehicle = (newVehicle: TransportVehicle) => {
-    setVehicles(prev => [newVehicle, ...prev]);
-    syncTransportVehicleToSupabase(newVehicle);
-  };
-
-  const handleUpdateVehicleStatus = (vehicleId: string, status: TransportVehicle['status']) => {
+  const handleAddVehicle = async (newVehicle: TransportVehicle): Promise<boolean> => {
+    const res = await syncTransportVehicleToSupabase(newVehicle);
+    if (!res.success) {
+      alert(`Database error: Could not save vehicle to database (${res.error || 'Network/Server error'}). Previous state retained.`);
+      return false;
+    }
     setVehicles(prev => {
-      const updated = prev.map(v => (v.id === vehicleId ? { ...v, status } : v));
-      const target = updated.find(v => v.id === vehicleId);
-      if (target) syncTransportVehicleToSupabase(target);
-      return updated;
+      const list = [newVehicle, ...prev];
+      localStorage.setItem('mgr_transport_vehicles', JSON.stringify(list));
+      return list;
+    });
+    return true;
+  };
+
+  const handleUpdateVehicleStatus = async (vehicleId: string, status: TransportVehicle['status']) => {
+    const target = vehicles.find(v => v.id === vehicleId);
+    if (!target) return;
+    const updated = { ...target, status };
+    const res = await syncTransportVehicleToSupabase(updated);
+    if (!res.success) {
+      alert(`Database error: Could not update vehicle status (${res.error || 'Sync error'}).`);
+      return;
+    }
+    setVehicles(prev => {
+      const list = prev.map(v => (v.id === vehicleId ? updated : v));
+      localStorage.setItem('mgr_transport_vehicles', JSON.stringify(list));
+      return list;
     });
   };
 
-  const handleEditVehicle = (updated: TransportVehicle) => {
-    setVehicles(prev => prev.map(v => (v.id === updated.id ? updated : v)));
-    syncTransportVehicleToSupabase(updated);
+  const handleEditVehicle = async (updated: TransportVehicle): Promise<boolean> => {
+    const res = await syncTransportVehicleToSupabase(updated);
+    if (!res.success) {
+      alert(`Database error: Could not save vehicle/availability updates to database (${res.error || 'Sync error'}). Previous valid data retained.`);
+      return false;
+    }
+    setVehicles(prev => {
+      const list = prev.map(v => (v.id === updated.id ? updated : v));
+      localStorage.setItem('mgr_transport_vehicles', JSON.stringify(list));
+      return list;
+    });
+    return true;
   };
 
-  const handleDeleteVehicle = (id: string) => {
-    setVehicles(prev => prev.filter(v => v.id !== id));
-    deleteTransportVehicleFromSupabase(id);
+  const handleDeleteVehicle = async (id: string): Promise<boolean> => {
+    const res = await deleteTransportVehicleFromSupabase(id);
+    if (!res.success) {
+      alert(`Database error: Could not delete vehicle from database (${res.error || 'Sync error'}).`);
+      return false;
+    }
+    setVehicles(prev => {
+      const list = prev.filter(v => v.id !== id);
+      localStorage.setItem('mgr_transport_vehicles', JSON.stringify(list));
+      return list;
+    });
+    return true;
   };
 
-  const handleAddOwner = (newOwner: TransportOwner) => {
-    setOwners(prev => [newOwner, ...prev]);
-    syncTransportOwnerToSupabase(newOwner);
-  };
-
-  const handleUpdateOwnerStatus = (ownerId: string, status: VerificationStatus) => {
+  const handleAddOwner = async (newOwner: TransportOwner): Promise<boolean> => {
+    const res = await syncTransportOwnerToSupabase(newOwner);
+    if (!res.success) {
+      alert(`Database error: Could not register owner in database (${res.error || 'Sync error'}).`);
+      return false;
+    }
     setOwners(prev => {
-      const updated = prev.map(o => (o.id === ownerId ? { ...o, status } : o));
-      const target = updated.find(o => o.id === ownerId);
-      if (target) syncTransportOwnerToSupabase(target);
-      return updated;
+      const list = [newOwner, ...prev];
+      localStorage.setItem('mgr_transport_owners', JSON.stringify(list));
+      return list;
+    });
+    return true;
+  };
+
+  const handleUpdateOwnerStatus = async (ownerId: string, status: VerificationStatus) => {
+    const target = owners.find(o => o.id === ownerId);
+    if (!target) return;
+    const updated = { ...target, status };
+    const res = await syncTransportOwnerToSupabase(updated);
+    if (!res.success) {
+      alert(`Database error: Could not update owner status (${res.error || 'Sync error'}).`);
+      return;
+    }
+    setOwners(prev => {
+      const list = prev.map(o => (o.id === ownerId ? updated : o));
+      localStorage.setItem('mgr_transport_owners', JSON.stringify(list));
+      return list;
     });
   };
 
-  const handleEditOwner = (updated: TransportOwner) => {
-    setOwners(prev => prev.map(o => (o.id === updated.id ? updated : o)));
-    syncTransportOwnerToSupabase(updated);
+  const handleEditOwner = async (updated: TransportOwner): Promise<boolean> => {
+    const res = await syncTransportOwnerToSupabase(updated);
+    if (!res.success) {
+      alert(`Database error: Could not update owner in database (${res.error || 'Sync error'}).`);
+      return false;
+    }
+    setOwners(prev => {
+      const list = prev.map(o => (o.id === updated.id ? updated : o));
+      localStorage.setItem('mgr_transport_owners', JSON.stringify(list));
+      return list;
+    });
+    return true;
   };
 
-  const handleDeleteOwner = (id: string) => {
-    setOwners(prev => prev.filter(o => o.id !== id));
-    deleteTransportOwnerFromSupabase(id);
+  const handleDeleteOwner = async (id: string): Promise<boolean> => {
+    const res = await deleteTransportOwnerFromSupabase(id);
+    if (!res.success) {
+      alert(`Database error: Could not delete owner from database (${res.error || 'Sync error'}).`);
+      return false;
+    }
+    setOwners(prev => {
+      const list = prev.filter(o => o.id !== id);
+      localStorage.setItem('mgr_transport_owners', JSON.stringify(list));
+      return list;
+    });
+    return true;
   };
 
-  const handleAddDriver = (newDriver: TransportDriver) => {
-    setDrivers(prev => [newDriver, ...prev]);
-    syncTransportDriverToSupabase(newDriver);
-  };
-
-  const handleUpdateDriverStatus = (driverId: string, status: TransportDriver['status']) => {
+  const handleAddDriver = async (newDriver: TransportDriver): Promise<boolean> => {
+    const res = await syncTransportDriverToSupabase(newDriver);
+    if (!res.success) {
+      alert(`Database error: Could not save driver/captain in database (${res.error || 'Sync error'}).`);
+      return false;
+    }
     setDrivers(prev => {
-      const updated = prev.map(d => (d.id === driverId ? { ...d, status } : d));
-      const target = updated.find(d => d.id === driverId);
-      if (target) syncTransportDriverToSupabase(target);
-      return updated;
+      const list = [newDriver, ...prev];
+      localStorage.setItem('mgr_transport_drivers', JSON.stringify(list));
+      return list;
+    });
+    return true;
+  };
+
+  const handleUpdateDriverStatus = async (driverId: string, status: TransportDriver['status']) => {
+    const target = drivers.find(d => d.id === driverId);
+    if (!target) return;
+    const updated = { ...target, status };
+    const res = await syncTransportDriverToSupabase(updated);
+    if (!res.success) {
+      alert(`Database error: Could not update driver status (${res.error || 'Sync error'}).`);
+      return;
+    }
+    setDrivers(prev => {
+      const list = prev.map(d => (d.id === driverId ? updated : d));
+      localStorage.setItem('mgr_transport_drivers', JSON.stringify(list));
+      return list;
     });
   };
 
-  const handleEditDriver = (updated: TransportDriver) => {
-    setDrivers(prev => prev.map(d => (d.id === updated.id ? updated : d)));
-    syncTransportDriverToSupabase(updated);
+  const handleEditDriver = async (updated: TransportDriver): Promise<boolean> => {
+    const res = await syncTransportDriverToSupabase(updated);
+    if (!res.success) {
+      alert(`Database error: Could not update driver in database (${res.error || 'Sync error'}).`);
+      return false;
+    }
+    setDrivers(prev => {
+      const list = prev.map(d => (d.id === updated.id ? updated : d));
+      localStorage.setItem('mgr_transport_drivers', JSON.stringify(list));
+      return list;
+    });
+    return true;
   };
 
-  const handleDeleteDriver = (id: string) => {
-    setDrivers(prev => prev.filter(d => d.id !== id));
-    deleteTransportDriverFromSupabase(id);
+  const handleDeleteDriver = async (id: string): Promise<boolean> => {
+    const res = await deleteTransportDriverFromSupabase(id);
+    if (!res.success) {
+      alert(`Database error: Could not delete driver from database (${res.error || 'Sync error'}).`);
+      return false;
+    }
+    setDrivers(prev => {
+      const list = prev.filter(d => d.id !== id);
+      localStorage.setItem('mgr_transport_drivers', JSON.stringify(list));
+      return list;
+    });
+    return true;
   };
 
-  const handleAddRoute = (newRoute: TransportRoute) => {
-    setRoutes(prev => [newRoute, ...prev]);
-    syncTransportRouteToSupabase(newRoute);
-  };
-
-  const handleUpdateRouteStatus = (routeId: string, status: TransportRoute['status']) => {
+  const handleAddRoute = async (newRoute: TransportRoute): Promise<boolean> => {
+    const res = await syncTransportRouteToSupabase(newRoute);
+    if (!res.success) {
+      alert(`Database error: Could not save route in database (${res.error || 'Sync error'}).`);
+      return false;
+    }
     setRoutes(prev => {
-      const updated = prev.map(r => (r.id === routeId ? { ...r, status } : r));
-      const target = updated.find(r => r.id === routeId);
-      if (target) syncTransportRouteToSupabase(target);
-      return updated;
+      const list = [newRoute, ...prev];
+      localStorage.setItem('mgr_transport_routes', JSON.stringify(list));
+      return list;
+    });
+    return true;
+  };
+
+  const handleUpdateRouteStatus = async (routeId: string, status: TransportRoute['status']) => {
+    const target = routes.find(r => r.id === routeId);
+    if (!target) return;
+    const updated = { ...target, status };
+    const res = await syncTransportRouteToSupabase(updated);
+    if (!res.success) {
+      alert(`Database error: Could not update route status (${res.error || 'Sync error'}).`);
+      return;
+    }
+    setRoutes(prev => {
+      const list = prev.map(r => (r.id === routeId ? updated : r));
+      localStorage.setItem('mgr_transport_routes', JSON.stringify(list));
+      return list;
     });
   };
 
-  const handleEditRoute = (updated: TransportRoute) => {
-    setRoutes(prev => prev.map(r => (r.id === updated.id ? updated : r)));
-    syncTransportRouteToSupabase(updated);
+  const handleEditRoute = async (updated: TransportRoute): Promise<boolean> => {
+    const res = await syncTransportRouteToSupabase(updated);
+    if (!res.success) {
+      alert(`Database error: Could not update route in database (${res.error || 'Sync error'}).`);
+      return false;
+    }
+    setRoutes(prev => {
+      const list = prev.map(r => (r.id === updated.id ? updated : r));
+      localStorage.setItem('mgr_transport_routes', JSON.stringify(list));
+      return list;
+    });
+    return true;
   };
 
-  const handleDeleteRoute = (id: string) => {
-    setRoutes(prev => prev.filter(r => r.id !== id));
-    deleteTransportRouteFromSupabase(id);
+  const handleDeleteRoute = async (id: string): Promise<boolean> => {
+    const res = await deleteTransportRouteFromSupabase(id);
+    if (!res.success) {
+      alert(`Database error: Could not delete route from database (${res.error || 'Sync error'}).`);
+      return false;
+    }
+    setRoutes(prev => {
+      const list = prev.filter(r => r.id !== id);
+      localStorage.setItem('mgr_transport_routes', JSON.stringify(list));
+      return list;
+    });
+    return true;
   };
 
   const handleAddSchedule = (newSchedule: TransportSchedule) => {

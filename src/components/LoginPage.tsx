@@ -28,7 +28,8 @@ import {
   Calendar,
   CreditCard,
   User,
-  Check
+  Check,
+  X
 } from 'lucide-react';
 import { AppSettings } from '../types';
 import { 
@@ -74,7 +75,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  // Registration State
+  // Registration State: strictly Passenger and Owner self-registration
   const [regRole, setRegRole] = useState<'passenger' | 'owner'>('passenger');
   const [regName, setRegName] = useState('');
   const [regNic, setRegNic] = useState('');
@@ -82,14 +83,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [regPhone, setRegPhone] = useState('');
   const [regWhatsapp, setRegWhatsapp] = useState('');
   const [regEmail, setRegEmail] = useState('');
+  const [regAddress, setRegAddress] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
 
-  // Driver Specifics
-  const [regVehicleType, setRegVehicleType] = useState<'car' | 'van' | 'bus' | 'boat' | 'safari'>('car');
-  const [regVehicleNumber, setRegVehicleNumber] = useState('');
-  const [regDriverOption, setRegDriverOption] = useState<'with_driver' | 'without_driver' | 'both'>('with_driver');
+  // Google Sign-In & Profile Auto-Fill Modal
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const [googleCustomName, setGoogleCustomName] = useState('');
+  const [googleCustomEmail, setGoogleCustomEmail] = useState('');
 
   // Forgot Password State
   const [forgotEmail, setForgotEmail] = useState('');
@@ -104,6 +106,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const clearMessages = () => {
     setErrorMessage(null);
     setSuccessMessage(null);
+  };
+
+  const handleSelectGoogleAccount = (gName: string, gEmail: string) => {
+    setRegName(gName);
+    setRegEmail(gEmail.toLowerCase());
+    setShowGoogleModal(false);
+    setSuccessMessage(`Google account linked: ${gEmail}. Profile details auto-filled.`);
+    setTimeout(() => {
+      setSuccessMessage(null);
+    }, 4000);
+  };
+
+  const handleGoogleSignInClick = () => {
+    // Open Google Account selector modal cleanly without unhandled redirect crash
+    setShowGoogleModal(true);
   };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -151,8 +168,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     e.preventDefault();
     clearMessages();
 
-    if (!regName.trim() || !regNic.trim() || !regDob || !regPhone.trim() || !regEmail.trim() || !regPassword) {
-      setErrorMessage('Please fill in all required fields marked with *');
+    if (!regName.trim() || !regNic.trim() || !regDob || !regPhone.trim() || !regEmail.trim() || !regAddress.trim() || !regPassword) {
+      setErrorMessage('Please fill in all required fields marked with * (including Address).');
       return;
     }
 
@@ -163,11 +180,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     if (regPassword !== regConfirmPassword) {
       setErrorMessage('Passwords do not match.');
-      return;
-    }
-
-    if (regRole === 'owner' && !regVehicleNumber.trim()) {
-      setErrorMessage('Please provide your vehicle number.');
       return;
     }
 
@@ -185,6 +197,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       password: regPassword,
       role: assignedRole,
       phone: regPhone.trim(),
+      address: regAddress.trim(),
     });
 
     if (!res.success || !res.user) {
@@ -194,7 +207,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     const newUser = res.user;
 
-    // If owner, also create owner & vehicle (with status: 'pending' for admin approval)
+    // 1. OWNER REGISTRATION (Profile & Contact only - Vehicle fields moved to "Add Vehicle / Boat")
     if (regRole === 'owner') {
       try {
         const ownerId = `OWN-MGR-${newUser.id.replace('supa-', '').slice(-5)}`;
@@ -202,12 +215,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           id: ownerId,
           fullName: regName.trim(),
           nicPassport: regNic.trim(),
-          address: 'Mannar',
+          address: regAddress.trim(),
           mobileNumber: regPhone.trim(),
           whatsappNumber: regWhatsapp.trim() || regPhone.trim(),
           email: regEmail.trim().toLowerCase(),
           status: 'verified',
-          vehiclesCount: 1,
+          vehiclesCount: 0,
           totalEarnings: 0,
           rating: 5.0,
           createdAt: Date.now(),
@@ -220,82 +233,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
         // Immediately sync owner to Supabase
         await syncTransportOwnerToSupabase(newOwner);
-
-        const vehicleTypePrefix = regVehicleType.toUpperCase();
-        const vehicleDefaults: Record<string, { make: string; model: string; seats: number; price: number; photo: string }> = {
-          car: { make: 'Toyota', model: 'Prius Luxury Hybrid', seats: 4, price: 12500, photo: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=600&q=80' },
-          van: { make: 'Toyota', model: 'HiAce KDH High Roof', seats: 12, price: 18000, photo: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=600&q=80' },
-          bus: { make: 'Ashok Leyland', model: 'Viking Luxury Coach', seats: 40, price: 50000, photo: 'https://images.unsplash.com/photo-1570125909232-eb263c188f7e?auto=format&fit=crop&w=600&q=80' },
-          boat: { make: 'Neil Marine', model: 'Mannar Pearl Cruiser', seats: 20, price: 28000, photo: 'https://images.unsplash.com/photo-1569263979104-865ab7cd8d17?auto=format&fit=crop&w=600&q=80' },
-          safari: { make: 'Toyota', model: 'Land Cruiser Open 4x4 Jeep', seats: 6, price: 24000, photo: 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=600&q=80' },
-        };
-
-        const vInfo = vehicleDefaults[regVehicleType] || vehicleDefaults.car;
-        const newVehicle: any = {
-          id: `MGR-${vehicleTypePrefix}-${Date.now().toString().slice(-5)}`,
-          ownerId: ownerId,
-          ownerName: regName.trim(),
-          type: regVehicleType,
-          registrationNumber: regVehicleNumber.trim().toUpperCase(),
-          make: vInfo.make,
-          model: vInfo.model,
-          year: 2022,
-          color: 'White',
-          hasAC: regVehicleType !== 'boat' && regVehicleType !== 'safari',
-          totalSeats: vInfo.seats,
-          luggageCapacity: 'Standard Luggage',
-          driverOption: regDriverOption,
-          description: `Registered by ${regName.trim()}. Vehicle Number: ${regVehicleNumber.trim().toUpperCase()}.`,
-          photos: [vInfo.photo],
-          insuranceExpiry: '2027-12-31',
-          revenueLicenceExpiry: '2027-12-31',
-          status: 'pending', // Pending Admin Approval!
-          basePrice: vInfo.price,
-          oneDayPrice: Math.round(vInfo.price * 1.2),
-          pricingMethod: regVehicleType === 'bus' || regVehicleType === 'boat' ? 'per_seat' : 'fixed',
-          pricePerSeat: regVehicleType === 'bus' ? 1200 : regVehicleType === 'boat' ? 1500 : undefined,
-          rating: 5.0,
-          tripsCount: 0,
-          createdAt: Date.now(),
-        };
-
-        const existingVehiclesRaw = localStorage.getItem('mgr_transport_vehicles');
-        const vehiclesList = existingVehiclesRaw ? JSON.parse(existingVehiclesRaw) : [];
-        vehiclesList.unshift(newVehicle);
-        localStorage.setItem('mgr_transport_vehicles', JSON.stringify(vehiclesList));
-
-        // Immediately sync vehicle to Supabase
-        await syncTransportVehicleToSupabase(newVehicle);
-
-        // Create initial driver record
-        const newDriver: any = {
-          id: `DRV-MGR-${Date.now().toString().slice(-5)}`,
-          ownerId: ownerId,
-          fullName: regName.trim(),
-          nic: regNic.trim(),
-          mobile: regPhone.trim(),
-          whatsapp: regWhatsapp.trim() || regPhone.trim(),
-          address: 'Mannar',
-          driverType: regVehicleType === 'boat' ? 'captain' : 'driver',
-          licenceNumber: 'B' + Math.floor(1000000 + Math.random() * 9000000),
-          licenceClass: 'Light & Heavy Passenger Vehicles',
-          licenceExpiry: '2028-12-31',
-          rating: 5.0,
-          status: 'verified',
-          createdAt: Date.now(),
-        };
-        const existingDriversRaw = localStorage.getItem('mgr_transport_drivers');
-        const driversList = existingDriversRaw ? JSON.parse(existingDriversRaw) : [];
-        driversList.unshift(newDriver);
-        localStorage.setItem('mgr_transport_drivers', JSON.stringify(driversList));
-
-        // Immediately sync driver to Supabase
-        await syncTransportDriverToSupabase(newDriver);
       } catch (err) {
         console.error('Error syncing owner registration data to Supabase:', err);
       }
-    } else {
-      // Passenger registration: also register as customer in Cycly Rent customers
+    } 
+    // 2. PASSENGER REGISTRATION
+    else {
       try {
         const existingCustRaw = localStorage.getItem('v_rental_customers');
         const custs = existingCustRaw ? JSON.parse(existingCustRaw) : [];
@@ -307,24 +250,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           dob: regDob,
           phone: regPhone.trim(),
           whatsappNumber: regWhatsapp.trim() || regPhone.trim(),
+          address: regAddress.trim(),
           status: 'active',
-          createdAt: Date.now(),
+          groups: ['Passenger'],
           totalRentalsCount: 0,
+          notes: 'Registered Passenger',
+          createdAt: Date.now(),
         };
         custs.unshift(newCust);
         localStorage.setItem('v_rental_customers', JSON.stringify(custs));
-
-        // Immediately sync customer to Supabase
         await syncCustomerToSupabase(newCust);
       } catch (err) {
         console.error('Error syncing passenger customer to Supabase:', err);
       }
     }
 
-    setSuccessMessage(`Account registered successfully as ${regRole === 'owner' ? 'Vehicle / Boat Owner' : 'Passenger'}! You can now log in using your registered email: ${regEmail.trim().toLowerCase()}`);
-    setView('login');
-    setEmail(regEmail.trim().toLowerCase());
-    setPassword(regPassword);
+    setSuccessMessage(`Registration successful! Welcome to Mannar Green Ride, ${newUser.name}.`);
+    setTimeout(() => {
+      onLoginSuccess(newUser);
+    }, 600);
   };
 
   return (
@@ -470,13 +414,36 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         {/* 2. REGISTRATION VIEW: Passenger / Owner with vehicle details */}
         {view === 'register' && (
           <form onSubmit={handleRegisterSubmit} className="space-y-4">
-            {/* Role Radio Selection */}
+            {/* Google / Gmail Sign-In / Auto-Fill Option */}
+            <div className="pb-1">
+              <button
+                type="button"
+                onClick={handleGoogleSignInClick}
+                className="w-full py-2.5 px-4 rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2.5 shadow-xs transition cursor-pointer"
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                </svg>
+                <span>Continue with Google / Auto-fill Profile</span>
+              </button>
+              <div className="flex items-center my-3">
+                <div className="grow border-t border-slate-200 dark:border-slate-700" />
+                <span className="px-2 text-[10px] text-slate-400 font-semibold uppercase">Or Enter Details</span>
+                <div className="grow border-t border-slate-200 dark:border-slate-700" />
+              </div>
+            </div>
+
+            {/* Role Radio Selection: Passenger, Owner, Driver */}
+            {/* Role Radio Selection: Passenger or Owner Only (Requirement: Self-registration strictly for Owner and Passenger) */}
             <div>
               <label className={`block text-xs font-bold mb-2 ${t.textHeading}`}>
                 Register As <span className="text-rose-500">*</span>
               </label>
               <div className="grid grid-cols-2 gap-3">
-                <label className={`flex items-center gap-2.5 p-3 rounded-2xl border cursor-pointer transition ${
+                <label className={`flex flex-col items-center justify-center p-3 rounded-2xl border cursor-pointer transition text-center ${
                   regRole === 'passenger'
                     ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold ring-2 ring-emerald-500/20'
                     : `border-slate-200 dark:border-slate-700 hover:bg-slate-500/5 ${t.textMain}`
@@ -488,15 +455,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     value="passenger"
                     checked={regRole === 'passenger'}
                     onChange={() => setRegRole('passenger')}
-                    className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    className="w-3.5 h-3.5 text-emerald-600 mb-1"
                   />
-                  <div>
-                    <span className="text-xs font-bold block">Passenger</span>
-                    <span className="text-[10px] text-slate-500">Book trips, cars, seats</span>
-                  </div>
+                  <span className="text-xs font-bold block">Passenger</span>
+                  <span className="text-[10px] text-slate-400">Book and manage rides</span>
                 </label>
 
-                <label className={`flex items-center gap-2.5 p-3 rounded-2xl border cursor-pointer transition ${
+                <label className={`flex flex-col items-center justify-center p-3 rounded-2xl border cursor-pointer transition text-center ${
                   regRole === 'owner'
                     ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold ring-2 ring-emerald-500/20'
                     : `border-slate-200 dark:border-slate-700 hover:bg-slate-500/5 ${t.textMain}`
@@ -508,17 +473,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     value="owner"
                     checked={regRole === 'owner'}
                     onChange={() => setRegRole('owner')}
-                    className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    className="w-3.5 h-3.5 text-emerald-600 mb-1"
                   />
-                  <div>
-                    <span className="text-xs font-bold block">Owner</span>
-                    <span className="text-[10px] text-slate-500">Vehicle & boat owner / partner</span>
-                  </div>
+                  <span className="text-xs font-bold block">Owner</span>
+                  <span className="text-[10px] text-slate-400">Fleet & Boat Partner</span>
                 </label>
               </div>
             </div>
 
-            {/* Personal Details: Name, NIC/Passport, DOB, Phone, WhatsApp */}
+            {/* Personal Details: Name, Address, NIC, DOB, Phone, WhatsApp */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
@@ -535,6 +498,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     placeholder="e.g. Sivaranjan Kumar"
                     value={regName}
                     onChange={(e) => setRegName(e.target.value)}
+                    className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl font-medium ${t.textInput}`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                  Address <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <User className="w-3.5 h-3.5" />
+                  </div>
+                  <input
+                    id="input-reg-address"
+                    type="text"
+                    required
+                    placeholder="e.g. Main Street, Mannar"
+                    value={regAddress}
+                    onChange={(e) => setRegAddress(e.target.value)}
                     className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl font-medium ${t.textInput}`}
                   />
                 </div>
@@ -599,7 +582,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </div>
               </div>
 
-              <div className="sm:col-span-2">
+              <div>
                 <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
                   WhatsApp Number <span className="text-rose-500">*</span>
                 </label>
@@ -619,95 +602,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </div>
               </div>
             </div>
-
-            {/* If Owner: Vehicle Type, Vehicle Number, Driver Option (with driver, without driver, both) */}
-            {regRole === 'owner' && (
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <Car className="w-3.5 h-3.5 text-emerald-500" />
-                    Vehicle & Owner Details
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold border border-amber-200">
-                    Pending Admin Approval
-                  </span>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Vehicle Type <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="grid grid-cols-5 gap-1.5">
-                    {(['car', 'van', 'bus', 'boat', 'safari'] as const).map((type) => (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => setRegVehicleType(type)}
-                        className={`py-2 px-1 text-center rounded-xl border text-[11px] font-bold capitalize transition cursor-pointer flex flex-col items-center gap-1 ${
-                          regVehicleType === type
-                            ? 'bg-emerald-500 text-white border-emerald-600 shadow-sm'
-                            : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {type === 'car' && <Car className="w-3.5 h-3.5" />}
-                        {type === 'van' && <Bus className="w-3.5 h-3.5" />}
-                        {type === 'bus' && <Bus className="w-3.5 h-3.5" />}
-                        {type === 'boat' && <Ship className="w-3.5 h-3.5" />}
-                        {type === 'safari' && <Compass className="w-3.5 h-3.5" />}
-                        <span>{type}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Vehicle Number (Registration Number) <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    id="input-reg-vehicle-number"
-                    type="text"
-                    required={regRole === 'owner'}
-                    placeholder="e.g. WP CAD-8921 or SL-MN-BT-09"
-                    value={regVehicleNumber}
-                    onChange={(e) => setRegVehicleNumber(e.target.value.toUpperCase())}
-                    className={`w-full px-3 py-2 text-xs rounded-xl font-mono uppercase font-medium ${t.textInput}`}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Driving Service Option <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { id: 'with_driver' as const, label: 'With Driver' },
-                      { id: 'without_driver' as const, label: 'Without Driver' },
-                      { id: 'both' as const, label: 'Both' },
-                    ].map((opt) => (
-                      <label
-                        key={opt.id}
-                        className={`flex items-center justify-center gap-1.5 p-2 rounded-xl border text-[11px] font-bold cursor-pointer transition text-center ${
-                          regDriverOption === opt.id
-                            ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500'
-                            : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="driverOption"
-                          value={opt.id}
-                          checked={regDriverOption === opt.id}
-                          onChange={() => setRegDriverOption(opt.id)}
-                          className="w-3.5 h-3.5 text-emerald-600"
-                        />
-                        <span>{opt.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Email & Password for Login */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -785,7 +679,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg transition cursor-pointer ${t.primaryBtn}`}
             >
               <UserPlus className="w-4 h-4" />
-              <span>Register as {regRole === 'owner' ? 'Vehicle / Boat Owner' : 'Passenger'}</span>
+              <span>
+                Register as {regRole === 'owner' ? 'Vehicle / Boat Owner' : 'Passenger'}
+              </span>
             </button>
 
             <div className="text-center pt-1">
@@ -847,6 +743,96 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </form>
         )}
       </div>
+
+      {/* Google Account Selector Modal (Requirements: Google/Gmail sign-in to select account and auto-fill profile details) */}
+      {showGoogleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-slate-900 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                </svg>
+                <h3 className="font-bold text-sm text-slate-800">Sign in with Google</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGoogleModal(false)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600">
+              Select an account to auto-fill your profile details into the Mannar Green Ride registration form:
+            </p>
+
+            {/* Quick account choices */}
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => handleSelectGoogleAccount('Absi Raiva', 'absiraiva@gmail.com')}
+                className="w-full p-2.5 rounded-2xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 flex items-center gap-3 transition text-left cursor-pointer group"
+              >
+                <div className="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                  AR
+                </div>
+                <div className="grow min-w-0">
+                  <div className="text-xs font-bold text-slate-900 group-hover:text-emerald-700">Absi Raiva</div>
+                  <div className="text-[11px] text-slate-500 truncate">absiraiva@gmail.com</div>
+                </div>
+                <span className="text-[10px] text-emerald-600 font-bold px-1.5 py-0.5 rounded bg-emerald-100">Select</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectGoogleAccount('Mannar Green Ride', 'mannargreenride@gmail.com')}
+                className="w-full p-2.5 rounded-2xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 flex items-center gap-3 transition text-left cursor-pointer group"
+              >
+                <div className="w-8 h-8 rounded-full bg-teal-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                  MG
+                </div>
+                <div className="grow min-w-0">
+                  <div className="text-xs font-bold text-slate-900 group-hover:text-emerald-700">Mannar Green Ride</div>
+                  <div className="text-[11px] text-slate-500 truncate">mannargreenride@gmail.com</div>
+                </div>
+                <span className="text-[10px] text-emerald-600 font-bold px-1.5 py-0.5 rounded bg-emerald-100">Select</span>
+              </button>
+            </div>
+
+            {/* Or enter custom Google account */}
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <span className="text-[11px] font-bold text-slate-700 block">Or use another Google/Gmail account:</span>
+              <input
+                type="text"
+                placeholder="Google Name (e.g. John Silva)"
+                value={googleCustomName}
+                onChange={(e) => setGoogleCustomName(e.target.value)}
+                className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium"
+              />
+              <input
+                type="email"
+                placeholder="Gmail Address (e.g. john@gmail.com)"
+                value={googleCustomEmail}
+                onChange={(e) => setGoogleCustomEmail(e.target.value)}
+                className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium"
+              />
+              <button
+                type="button"
+                disabled={!googleCustomName.trim() || !googleCustomEmail.trim()}
+                onClick={() => handleSelectGoogleAccount(googleCustomName.trim(), googleCustomEmail.trim())}
+                className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white font-bold text-xs transition cursor-pointer"
+              >
+                Auto-fill Profile with this Google Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

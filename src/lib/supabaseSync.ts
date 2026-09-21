@@ -1275,32 +1275,41 @@ export async function fetchMGRTransportData(): Promise<{
     }
 
     if (vehiclesRes.data && vehiclesRes.data.length > 0) {
-      result.vehicles = vehiclesRes.data.map((r: any) => ({
-        id: r.id,
-        ownerId: r.owner_id,
-        type: r.type,
-        registrationNumber: r.registration_number,
-        make: r.make,
-        model: r.model,
-        year: Number(r.year),
-        fuelType: r.fuel_type || 'diesel',
-        color: r.color,
-        hasAC: Boolean(r.has_ac),
-        totalSeats: Number(r.total_seats),
-        luggageCapacity: r.luggage_capacity || undefined,
-        driverOption: r.driver_option || 'with_driver',
-        description: r.description || '',
-        photos: Array.isArray(r.photos) ? r.photos : [],
-        insuranceExpiry: r.insurance_expiry,
-        revenueLicenceExpiry: r.revenue_licence_expiry,
-        status: r.status,
-        basePrice: Number(r.base_price || 0),
-        pricingMethod: r.pricing_method || 'fixed',
-        pricePerSeat: r.price_per_seat ? Number(r.price_per_seat) : undefined,
-        rating: r.rating ? Number(r.rating) : 5.0,
-        tripsCount: Number(r.trips_count || 0),
-        createdAt: Number(r.created_at || Date.now()),
-      }));
+      result.vehicles = vehiclesRes.data.map((r: any) => {
+        const meta = (r.boat_details && typeof r.boat_details === 'object' && r.boat_details._mgr_meta)
+          ? r.boat_details._mgr_meta
+          : {};
+        return {
+          id: r.id,
+          ownerId: r.owner_id,
+          type: r.type,
+          registrationNumber: r.registration_number,
+          make: r.make,
+          model: r.model,
+          year: Number(r.year),
+          fuelType: r.fuel_type || 'diesel',
+          color: r.color,
+          hasAC: Boolean(r.has_ac),
+          totalSeats: Number(r.total_seats),
+          luggageCapacity: r.luggage_capacity || undefined,
+          driverOption: r.driver_option || 'with_driver',
+          description: r.description || '',
+          photos: Array.isArray(r.photos) ? r.photos : [],
+          insuranceExpiry: r.insurance_expiry,
+          revenueLicenceExpiry: r.revenue_licence_expiry,
+          status: r.status,
+          bookingType: meta.bookingType || r.booking_type || 'trip',
+          availableDates: Array.isArray(meta.availableDates) ? meta.availableDates : (Array.isArray(r.available_dates) ? r.available_dates : []),
+          schedules: Array.isArray(meta.schedules) ? meta.schedules : (Array.isArray(r.schedules) ? r.schedules : []),
+          basePrice: Number(r.base_price || 0),
+          pricingMethod: r.pricing_method || 'fixed',
+          pricePerSeat: r.price_per_seat ? Number(r.price_per_seat) : undefined,
+          boatDetails: r.boat_details?.boatName ? r.boat_details : undefined,
+          rating: r.rating ? Number(r.rating) : 5.0,
+          tripsCount: Number(r.trips_count || 0),
+          createdAt: Number(r.created_at || Date.now()),
+        };
+      });
     }
 
     if (driversRes.data && driversRes.data.length > 0) {
@@ -1413,9 +1422,9 @@ export async function fetchMGRTransportData(): Promise<{
   }
 }
 
-export async function syncTransportVehicleToSupabase(vehicle: TransportVehicle) {
+export async function syncTransportVehicleToSupabase(vehicle: TransportVehicle): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
 
   try {
     // Foreign key safeguard: ensure owner exists in transport_owners
@@ -1442,7 +1451,16 @@ export async function syncTransportVehicleToSupabase(vehicle: TransportVehicle) 
       }
     }
 
-    const payload = {
+    const boatDetailsPayload = {
+      ...(vehicle.boatDetails || {}),
+      _mgr_meta: {
+        availableDates: vehicle.availableDates || [],
+        schedules: vehicle.schedules || [],
+        bookingType: vehicle.bookingType || 'trip',
+      },
+    };
+
+    const payload: any = {
       id: vehicle.id,
       owner_id: vehicle.ownerId,
       type: vehicle.type,
@@ -1460,10 +1478,11 @@ export async function syncTransportVehicleToSupabase(vehicle: TransportVehicle) 
       photos: vehicle.photos || [],
       insurance_expiry: vehicle.insuranceExpiry,
       revenue_licence_expiry: vehicle.revenueLicenceExpiry,
-      status: vehicle.status,
+      status: vehicle.status || 'active',
       base_price: vehicle.basePrice || 0,
       pricing_method: vehicle.pricingMethod || 'fixed',
       price_per_seat: vehicle.pricePerSeat || null,
+      boat_details: boatDetailsPayload,
       rating: vehicle.rating || 5.0,
       trips_count: vehicle.tripsCount || 0,
       created_at: vehicle.createdAt || Date.now(),
@@ -1472,26 +1491,34 @@ export async function syncTransportVehicleToSupabase(vehicle: TransportVehicle) 
     const { error } = await supabase.from('transport_vehicles').upsert(payload, { onConflict: 'id' });
     if (error) {
       console.error('[MGR Sync] Error syncing vehicle to Supabase:', error);
+      return { success: false, error: error.message };
     }
-  } catch (err) {
+    return { success: true };
+  } catch (err: any) {
     console.error('[MGR Sync] Failed to sync transport vehicle to Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to sync vehicle' };
   }
 }
 
-export async function deleteTransportVehicleFromSupabase(vehicleId: string) {
+export async function deleteTransportVehicleFromSupabase(vehicleId: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
     const { error } = await supabase.from('transport_vehicles').delete().eq('id', vehicleId);
-    if (error) console.error('[MGR Sync] Error deleting vehicle from Supabase:', error);
-  } catch (err) {
+    if (error) {
+      console.error('[MGR Sync] Error deleting vehicle from Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.error('[MGR Sync] Failed to delete transport vehicle from Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to delete vehicle' };
   }
 }
 
-export async function syncTransportOwnerToSupabase(owner: TransportOwner) {
+export async function syncTransportOwnerToSupabase(owner: TransportOwner): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
     const payload = {
       id: owner.id,
@@ -1512,26 +1539,34 @@ export async function syncTransportOwnerToSupabase(owner: TransportOwner) {
     const { error } = await supabase.from('transport_owners').upsert(payload, { onConflict: 'id' });
     if (error) {
       console.error('[MGR Sync] Error syncing transport owner to Supabase:', error);
+      return { success: false, error: error.message };
     }
-  } catch (err) {
+    return { success: true };
+  } catch (err: any) {
     console.error('[MGR Sync] Failed to sync transport owner to Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to sync owner' };
   }
 }
 
-export async function deleteTransportOwnerFromSupabase(ownerId: string) {
+export async function deleteTransportOwnerFromSupabase(ownerId: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
     const { error } = await supabase.from('transport_owners').delete().eq('id', ownerId);
-    if (error) console.error('[MGR Sync] Error deleting owner from Supabase:', error);
-  } catch (err) {
+    if (error) {
+      console.error('[MGR Sync] Error deleting owner from Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.error('[MGR Sync] Failed to delete transport owner from Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to delete owner' };
   }
 }
 
-export async function syncTransportDriverToSupabase(driver: TransportDriver) {
+export async function syncTransportDriverToSupabase(driver: TransportDriver): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
     // Foreign key safeguard: ensure owner exists in transport_owners
     if (driver.ownerId) {
@@ -1565,7 +1600,7 @@ export async function syncTransportDriverToSupabase(driver: TransportDriver) {
       mobile: driver.mobile,
       whatsapp: driver.whatsapp,
       email: driver.email || null,
-      address: driver.address,
+      address: driver.address || 'Mannar Town',
       driver_type: driver.driverType || 'driver',
       licence_number: driver.licenceNumber,
       licence_class: driver.licenceClass,
@@ -1579,25 +1614,36 @@ export async function syncTransportDriverToSupabase(driver: TransportDriver) {
       created_at: driver.createdAt || Date.now(),
     };
     const { error } = await supabase.from('transport_drivers').upsert(payload, { onConflict: 'id' });
-    if (error) console.error('[MGR Sync] Error syncing driver to Supabase:', error);
-  } catch (err) {
+    if (error) {
+      console.error('[MGR Sync] Error syncing driver to Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.error('[MGR Sync] Failed to sync transport driver to Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to sync driver' };
   }
 }
 
-export async function deleteTransportDriverFromSupabase(driverId: string) {
+export async function deleteTransportDriverFromSupabase(driverId: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
-    await supabase.from('transport_drivers').delete().eq('id', driverId);
-  } catch (err) {
+    const { error } = await supabase.from('transport_drivers').delete().eq('id', driverId);
+    if (error) {
+      console.error('[MGR Sync] Error deleting driver from Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.warn('[MGR Sync] Failed to delete transport driver from Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to delete driver' };
   }
 }
 
-export async function syncTransportRouteToSupabase(route: TransportRoute) {
+export async function syncTransportRouteToSupabase(route: TransportRoute): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
     const payload = {
       id: route.id,
@@ -1613,25 +1659,37 @@ export async function syncTransportRouteToSupabase(route: TransportRoute) {
       base_price: route.basePrice || 0,
       status: route.status,
     };
-    await supabase.from('transport_routes').upsert(payload, { onConflict: 'id' });
-  } catch (err) {
+    const { error } = await supabase.from('transport_routes').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.error('[MGR Sync] Error syncing route to Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.warn('[MGR Sync] Failed to sync transport route to Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to sync route' };
   }
 }
 
-export async function deleteTransportRouteFromSupabase(routeId: string) {
+export async function deleteTransportRouteFromSupabase(routeId: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
-    await supabase.from('transport_routes').delete().eq('id', routeId);
-  } catch (err) {
+    const { error } = await supabase.from('transport_routes').delete().eq('id', routeId);
+    if (error) {
+      console.error('[MGR Sync] Error deleting route from Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.warn('[MGR Sync] Failed to delete transport route from Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to delete route' };
   }
 }
 
-export async function syncTransportBookingToSupabase(booking: TransportBooking) {
+export async function syncTransportBookingToSupabase(booking: TransportBooking): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
     const payload = {
       id: booking.id,
@@ -1666,15 +1724,21 @@ export async function syncTransportBookingToSupabase(booking: TransportBooking) 
       dropoff_location: booking.dropoffLocation || null,
       created_at: booking.createdAt || Date.now(),
     };
-    await supabase.from('transport_bookings').upsert(payload, { onConflict: 'id' });
-  } catch (err) {
+    const { error } = await supabase.from('transport_bookings').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.error('[MGR Sync] Error syncing booking to Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.warn('[MGR Sync] Failed to sync transport booking to Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to sync booking' };
   }
 }
 
-export async function syncMarketplaceSettingsToSupabase(settings: MarketplaceSettings) {
+export async function syncMarketplaceSettingsToSupabase(settings: MarketplaceSettings): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
     const payload = {
       id: 'mgr_marketplace_config',
@@ -1684,9 +1748,68 @@ export async function syncMarketplaceSettingsToSupabase(settings: MarketplaceSet
       contact_whatsapp_number: settings.contactWhatsAppNumber || '+94 77 987 6543',
       support_email: settings.supportEmail || 'booking@mannargreenride.lk',
     };
-    await supabase.from('marketplace_settings').upsert(payload, { onConflict: 'id' });
-  } catch (err) {
+    const { error } = await supabase.from('marketplace_settings').upsert(payload, { onConflict: 'id' });
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  } catch (err: any) {
     console.warn('[MGR Sync] Failed to sync marketplace settings to Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to sync settings' };
+  }
+}
+
+/**
+ * Ensure an active listing exists in Supabase mgr_transport_listings to satisfy foreign keys
+ */
+export async function syncTransportListingToSupabase(listing: Partial<TransportV2Listing>): Promise<{ success: boolean; error?: string }> {
+  const supabase = getSupabase();
+  if (!supabase || !listing.id) return { success: true };
+  try {
+    const dbMode = (listing.listingMode === 'schedule' || listing.listingMode === 'planned_trip') ? 'planned_trip' : 'availability_only';
+    const payload = {
+      id: listing.id,
+      vehicle_id: listing.vehicleId || 'UNKNOWN',
+      vehicle_name: listing.vehicleName || 'Transport Vehicle',
+      vehicle_type: listing.vehicleType || 'van',
+      registration_number: listing.registrationNumber || 'REG-PENDING',
+      owner_id: listing.ownerId || 'OWNER-MGR',
+      owner_name: listing.ownerName || 'MGR Operator',
+      owner_phone: listing.ownerPhone || '+94 77 123 4567',
+      owner_whatsapp: listing.ownerWhatsApp || '+94 77 123 4567',
+      listing_mode: dbMode,
+      total_seats: listing.totalSeats || 4,
+      driver_option: listing.driverOption || 'with_driver',
+      photos: listing.photos || [],
+      available_dates: listing.availableDates || [],
+      planned_trip_date: listing.plannedTripDate || null,
+      planned_from: listing.plannedFrom || null,
+      planned_to: listing.plannedTo || null,
+      departure_time: listing.departureTime || null,
+      available_seats: listing.availableSeats !== undefined ? listing.availableSeats : null,
+      seat_fare: listing.seatFare !== undefined ? listing.seatFare : null,
+      status: listing.status || 'active',
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from('mgr_transport_listings').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.warn('[MGR Sync] Error syncing listing to Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.warn('[MGR Sync] Failed to sync listing to Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to sync listing' };
+  }
+}
+
+export async function syncTransportListingsToSupabase(listings: TransportV2Listing[]): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase || !listings || listings.length === 0) return;
+  try {
+    for (const l of listings) {
+      await syncTransportListingToSupabase(l);
+    }
+  } catch (err) {
+    console.warn('[MGR Sync] Error batch syncing listings:', err);
   }
 }
 
@@ -1694,12 +1817,57 @@ export async function syncMarketplaceSettingsToSupabase(settings: MarketplaceSet
  * Persist a Transport V2 booking request to Supabase so payment callbacks can
  * confirm it server-side even when the passenger's browser is closed.
  */
-export async function syncTransportRequestV2ToSupabase(request: TransportV2Request): Promise<void> {
+export async function syncTransportRequestV2ToSupabase(request: TransportV2Request): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
-    const dbMode = request.listingMode === 'availability_only' ? 'availability_only' : 'planned_trip';
-    const payload = {
+    const dbMode = (request.listingMode === 'schedule' || request.listingMode === 'planned_trip') ? 'planned_trip' : 'availability_only';
+
+    // 1. Ensure the parent listing row exists in mgr_transport_listings to satisfy foreign key constraint
+    if (request.listingId) {
+      await syncTransportListingToSupabase({
+        id: request.listingId,
+        vehicleId: request.vehicleId,
+        vehicleName: request.vehicleName,
+        vehicleType: request.vehicleType,
+        registrationNumber: request.registrationNumber,
+        ownerId: request.ownerId,
+        ownerName: request.ownerName,
+        ownerPhone: request.ownerPhone,
+        ownerWhatsApp: request.ownerWhatsApp,
+        listingMode: request.listingMode,
+        totalSeats: request.seatCount || 4,
+        driverOption: 'with_driver',
+        plannedTripDate: request.listingMode === 'schedule' ? request.travelDate : undefined,
+        plannedFrom: request.routeFrom,
+        plannedTo: request.routeTo,
+        departureTime: request.travelTime,
+      });
+    }
+
+    // 2. Map frontend lifecycle status to valid Postgres enum mgr_transport_request_status:
+    // ('pending_owner', 'owner_rejected', 'awaiting_payment', 'confirmed', 'cancelled')
+    let dbStatus: 'pending_owner' | 'owner_rejected' | 'awaiting_payment' | 'confirmed' | 'cancelled' = 'pending_owner';
+    if (['pending_owner', 'owner_rejected', 'awaiting_payment', 'confirmed', 'cancelled'].includes(request.requestStatus as any)) {
+      dbStatus = request.requestStatus as any;
+    } else if (['driver_assigned', 'journey_started', 'journey_completed', 'completed'].includes(request.requestStatus)) {
+      dbStatus = 'confirmed';
+    }
+
+    // 3. Pack extended metadata (actual status, driver assignment, review flags, original listingId) into special_notes
+    const meta = {
+      actualStatus: request.requestStatus,
+      driverId: request.driverId,
+      driverName: request.driverName,
+      driverPhone: request.driverPhone,
+      driverReviewed: request.driverReviewed,
+      passengerReviewed: request.passengerReviewed,
+      listingId: request.listingId,
+    };
+    const cleanBaseNotes = (request.specialNotes || '').replace(/^\[MGR_META:.*?\]/, '');
+    const packedNotes = `[MGR_META:${JSON.stringify(meta)}]${cleanBaseNotes}`;
+
+    const payload: any = {
       id: request.id,
       request_number: request.requestNumber,
       listing_id: request.listingId || null,
@@ -1721,21 +1889,37 @@ export async function syncTransportRequestV2ToSupabase(request: TransportV2Reque
       route_from: request.routeFrom,
       route_to: request.routeTo,
       seat_count: request.seatCount || 1,
-      special_notes: request.specialNotes || null,
+      special_notes: packedNotes,
       owner_travel_charge: request.ownerTravelCharge ?? null,
       convenience_fee: request.convenienceFee ?? null,
       convenience_fee_percentage: request.convenienceFeePercentage ?? 5.0,
       final_amount: request.finalAmount ?? null,
-      request_status: request.requestStatus,
+      request_status: dbStatus,
       payment_status: request.paymentStatus,
       payment_ref: request.paymentRef || null,
       rejection_reason: request.rejectionReason || null,
       created_at: new Date(request.createdAt || Date.now()).toISOString(),
       updated_at: new Date(request.updatedAt || Date.now()).toISOString(),
     };
-    await supabase.from('mgr_transport_requests').upsert(payload, { onConflict: 'id' });
-  } catch (err) {
+
+    let { error } = await supabase.from('mgr_transport_requests').upsert(payload, { onConflict: 'id' });
+
+    // 4. Graceful FK fallback: if listing_id FK still fails for any reason, retry with listing_id = null
+    if (error && error.message && error.message.includes('mgr_transport_requests_listing_id_fkey')) {
+      console.warn('[MGR Sync] FK constraint triggered on listing_id, retrying with listing_id: null (meta preserved in notes)');
+      payload.listing_id = null;
+      const retryResult = await supabase.from('mgr_transport_requests').upsert(payload, { onConflict: 'id' });
+      error = retryResult.error;
+    }
+
+    if (error) {
+      console.error('[MGR Sync] Error syncing request V2 to Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.warn('[MGR Sync] Failed to sync transport request V2 to Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to sync request' };
   }
 }
 
@@ -1746,70 +1930,114 @@ export async function fetchTransportRequestsV2(): Promise<TransportV2Request[] |
     const { data, error } = await supabase.from('mgr_transport_requests').select('*');
     if (error) throw error;
     if (!data) return [];
-    return data.map((row: any): TransportV2Request => ({
-      id: row.id,
-      requestNumber: row.request_number,
-      listingId: row.listing_id || '',
-      vehicleId: row.vehicle_id,
-      vehicleName: row.vehicle_name,
-      vehicleType: row.vehicle_type,
-      registrationNumber: row.registration_number,
-      ownerId: row.owner_id,
-      ownerName: row.owner_name,
-      ownerPhone: row.owner_phone,
-      ownerWhatsApp: row.owner_whatsapp,
-      passenger: {
-        name: row.passenger_name || '',
-        phone: row.passenger_phone || '',
-        whatsapp: row.passenger_whatsapp || '',
-        email: row.passenger_email || undefined,
-      },
-      listingMode: (row.listing_mode === 'availability_only'
-        ? 'availability_only'
-        : 'planned_trip') as TransportListingMode,
-      travelDate: row.travel_date,
-      travelTime: row.travel_time || undefined,
-      routeFrom: row.route_from,
-      routeTo: row.route_to,
-      seatCount: row.seat_count ?? 1,
-      specialNotes: row.special_notes || undefined,
-      ownerTravelCharge: row.owner_travel_charge != null ? Number(row.owner_travel_charge) : undefined,
-      convenienceFee: row.convenience_fee != null ? Number(row.convenience_fee) : undefined,
-      convenienceFeePercentage:
-        row.convenience_fee_percentage != null ? Number(row.convenience_fee_percentage) : undefined,
-      finalAmount: row.final_amount != null ? Number(row.final_amount) : undefined,
-      requestStatus: row.request_status as TransportRequestStatus,
-      paymentStatus: row.payment_status as TransportPaymentStatus,
-      paymentRef: row.payment_ref || undefined,
-      rejectionReason: row.rejection_reason || undefined,
-      createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
-      updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
-    }));
+    return data.map((row: any): TransportV2Request => {
+      let actualStatus = row.request_status;
+      let driverId: string | undefined = undefined;
+      let driverName: string | undefined = undefined;
+      let driverPhone: string | undefined = undefined;
+      let driverReviewed: boolean | undefined = undefined;
+      let passengerReviewed: boolean | undefined = undefined;
+      let listingId = row.listing_id || '';
+      let cleanNotes = row.special_notes || undefined;
+
+      // Unpack extended meta from special_notes if present
+      if (row.special_notes && row.special_notes.startsWith('[MGR_META:')) {
+        const match = row.special_notes.match(/^\[MGR_META:(.*?)\]([\s\S]*)$/);
+        if (match) {
+          try {
+            const parsed = JSON.parse(match[1]);
+            if (parsed.actualStatus) actualStatus = parsed.actualStatus;
+            if (parsed.driverId) driverId = parsed.driverId;
+            if (parsed.driverName) driverName = parsed.driverName;
+            if (parsed.driverPhone) driverPhone = parsed.driverPhone;
+            if (parsed.driverReviewed !== undefined) driverReviewed = parsed.driverReviewed;
+            if (parsed.passengerReviewed !== undefined) passengerReviewed = parsed.passengerReviewed;
+            if (parsed.listingId) listingId = parsed.listingId;
+            cleanNotes = match[2] || undefined;
+          } catch {}
+        }
+      }
+
+      return {
+        id: row.id,
+        requestNumber: row.request_number,
+        listingId,
+        vehicleId: row.vehicle_id,
+        vehicleName: row.vehicle_name,
+        vehicleType: row.vehicle_type,
+        registrationNumber: row.registration_number,
+        ownerId: row.owner_id,
+        ownerName: row.owner_name,
+        ownerPhone: row.owner_phone,
+        ownerWhatsApp: row.owner_whatsapp,
+        driverId,
+        driverName,
+        driverPhone,
+        driverReviewed,
+        passengerReviewed,
+        passenger: {
+          name: row.passenger_name || '',
+          phone: row.passenger_phone || '',
+          whatsapp: row.passenger_whatsapp || '',
+          email: row.passenger_email || undefined,
+        },
+        listingMode: (row.listing_mode === 'availability_only'
+          ? 'availability_only'
+          : 'planned_trip') as TransportListingMode,
+        travelDate: row.travel_date,
+        travelTime: row.travel_time || undefined,
+        routeFrom: row.route_from,
+        routeTo: row.route_to,
+        seatCount: row.seat_count ?? 1,
+        specialNotes: cleanNotes,
+        ownerTravelCharge: row.owner_travel_charge != null ? Number(row.owner_travel_charge) : undefined,
+        convenienceFee: row.convenience_fee != null ? Number(row.convenience_fee) : undefined,
+        convenienceFeePercentage:
+          row.convenience_fee_percentage != null ? Number(row.convenience_fee_percentage) : undefined,
+        finalAmount: row.final_amount != null ? Number(row.final_amount) : undefined,
+        requestStatus: actualStatus as TransportRequestStatus,
+        paymentStatus: row.payment_status as TransportPaymentStatus,
+        paymentRef: row.payment_ref || undefined,
+        rejectionReason: row.rejection_reason || undefined,
+        createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+      };
+    });
   } catch (err) {
     console.warn('[MGR Sync] Failed to fetch transport requests V2 from Supabase:', err);
     return null;
   }
 }
 
-export async function deleteTransportRequestV2FromSupabase(id: string): Promise<void> {
+export async function deleteTransportRequestV2FromSupabase(id: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
     const { error } = await supabase.from('mgr_transport_requests').delete().eq('id', id);
-    if (error) throw error;
-  } catch (err) {
+    if (error) {
+      console.error('[MGR Sync] Error deleting transport request V2 from Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.warn('[MGR Sync] Failed to delete transport request V2 from Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to delete request' };
   }
 }
 
-export async function deleteTransportBookingFromSupabase(id: string): Promise<void> {
+export async function deleteTransportBookingFromSupabase(id: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
   try {
     const { error } = await supabase.from('transport_bookings').delete().eq('id', id);
-    if (error) throw error;
-  } catch (err) {
+    if (error) {
+      console.error('[MGR Sync] Error deleting transport booking from Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.warn('[MGR Sync] Failed to delete transport booking from Supabase:', err);
+    return { success: false, error: err?.message || 'Failed to delete booking' };
   }
 }
 

@@ -29,8 +29,13 @@ import {
   Lock,
   Pencil,
   AlertTriangle,
+  Star,
+  UserCheck,
+  Play,
+  CheckSquare,
+  ShieldCheck,
 } from 'lucide-react';
-import { TransportVehicle, TransportOwner, DriverOption } from '../../types/mgrBooking';
+import { TransportVehicle, TransportOwner, DriverOption, TransportReview } from '../../types/mgrBooking';
 import {
   TransportV2Listing,
   TransportV2Request,
@@ -39,9 +44,9 @@ import {
   TransportPaymentStatus,
 } from '../../types/mgrTransportV2';
 import { triggerLifecycleNotifications, getWhatsAppUrl } from '../../utils/mgrTransportNotifications';
-import { UserAccount, getMGRPersona, getOwnerIdForUser, isOwnedByUser } from '../../utils/auth';
 import { formatVehicleCode, formatBookingCode, formatScheduleCode } from '../../utils/mgrUniqueId';
-import { fetchTransportRequestsV2, syncTransportRequestV2ToSupabase, deleteTransportRequestV2FromSupabase } from '../../lib/supabaseSync';
+import { UserAccount, getMGRPersona, getOwnerIdForUser, isOwnedByUser, getStoredUsers } from '../../utils/auth';
+import { fetchTransportRequestsV2, syncTransportRequestV2ToSupabase, deleteTransportRequestV2FromSupabase, syncTransportListingsToSupabase } from '../../lib/supabaseSync';
 import { MGRPaymentModal } from './MGRPaymentModal';
 
 export interface MGRTransportBookingProps {
@@ -53,7 +58,35 @@ export interface MGRTransportBookingProps {
   settings?: MarketplaceSettings;
 }
 
-// Helper: Convert actual fleet vehicles into active listings dynamically (Requirement 9)
+// Helper: Storage helpers for Transport Ratings & Reviews (Requirement 9)
+export const getStoredTransportReviews = (): TransportReview[] => {
+  try {
+    const raw = localStorage.getItem('mgr_transport_reviews');
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const saveTransportReviewLocally = (review: TransportReview): boolean => {
+  try {
+    const existing = getStoredTransportReviews();
+    const alreadyReviewed = existing.some(
+      r => r.bookingId === review.bookingId && r.reviewerId === review.reviewerId
+    );
+    if (alreadyReviewed) {
+      alert('You have already submitted a review for this booking. Maximum 1 review per user per booking.');
+      return false;
+    }
+    const updated = [review, ...existing];
+    localStorage.setItem('mgr_transport_reviews', JSON.stringify(updated));
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Helper: Convert actual fleet vehicles into active listings dynamically (Trip & Schedule based on Availability)
 const createListingsFromVehicles = (
   vehiclesList: TransportVehicle[],
   ownersList: TransportOwner[]
@@ -65,7 +98,7 @@ const createListingsFromVehicles = (
   const max30Str = max30Date.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
 
   vehiclesList.forEach((v, vIdx) => {
-    if (v.status !== 'active') return;
+    if (v.status === 'suspended' || v.status === 'maintenance') return;
 
     const matchedOwner = ownersList.find(o => o.id === v.ownerId);
     const ownerName = matchedOwner?.fullName || v.ownerName || 'MGR Transport Operator';
@@ -79,15 +112,10 @@ const createListingsFromVehicles = (
 
     const vehicleCode = v.uniqueCode || formatVehicleCode(vIdx + 1, v.id);
 
-    // Determine booking type: 'trip' vs 'schedule'
-    const isSchedule =
-      v.bookingType === 'schedule' ||
-      (!v.bookingType && (v.type === 'bus' || v.type === 'route_bus' || v.type === 'bus_trip'));
-
-    if (isSchedule) {
-      // Schedule Booking Type: If defined schedules exist, create one listing per schedule item
-      if (v.schedules && v.schedules.length > 0) {
-        v.schedules.forEach((s, sIdx) => {
+    // 1. Generate Schedule Listings for all scheduled departure dates configured in Trip Availability
+    if (v.schedules && v.schedules.length > 0) {
+      v.schedules.forEach((s, sIdx) => {
+        if (s.date >= todayStr && s.date <= max30Str) {
           const scheduleCode = s.uniqueCode || formatScheduleCode(sIdx + 1, s.id);
           listings.push({
             id: `LST-${v.id}-${s.id}`,
@@ -114,40 +142,16 @@ const createListingsFromVehicles = (
             createdAt: v.createdAt || Date.now(),
             updatedAt: Date.now(),
           });
-        });
-      } else {
-        // Default single schedule entry for today
-        listings.push({
-          id: `LST-${v.id}-DEFAULT`,
-          uniqueCode: vehicleCode,
-          vehicleId: v.id,
-          vehicleName,
-          vehicleType: v.type,
-          registrationNumber: v.registrationNumber,
-          ownerId: v.ownerId,
-          ownerName,
-          ownerPhone,
-          ownerWhatsApp,
-          listingMode: 'schedule',
-          totalSeats: v.totalSeats || 30,
-          availableSeats: v.totalSeats || 30,
-          driverOption: v.driverOption || 'with_driver',
-          plannedTripDate: todayStr,
-          plannedFrom: v.boatDetails?.departurePoint || 'Mannar Town',
-          plannedTo: v.boatDetails?.destination || 'Jaffna City',
-          departureTime: '08:00',
-          seatFare: v.pricePerSeat || 1200,
-          photos,
-          status: 'active',
-          createdAt: v.createdAt || Date.now(),
-          updatedAt: Date.now(),
-        });
-      }
-    } else {
-      // Trip Booking Type: Vehicle availability must be based ONLY on the dates selected by the Owner
-      // under Trip Availability (maximum next 30 days, no automatic 60-day fallback)
-      const dates = (v.availableDates || []).filter(d => d >= todayStr && d <= max30Str);
+        }
+      });
+    }
 
+    // 2. Generate Trip Listings based ONLY on the dates selected by the Owner under Trip Availability
+    const tripDates = (v.availableDates || []).filter(d => d >= todayStr && d <= max30Str);
+    const hasSchedules = v.schedules && v.schedules.length > 0;
+
+    // A vehicle can serve as Trip hire if it has trip dates or no timetable schedules set
+    if (tripDates.length > 0 || (!hasSchedules && v.bookingType !== 'schedule')) {
       listings.push({
         id: `LST-${v.id}`,
         uniqueCode: vehicleCode,
@@ -162,7 +166,7 @@ const createListingsFromVehicles = (
         listingMode: 'trip',
         totalSeats: v.totalSeats || 4,
         driverOption: v.driverOption || 'both',
-        availableDates: dates,
+        availableDates: tripDates,
         photos,
         status: 'active',
         createdAt: v.createdAt || Date.now(),
@@ -221,7 +225,9 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 
   // Keep listings in sync when vehicles/availability/schedules change
   useEffect(() => {
-    setListings(createListingsFromVehicles(vehicles || [], owners || []));
+    const generated = createListingsFromVehicles(vehicles || [], owners || []);
+    setListings(generated);
+    syncTransportListingsToSupabase(generated);
   }, [vehicles, owners]);
 
   // ─── REQUESTS PERSISTENCE (Clean storage without hardcoded demo arrays)
@@ -282,7 +288,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   // Filter options strictly: 'all' | 'trip' | 'schedule' (Requirement 1)
   const [listingTypeFilter, setListingTypeFilter] = useState<'all' | 'trip' | 'schedule'>('all');
   const [searchType, setSearchType] = useState<string>('all');
-  const [searchDate, setSearchDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [searchDate, setSearchDate] = useState<string>(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' }));
   const [searchFrom, setSearchFrom] = useState<string>('');
   const [searchTo, setSearchTo] = useState<string>('');
   const [searchPassengers, setSearchPassengers] = useState<number>(1);
@@ -319,9 +325,9 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     seats?: number;
   } | null>(null);
 
-  // 2. Owner Review Modal State (for Trip bookings only)
+  // 2. Owner Review Modal State (for Trip bookings only - starts blank, no spinner, Requirement 7)
   const [reviewingRequest, setReviewingRequest] = useState<TransportV2Request | null>(null);
-  const [ownerChargeInput, setOwnerChargeInput] = useState<number>(20000);
+  const [ownerChargeInput, setOwnerChargeInput] = useState<string>('');
   const [rejectionReasonInput, setRejectionReasonInput] = useState<string>('');
 
   // 3. Passenger Payment Modal (for Trip bookings awaiting payment)
@@ -338,7 +344,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   const [editTime, setEditTime] = useState('');
   const [editSeats, setEditSeats] = useState(1);
   const [editNotes, setEditNotes] = useState('');
-  const [editCharge, setEditCharge] = useState<number>(0);
+  const [editCharge, setEditCharge] = useState<string>('');
   const [editStatus, setEditStatus] = useState<TransportRequestStatus>('pending_owner');
   const [editPaymentStatus, setEditPaymentStatus] = useState<TransportPaymentStatus>('pending');
   const [editPassengerPhone, setEditPassengerPhone] = useState('');
@@ -346,6 +352,18 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 
   // 6. Delete Confirmation Modal (Requirement 11, Admin Only)
   const [deletingRequest, setDeletingRequest] = useState<TransportV2Request | null>(null);
+
+  // 7. Driver Assignment Modal State (Lifecycle Requirement 8)
+  const [assigningDriverRequest, setAssigningDriverRequest] = useState<TransportV2Request | null>(null);
+  const [selectedDriverId, setSelectedDriverId] = useState<string>('');
+  const [customDriverName, setCustomDriverName] = useState<string>('');
+  const [customDriverPhone, setCustomDriverPhone] = useState<string>('');
+
+  // 8. Rating & Review Modal State (Requirement 9: 1–5 stars & review, max 1 review per user per booking)
+  const [reviewingBooking, setReviewingBooking] = useState<TransportV2Request | null>(null);
+  const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewComment, setReviewComment] = useState<string>('');
+  const [reviewsListModal, setReviewsListModal] = useState<boolean>(false);
 
   // ─── FIFO SEAT CAPACITY CALCULATION (MD Section 3) ──────────────────
   // Formula: Remaining Seats = Total Capacity - Confirmed Seats - Active FIFO Holds (15-min)
@@ -622,6 +640,12 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       updatedAt: Date.now(),
     };
 
+    const syncRes = await syncTransportRequestV2ToSupabase(newRequest);
+    if (!syncRes.success) {
+      alert(`Database error: Could not process booking request (${syncRes.error || 'Sync error'}). Please try again.`);
+      return;
+    }
+
     // Update requests state which reactively and accurately recalculates remaining seats via getRemainingSeatsForListing
     setRequests(prev => [newRequest, ...prev]);
 
@@ -704,8 +728,13 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       updatedAt: Date.now(),
     };
 
+    const syncResult = await syncTransportRequestV2ToSupabase(newRequest);
+    if (!syncResult.success) {
+      alert(`Database error: Could not submit trip booking request (${syncResult.error || 'Sync error'}). Please try again.`);
+      return;
+    }
+
     setRequests(prev => [newRequest, ...prev]);
-    await syncTransportRequestV2ToSupabase(newRequest);
 
     // Dispatch Lifecycle Notification (validating active channels)
     await triggerLifecycleNotifications('request_created', newRequest);
@@ -717,10 +746,13 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     setRequestingListing(null);
   };
 
-  // 3. OWNER ACCEPTS TRIP REQUEST WITH TRAVEL CHARGE
+  // 3. OWNER ACCEPTS TRIP REQUEST WITH TRAVEL CHARGE (Requirement 7 & 8)
   const handleOwnerAcceptTrip = async (req: TransportV2Request) => {
     const charge = Number(ownerChargeInput);
-    if (!charge || charge <= 0) return;
+    if (!ownerChargeInput || isNaN(charge) || charge <= 0) {
+      alert('Travel Charge must start blank and require manual numeric entry. Please enter a valid amount before accepting.');
+      return;
+    }
 
     const fee = Math.round(charge * (convenienceFeePercentage / 100));
     const finalTotal = charge + fee;
@@ -735,11 +767,17 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       updatedAt: Date.now(),
     };
 
+    const syncRes = await syncTransportRequestV2ToSupabase(updated);
+    if (!syncRes.success) {
+      alert(`Database error: Could not accept request (${syncRes.error || 'Sync error'}). Previous status retained.`);
+      return;
+    }
+
     setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
     setReviewingRequest(null);
-    await syncTransportRequestV2ToSupabase(updated);
-
+    setOwnerChargeInput('');
     await triggerLifecycleNotifications('owner_accepted', updated);
+    alert(`Request ${req.requestNumber} accepted with Travel Charge Rs. ${charge.toLocaleString()}! Passenger and Admin have been notified.`);
   };
 
   // 4. OWNER DECLINES REQUEST
@@ -751,11 +789,16 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       updatedAt: Date.now(),
     };
 
+    const syncRes = await syncTransportRequestV2ToSupabase(updated);
+    if (!syncRes.success) {
+      alert(`Database error: Could not decline request (${syncRes.error || 'Sync error'}). Previous status retained.`);
+      return;
+    }
+
     setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
     setReviewingRequest(null);
-    await syncTransportRequestV2ToSupabase(updated);
-
     await triggerLifecycleNotifications('owner_rejected', updated);
+    alert(`Request ${req.requestNumber} declined. Passenger and Admin updated.`);
   };
 
   // 5. PASSENGER PAYS FOR TRIP BOOKING (Confirmed upon payment)
@@ -775,8 +818,13 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       updatedAt: Date.now(),
     };
 
+    const syncRes = await syncTransportRequestV2ToSupabase(updated);
+    if (!syncRes.success) {
+      alert(`Database error: Payment confirmation failed (${syncRes.error || 'Sync error'}). Please try again.`);
+      return;
+    }
+
     setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
-    await syncTransportRequestV2ToSupabase(updated);
 
     // Block the booked date on the trip vehicle
     setListings(prev =>
@@ -794,6 +842,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 
     setPayingRequest(null);
     await triggerLifecycleNotifications('booking_confirmed', updated);
+    alert('Payment completed and booking confirmed! Notifications dispatched.');
 
     if (updated.listingMode === 'schedule') {
       setBookingSuccessModal({
@@ -805,7 +854,171 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     }
   };
 
-  // 6. EDIT REQUEST (Requirements 10 & 11)
+  // 6. DRIVER ASSIGNMENT (Lifecycle Requirement 8)
+  const handleOpenAssignDriver = (req: TransportV2Request) => {
+    setAssigningDriverRequest(req);
+    setSelectedDriverId(req.driverId || '');
+    setCustomDriverName(req.driverName || '');
+    setCustomDriverPhone(req.driverPhone || '');
+  };
+
+  const handleConfirmAssignDriver = async () => {
+    if (!assigningDriverRequest) return;
+    let dId = selectedDriverId;
+    let dName = customDriverName;
+    let dPhone = customDriverPhone;
+
+    if (selectedDriverId) {
+      const storedUsers = getStoredUsers();
+      const matched = storedUsers.find(u => u.id === selectedDriverId);
+      if (matched) {
+        dName = matched.name;
+        dPhone = matched.phone || dPhone;
+      }
+    }
+
+    if (!dName) {
+      alert('Please select a registered driver or enter the driver name.');
+      return;
+    }
+
+    const updated: TransportV2Request = {
+      ...assigningDriverRequest,
+      driverId: dId || `DRV-${Date.now()}`,
+      driverName: dName,
+      driverPhone: dPhone,
+      requestStatus: 'driver_assigned',
+      updatedAt: Date.now(),
+    };
+
+    const syncRes = await syncTransportRequestV2ToSupabase(updated);
+    if (!syncRes.success) {
+      alert(`Database error: Could not assign driver (${syncRes.error || 'Sync error'}). Previous assignment retained.`);
+      return;
+    }
+
+    setRequests(prev => prev.map(r => (r.id === assigningDriverRequest.id ? updated : r)));
+    setAssigningDriverRequest(null);
+    await triggerLifecycleNotifications('driver_assigned', updated);
+    alert(`Driver ${dName} assigned to booking ${assigningDriverRequest.requestNumber} successfully! Notifications dispatched.`);
+  };
+
+  // 7. START JOURNEY (Lifecycle Requirement 8)
+  const handleStartJourney = async (req: TransportV2Request) => {
+    const updated: TransportV2Request = {
+      ...req,
+      requestStatus: 'journey_started',
+      updatedAt: Date.now(),
+    };
+    const syncRes = await syncTransportRequestV2ToSupabase(updated);
+    if (!syncRes.success) {
+      alert(`Database error: Could not start journey (${syncRes.error || 'Sync error'}).`);
+      return;
+    }
+    setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
+    await triggerLifecycleNotifications('journey_started', updated);
+    alert(`Journey for ride ${req.requestNumber} has officially started! Notifications dispatched.`);
+  };
+
+  // 8. COMPLETE JOURNEY (Lifecycle Requirement 8)
+  const handleCompleteJourney = async (req: TransportV2Request) => {
+    const updated: TransportV2Request = {
+      ...req,
+      requestStatus: 'journey_completed',
+      updatedAt: Date.now(),
+    };
+    const syncRes = await syncTransportRequestV2ToSupabase(updated);
+    if (!syncRes.success) {
+      alert(`Database error: Could not complete journey (${syncRes.error || 'Sync error'}).`);
+      return;
+    }
+    setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
+    await triggerLifecycleNotifications('journey_completed', updated);
+    alert(`Journey for ride ${req.requestNumber} has completed! Opening Rating & Review dialog.`);
+    setReviewingBooking(updated);
+    setReviewRating(5);
+    setReviewComment('');
+  };
+
+  // 9. COMPLETE BOOKING (Lifecycle Requirement 8)
+  const handleCompleteBooking = async (req: TransportV2Request) => {
+    const updated: TransportV2Request = {
+      ...req,
+      requestStatus: 'completed',
+      updatedAt: Date.now(),
+    };
+    const syncRes = await syncTransportRequestV2ToSupabase(updated);
+    if (!syncRes.success) {
+      alert(`Database error: Could not complete booking (${syncRes.error || 'Sync error'}).`);
+      return;
+    }
+    setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
+    await triggerLifecycleNotifications('booking_completed', updated);
+    alert(`Booking ${req.requestNumber} marked as completed!`);
+  };
+
+  // 10. SUBMIT RATING & REVIEW (Requirement 9)
+  const handleSubmitReview = async () => {
+    if (!reviewingBooking) return;
+    const isPassenger = isPassengerUser || (currentUserEmail && reviewingBooking.passenger.email === currentUserEmail);
+    const reviewerId = currentUser?.id || currentUserEmail || 'GUEST';
+    const reviewerName = currentUser?.name || reviewingBooking.passenger.name || 'Passenger';
+    const reviewerRole = isPassenger ? 'passenger' : (isDriverUser ? 'driver' : 'owner');
+
+    const reviewedUserId = isPassenger
+      ? (reviewingBooking.driverId || reviewingBooking.ownerId)
+      : (reviewingBooking.passenger.phone || reviewingBooking.passenger.name);
+    const reviewedUserName = isPassenger
+      ? (reviewingBooking.driverName || reviewingBooking.ownerName)
+      : reviewingBooking.passenger.name;
+
+    const existingReviews = getStoredTransportReviews();
+    const alreadyReviewed = existingReviews.some(
+      r => r.bookingId === reviewingBooking.id && r.reviewerId === reviewerId
+    );
+    if (alreadyReviewed) {
+      alert('You have already submitted a review for this booking. Maximum 1 review per user per booking is permitted.');
+      setReviewingBooking(null);
+      return;
+    }
+
+    const now = new Date();
+    const newReview: TransportReview = {
+      id: `REV-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      bookingId: reviewingBooking.id,
+      bookingNumber: reviewingBooking.requestNumber,
+      reviewerId,
+      reviewerName,
+      reviewerRole,
+      reviewedUserId,
+      reviewedUserName,
+      rating: reviewRating,
+      comment: reviewComment.trim(),
+      date: now.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' }),
+      time: now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+      createdAt: Date.now(),
+    };
+
+    const saved = saveTransportReviewLocally(newReview);
+    if (saved) {
+      const updatedReq: TransportV2Request = {
+        ...reviewingBooking,
+        ...(isPassenger ? { passengerReviewed: true } : { driverReviewed: true }),
+        updatedAt: Date.now(),
+      };
+      const syncRes = await syncTransportRequestV2ToSupabase(updatedReq);
+      if (!syncRes.success) {
+        alert(`Database error: Review could not be synced to database (${syncRes.error || 'Sync error'}).`);
+        return;
+      }
+      setRequests(prev => prev.map(r => (r.id === reviewingBooking.id ? updatedReq : r)));
+      setReviewingBooking(null);
+      setReviewComment('');
+      alert('Thank you! Your 1–5 star rating and review has been submitted successfully.');
+    }
+  };
+
+  // 11. EDIT REQUEST (Requirements 10 & 11)
   const handleOpenEditRequest = (req: TransportV2Request) => {
     setEditingRequest(req);
     setEditFrom(req.routeFrom);
@@ -814,14 +1027,14 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     setEditTime(req.travelTime || '08:00');
     setEditSeats(req.seatCount || 1);
     setEditNotes(req.specialNotes || '');
-    setEditCharge(req.ownerTravelCharge || 0);
+    setEditCharge(req.ownerTravelCharge ? String(req.ownerTravelCharge) : '');
     setEditStatus(req.requestStatus);
     setEditPaymentStatus(req.paymentStatus);
     setEditPassengerPhone(req.passenger.phone || '');
     setEditSuccessFeedback(null);
   };
 
-  const handleSaveEditRequest = (e: React.FormEvent) => {
+  const handleSaveEditRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingRequest) return;
 
@@ -829,10 +1042,11 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     let updatedFee = editingRequest.convenienceFee;
     let updatedFinal = editingRequest.finalAmount;
 
-    if (isOwnerOrAdmin && editCharge > 0 && editCharge !== editingRequest.ownerTravelCharge) {
-      updatedCharge = editCharge;
-      updatedFee = Math.round(editCharge * (convenienceFeePercentage / 100));
-      updatedFinal = updatedCharge + updatedFee;
+    const numCharge = Number(editCharge);
+    if (isOwnerOrAdmin && editCharge !== '' && !isNaN(numCharge) && numCharge > 0 && numCharge !== editingRequest.ownerTravelCharge) {
+      updatedCharge = numCharge;
+      updatedFee = Math.round(numCharge * (convenienceFeePercentage / 100));
+      updatedFinal = numCharge + updatedFee;
     }
 
     const updated: TransportV2Request = {
@@ -856,6 +1070,12 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       updatedAt: Date.now(),
     };
 
+    const syncRes = await syncTransportRequestV2ToSupabase(updated);
+    if (!syncRes.success) {
+      alert(`Database error: Failed to save changes (${syncRes.error || 'Sync error'}). Previous request data retained.`);
+      return;
+    }
+
     setRequests(prev => prev.map(r => (r.id === editingRequest.id ? updated : r)));
     setEditSuccessFeedback('Request updated and saved successfully!');
     setTimeout(() => {
@@ -865,11 +1085,16 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   };
 
   // 7. DELETE REQUEST (Requirement 11, Admin Only)
-  const handleConfirmDeleteRequest = () => {
+  const handleConfirmDeleteRequest = async () => {
     if (!deletingRequest) return;
-    deleteTransportRequestV2FromSupabase(deletingRequest.id);
+    const res = await deleteTransportRequestV2FromSupabase(deletingRequest.id);
+    if (!res.success) {
+      alert(`Database error: Could not delete booking (${res.error || 'Delete failed'}). Booking retained.`);
+      return;
+    }
     setRequests(prev => prev.filter(r => r.id !== deletingRequest.id));
     setDeletingRequest(null);
+    alert('Booking deleted successfully from database.');
   };
 
   // If view is 'owner-listings', it has been removed per Requirement 8
@@ -1667,7 +1892,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                                 type="button"
                                 onClick={() => {
                                   setReviewingRequest(req);
-                                  setOwnerChargeInput(20000);
+                                  setOwnerChargeInput('');
                                   setRejectionReasonInput('');
                                 }}
                                 className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs transition cursor-pointer"
@@ -1685,6 +1910,75 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                               >
                                 <CreditCard className="w-3.5 h-3.5" />
                                 <span>Pay Now</span>
+                              </button>
+                            )}
+
+                            {/* Driver Assignment Button (Lifecycle Requirement 8) */}
+                            {req.requestStatus === 'confirmed' && isOwnerOrAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAssignDriver(req)}
+                                className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs transition cursor-pointer flex items-center gap-1"
+                                title="Assign Driver or Captain"
+                              >
+                                <UserCheck className="w-3.5 h-3.5" />
+                                <span>Assign Driver</span>
+                              </button>
+                            )}
+
+                            {/* Start Journey Button (Lifecycle Requirement 8) */}
+                            {(req.requestStatus === 'confirmed' || req.requestStatus === 'driver_assigned') && (isDriverUser || isOwnerOrAdmin) && (
+                              <button
+                                type="button"
+                                onClick={() => handleStartJourney(req)}
+                                className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer flex items-center gap-1"
+                                title="Start Journey"
+                              >
+                                <Play className="w-3.5 h-3.5" />
+                                <span>Start Journey</span>
+                              </button>
+                            )}
+
+                            {/* Complete Journey Button (Lifecycle Requirement 8) */}
+                            {req.requestStatus === 'journey_started' && (isDriverUser || isOwnerOrAdmin) && (
+                              <button
+                                type="button"
+                                onClick={() => handleCompleteJourney(req)}
+                                className="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition cursor-pointer flex items-center gap-1"
+                                title="Complete Journey"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>End Journey</span>
+                              </button>
+                            )}
+
+                            {/* Rating & Review Button (Requirement 9) */}
+                            {(req.requestStatus === 'journey_completed' || req.requestStatus === 'completed') && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReviewingBooking(req);
+                                  setReviewRating(5);
+                                  setReviewComment('');
+                                }}
+                                className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition cursor-pointer flex items-center gap-1"
+                                title="Submit 1-5 Star Rating & Review"
+                              >
+                                <Star className="w-3.5 h-3.5 fill-current" />
+                                <span>Review</span>
+                              </button>
+                            )}
+
+                            {/* Complete Booking Button (Lifecycle Requirement 8) */}
+                            {req.requestStatus === 'journey_completed' && (isAppAdmin || isOwnerOrAdmin) && (
+                              <button
+                                type="button"
+                                onClick={() => handleCompleteBooking(req)}
+                                className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white shadow-xs transition cursor-pointer flex items-center gap-1"
+                                title="Complete Booking"
+                              >
+                                <CheckSquare className="w-3.5 h-3.5" />
+                                <span>Complete</span>
                               </button>
                             )}
                           </div>
@@ -2288,11 +2582,13 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                   min={1000}
                   step={500}
                   required
+                  placeholder="Enter amount (Rs.)"
                   value={ownerChargeInput}
-                  onChange={e => setOwnerChargeInput(Number(e.target.value))}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 font-extrabold text-sm text-slate-900"
+                  onChange={e => setOwnerChargeInput(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 font-extrabold text-sm text-slate-900 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
               </div>
+              <span className="text-[10px] text-slate-500 mt-0.5 block">Starts blank. Enter manual numeric quote.</span>
             </div>
 
             <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 space-y-1.5 text-xs">
@@ -2449,13 +2745,134 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                     </span>
                   </div>
                 )}
+                {/* Driver Assignment Status */}
+                {viewingRequest.driverName ? (
+                  <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl space-y-1">
+                    <span className="text-purple-700 block text-[10px] uppercase font-bold">Assigned Driver / Captain</span>
+                    <strong className="text-purple-950 text-sm block">{viewingRequest.driverName}</strong>
+                    {viewingRequest.driverPhone && (
+                      <span className="text-purple-800 text-xs block">📞 {viewingRequest.driverPhone}</span>
+                    )}
+                  </div>
+                ) : (
+                  viewingRequest.requestStatus === 'confirmed' && (
+                    <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-center justify-between">
+                      <span>Driver not assigned yet.</span>
+                      {isOwnerOrAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setViewingRequest(null);
+                            handleOpenAssignDriver(viewingRequest);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-purple-600 text-white font-bold cursor-pointer text-xs"
+                        >
+                          Assign Driver
+                        </button>
+                      )}
+                    </div>
+                  )
+                )}
+
+                {/* Notification Delivery Channels Status (Requirement 8) */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-xs">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Notification Delivery Channels</span>
+                  <div className="grid grid-cols-3 gap-1.5 pt-1 text-center font-bold text-[11px]">
+                    <div className="p-1.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                      📧 Email: Active
+                    </div>
+                    <div className="p-1.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                      💬 WhatsApp: Active
+                    </div>
+                    <div className="p-1.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                      📱 SMS: Active
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div className="pt-3 border-t flex justify-end">
+              <div className="pt-3 border-t flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {/* Quick Lifecycle Action Buttons inside details view */}
+                  {viewingRequest.requestStatus === 'confirmed' && isOwnerOrAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = viewingRequest;
+                        setViewingRequest(null);
+                        handleOpenAssignDriver(target);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-xs cursor-pointer flex items-center gap-1"
+                    >
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Assign Driver</span>
+                    </button>
+                  )}
+
+                  {(viewingRequest.requestStatus === 'confirmed' || viewingRequest.requestStatus === 'driver_assigned') && (isDriverUser || isOwnerOrAdmin) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleStartJourney(viewingRequest);
+                        setViewingRequest(null);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs cursor-pointer flex items-center gap-1"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      <span>Start Journey</span>
+                    </button>
+                  )}
+
+                  {viewingRequest.requestStatus === 'journey_started' && (isDriverUser || isOwnerOrAdmin) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCompleteJourney(viewingRequest);
+                        setViewingRequest(null);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-xs cursor-pointer flex items-center gap-1"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>End Journey</span>
+                    </button>
+                  )}
+
+                  {(viewingRequest.requestStatus === 'journey_completed' || viewingRequest.requestStatus === 'completed') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = viewingRequest;
+                        setViewingRequest(null);
+                        setReviewingBooking(target);
+                        setReviewRating(5);
+                        setReviewComment('');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold shadow-xs cursor-pointer flex items-center gap-1"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-current" />
+                      <span>Rate & Review</span>
+                    </button>
+                  )}
+
+                  {viewingRequest.requestStatus === 'journey_completed' && (isAppAdmin || isOwnerOrAdmin) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCompleteBooking(viewingRequest);
+                        setViewingRequest(null);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold shadow-xs cursor-pointer flex items-center gap-1"
+                    >
+                      <CheckSquare className="w-3.5 h-3.5" />
+                      <span>Complete Booking</span>
+                    </button>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   onClick={() => setViewingRequest(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold"
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
                 >
                   Close
                 </button>
@@ -2575,9 +2992,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                     type="number"
                     min={0}
                     step={500}
+                    placeholder="Enter amount (Rs.)"
                     value={editCharge}
-                    onChange={e => setEditCharge(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-semibold"
+                    onChange={e => setEditCharge(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 font-semibold [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
               )}
@@ -2595,6 +3013,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                       <option value="pending_owner">Pending Owner Review</option>
                       <option value="awaiting_payment">Awaiting Payment</option>
                       <option value="confirmed">Confirmed</option>
+                      <option value="driver_assigned">Driver Assigned</option>
+                      <option value="journey_started">Journey Started</option>
+                      <option value="journey_completed">Journey Completed</option>
+                      <option value="completed">Completed</option>
                       <option value="owner_rejected">Declined</option>
                       <option value="cancelled">Cancelled</option>
                     </select>
@@ -2692,6 +3114,220 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer shadow-xs"
               >
                 Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ─────────────────────────────────────────────────────────────
+          MODAL: ASSIGN DRIVER / CAPTAIN (Lifecycle Requirement 8)
+      ───────────────────────────────────────────────────────────── */}
+      {assigningDriverRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                  <UserCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Assign Driver / Captain</h3>
+                  <span className="font-mono text-[11px] text-slate-500">
+                    Booking: {assigningDriverRequest.requestNumber}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAssigningDriverRequest(null)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl space-y-1">
+              <div><strong>Vehicle:</strong> {assigningDriverRequest.vehicleName} ({assigningDriverRequest.registrationNumber})</div>
+              <div><strong>Route:</strong> {assigningDriverRequest.routeFrom} ➔ {assigningDriverRequest.routeTo}</div>
+              <div><strong>Date:</strong> {assigningDriverRequest.travelDate} at {assigningDriverRequest.travelTime || '08:00'}</div>
+            </div>
+
+            <div className="space-y-3">
+              {/* Select Registered Driver */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Select Registered Driver</label>
+                <select
+                  value={selectedDriverId}
+                  onChange={e => {
+                    const selId = e.target.value;
+                    setSelectedDriverId(selId);
+                    if (selId) {
+                      const matched = getStoredUsers().find(u => u.id === selId);
+                      if (matched) {
+                        setCustomDriverName(matched.name);
+                        setCustomDriverPhone(matched.phone || '');
+                      }
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                >
+                  <option value="">-- Choose Registered Driver or Enter Below --</option>
+                  {getStoredUsers()
+                    .filter(u => u.role === 'driver')
+                    .map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} ({d.phone || d.email})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Driver Details Manual Entry / Override */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Driver Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. S. Kumar"
+                    value={customDriverName}
+                    onChange={e => setCustomDriverName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Driver Mobile Phone</label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. +94 77 123 4567"
+                    value={customDriverPhone}
+                    onChange={e => setCustomDriverPhone(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAssigningDriverRequest(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmAssignDriver}
+                className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <UserCheck className="w-4 h-4" />
+                <span>Confirm Assignment</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          MODAL: 1–5 STARS RATING & REVIEW (Requirement 9)
+      ───────────────────────────────────────────────────────────── */}
+      {reviewingBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                  <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Rate & Review Experience</h3>
+                  <span className="font-mono text-[11px] text-slate-500">
+                    Booking: {reviewingBooking.requestNumber}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReviewingBooking(null)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl space-y-1 text-slate-800">
+              <div><strong>Vehicle:</strong> {reviewingBooking.vehicleName} ({reviewingBooking.registrationNumber})</div>
+              <div><strong>Route:</strong> {reviewingBooking.routeFrom} ➔ {reviewingBooking.routeTo}</div>
+              {reviewingBooking.driverName && (
+                <div><strong>Driver:</strong> {reviewingBooking.driverName}</div>
+              )}
+            </div>
+
+            {/* 1–5 Star Interactive Selector */}
+            <div className="text-center py-2 space-y-1">
+              <span className="font-bold text-slate-700 block">Select Rating (1 to 5 Stars):</span>
+              <div className="flex items-center justify-center gap-2 pt-1">
+                {[1, 2, 3, 4, 5].map(star => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setReviewRating(star)}
+                    className="p-1 hover:scale-125 transition cursor-pointer"
+                    title={`${star} Star${star > 1 ? 's' : ''}`}
+                  >
+                    <Star
+                      className={`w-7 h-7 transition ${
+                        star <= reviewRating
+                          ? 'fill-amber-400 text-amber-400 drop-shadow-xs'
+                          : 'text-slate-300 hover:text-amber-300'
+                      }`}
+                    />
+                  </button>
+                ))}
+              </div>
+              <span className="text-[11px] font-bold text-amber-800">
+                {reviewRating === 5
+                  ? '⭐⭐⭐⭐⭐ Excellent'
+                  : reviewRating === 4
+                  ? '⭐⭐⭐⭐ Very Good'
+                  : reviewRating === 3
+                  ? '⭐⭐⭐ Good'
+                  : reviewRating === 2
+                  ? '⭐⭐ Fair'
+                  : '⭐ Poor'}
+              </span>
+            </div>
+
+            {/* Comment */}
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Your Review & Comments *</label>
+              <textarea
+                rows={3}
+                required
+                placeholder="Share your experience (punctuality, driving comfort, vehicle cleanliness, hospitality)..."
+                value={reviewComment}
+                onChange={e => setReviewComment(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+              />
+              <span className="text-[10px] text-slate-500">Maximum 1 review per user per booking.</span>
+            </div>
+
+            <div className="pt-2 border-t flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setReviewingBooking(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitReview}
+                className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <Star className="w-4 h-4 fill-current" />
+                <span>Submit Review</span>
               </button>
             </div>
           </div>

@@ -41,7 +41,7 @@ export const MGRPaymentModal: React.FC<MGRPaymentModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qr' | 'card'>('cash');
 
   // Cash state
-  const [cashReceivedInput, setCashReceivedInput] = useState<string>(totalAmount.toString());
+  const [cashReceivedInput, setCashReceivedInput] = useState<string>('');
   const [cashNotes, setCashNotes] = useState<string>('');
 
   // Card state
@@ -57,9 +57,9 @@ export const MGRPaymentModal: React.FC<MGRPaymentModalProps> = ({
   const [qrError, setQrError] = useState<string | null>(null);
   const settledRef = useRef(false);
 
-  // Initialize cash received when modal opens
+  // Initialize cash received as blank when modal opens (Requirement: all amounts start blank)
   useEffect(() => {
-    setCashReceivedInput(totalAmount.toString());
+    setCashReceivedInput('');
     setCashNotes('');
     setCardRefInput('');
     setCardLastDigits('');
@@ -298,9 +298,10 @@ export const MGRPaymentModal: React.FC<MGRPaymentModalProps> = ({
                     type="number"
                     step="1"
                     min="0"
+                    placeholder="Enter cash received"
                     value={cashReceivedInput}
                     onChange={(e) => setCashReceivedInput(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2 rounded-xl border border-slate-300 bg-white font-mono font-bold text-sm text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                    className="w-full pl-10 pr-3 py-2 rounded-xl border border-slate-300 bg-white font-mono font-bold text-sm text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
               </div>
