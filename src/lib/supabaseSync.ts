@@ -1418,6 +1418,30 @@ export async function syncTransportVehicleToSupabase(vehicle: TransportVehicle) 
   if (!supabase) return;
 
   try {
+    // Foreign key safeguard: ensure owner exists in transport_owners
+    if (vehicle.ownerId) {
+      const { data: existingOwner } = await supabase
+        .from('transport_owners')
+        .select('id')
+        .eq('id', vehicle.ownerId)
+        .maybeSingle();
+
+      if (!existingOwner) {
+        await supabase.from('transport_owners').upsert({
+          id: vehicle.ownerId,
+          full_name: vehicle.ownerName || 'Verified Owner',
+          nic_passport: 'NIC-' + vehicle.ownerId.slice(-6),
+          address: 'Mannar',
+          mobile_number: '',
+          whatsapp_number: '',
+          email: '',
+          status: 'verified',
+          rating: 5.0,
+          created_at: Date.now(),
+        }, { onConflict: 'id' });
+      }
+    }
+
     const payload = {
       id: vehicle.id,
       owner_id: vehicle.ownerId,
@@ -1445,9 +1469,12 @@ export async function syncTransportVehicleToSupabase(vehicle: TransportVehicle) 
       created_at: vehicle.createdAt || Date.now(),
     };
 
-    await supabase.from('transport_vehicles').upsert(payload, { onConflict: 'id' });
+    const { error } = await supabase.from('transport_vehicles').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.error('[MGR Sync] Error syncing vehicle to Supabase:', error);
+    }
   } catch (err) {
-    console.warn('[MGR Sync] Failed to sync transport vehicle to Supabase:', err);
+    console.error('[MGR Sync] Failed to sync transport vehicle to Supabase:', err);
   }
 }
 
@@ -1455,9 +1482,10 @@ export async function deleteTransportVehicleFromSupabase(vehicleId: string) {
   const supabase = getSupabase();
   if (!supabase) return;
   try {
-    await supabase.from('transport_vehicles').delete().eq('id', vehicleId);
+    const { error } = await supabase.from('transport_vehicles').delete().eq('id', vehicleId);
+    if (error) console.error('[MGR Sync] Error deleting vehicle from Supabase:', error);
   } catch (err) {
-    console.warn('[MGR Sync] Failed to delete transport vehicle from Supabase:', err);
+    console.error('[MGR Sync] Failed to delete transport vehicle from Supabase:', err);
   }
 }
 
@@ -1468,22 +1496,25 @@ export async function syncTransportOwnerToSupabase(owner: TransportOwner) {
     const payload = {
       id: owner.id,
       full_name: owner.fullName,
-      nic_passport: owner.nicPassport,
-      address: owner.address,
-      mobile_number: owner.mobileNumber,
-      whatsapp_number: owner.whatsappNumber,
+      nic_passport: owner.nicPassport || 'NIC-' + owner.id.slice(-6),
+      address: owner.address || 'Mannar',
+      mobile_number: owner.mobileNumber || '',
+      whatsapp_number: owner.whatsappNumber || owner.mobileNumber || '',
       email: owner.email,
       business_name: owner.businessName || null,
       business_reg_number: owner.businessRegNumber || null,
       bank_account_details: owner.bankAccountDetails || null,
-      status: owner.status,
+      status: owner.status || 'verified',
       profile_photo: owner.profilePhoto || null,
       rating: owner.rating || 5.0,
       created_at: owner.createdAt || Date.now(),
     };
-    await supabase.from('transport_owners').upsert(payload, { onConflict: 'id' });
+    const { error } = await supabase.from('transport_owners').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.error('[MGR Sync] Error syncing transport owner to Supabase:', error);
+    }
   } catch (err) {
-    console.warn('[MGR Sync] Failed to sync transport owner to Supabase:', err);
+    console.error('[MGR Sync] Failed to sync transport owner to Supabase:', err);
   }
 }
 
@@ -1491,9 +1522,10 @@ export async function deleteTransportOwnerFromSupabase(ownerId: string) {
   const supabase = getSupabase();
   if (!supabase) return;
   try {
-    await supabase.from('transport_owners').delete().eq('id', ownerId);
+    const { error } = await supabase.from('transport_owners').delete().eq('id', ownerId);
+    if (error) console.error('[MGR Sync] Error deleting owner from Supabase:', error);
   } catch (err) {
-    console.warn('[MGR Sync] Failed to delete transport owner from Supabase:', err);
+    console.error('[MGR Sync] Failed to delete transport owner from Supabase:', err);
   }
 }
 
@@ -1501,6 +1533,30 @@ export async function syncTransportDriverToSupabase(driver: TransportDriver) {
   const supabase = getSupabase();
   if (!supabase) return;
   try {
+    // Foreign key safeguard: ensure owner exists in transport_owners
+    if (driver.ownerId) {
+      const { data: existingOwner } = await supabase
+        .from('transport_owners')
+        .select('id')
+        .eq('id', driver.ownerId)
+        .maybeSingle();
+
+      if (!existingOwner) {
+        await supabase.from('transport_owners').upsert({
+          id: driver.ownerId,
+          full_name: driver.fullName || 'Verified Owner',
+          nic_passport: driver.nic || 'NIC-' + driver.ownerId.slice(-6),
+          address: driver.address || 'Mannar',
+          mobile_number: driver.mobile || '',
+          whatsapp_number: driver.whatsapp || '',
+          email: driver.email || '',
+          status: 'verified',
+          rating: 5.0,
+          created_at: Date.now(),
+        }, { onConflict: 'id' });
+      }
+    }
+
     const payload = {
       id: driver.id,
       owner_id: driver.ownerId,
@@ -1522,9 +1578,10 @@ export async function syncTransportDriverToSupabase(driver: TransportDriver) {
       photo_url: driver.photoUrl || null,
       created_at: driver.createdAt || Date.now(),
     };
-    await supabase.from('transport_drivers').upsert(payload, { onConflict: 'id' });
+    const { error } = await supabase.from('transport_drivers').upsert(payload, { onConflict: 'id' });
+    if (error) console.error('[MGR Sync] Error syncing driver to Supabase:', error);
   } catch (err) {
-    console.warn('[MGR Sync] Failed to sync transport driver to Supabase:', err);
+    console.error('[MGR Sync] Failed to sync transport driver to Supabase:', err);
   }
 }
 
@@ -1731,6 +1788,28 @@ export async function fetchTransportRequestsV2(): Promise<TransportV2Request[] |
   } catch (err) {
     console.warn('[MGR Sync] Failed to fetch transport requests V2 from Supabase:', err);
     return null;
+  }
+}
+
+export async function deleteTransportRequestV2FromSupabase(id: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) return;
+  try {
+    const { error } = await supabase.from('mgr_transport_requests').delete().eq('id', id);
+    if (error) throw error;
+  } catch (err) {
+    console.warn('[MGR Sync] Failed to delete transport request V2 from Supabase:', err);
+  }
+}
+
+export async function deleteTransportBookingFromSupabase(id: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) return;
+  try {
+    const { error } = await supabase.from('transport_bookings').delete().eq('id', id);
+    if (error) throw error;
+  } catch (err) {
+    console.warn('[MGR Sync] Failed to delete transport booking from Supabase:', err);
   }
 }
 

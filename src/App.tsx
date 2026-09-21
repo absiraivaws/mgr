@@ -868,10 +868,49 @@ export default function App() {
         fetchMessageTemplatesFromSupabase(),
       ]);
       if (cloudData) {
-        // Only overwrite local data if cloud data exists AND has content
         if (cloudData.vehicleTypes && cloudData.vehicleTypes.length > 0) setVehicleTypes(cloudData.vehicleTypes);
-        if (cloudData.vehicles && cloudData.vehicles.length > 0) setVehicles(cloudData.vehicles);
-        if (cloudData.customers && cloudData.customers.length > 0) setCustomers(cloudData.customers);
+        if (cloudData.vehicles && cloudData.vehicles.length > 0) {
+          setVehicles((prev) => {
+            const cloudList = cloudData.vehicles || [];
+            const unsynced = prev.filter(
+              (pv) =>
+                !cloudList.some(
+                  (cv) =>
+                    cv.id === pv.id ||
+                    (cv.serialNumber &&
+                      pv.serialNumber &&
+                      cv.serialNumber.trim().toUpperCase() === pv.serialNumber.trim().toUpperCase())
+                )
+            );
+            unsynced.forEach((v) => syncVehicleToSupabase(v));
+            const merged = [...cloudList, ...unsynced];
+            try {
+              localStorage.setItem('v_rental_vehicles', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+        if (cloudData.customers && cloudData.customers.length > 0) {
+          setCustomers((prev) => {
+            const cloudList = cloudData.customers || [];
+            const unsynced = prev.filter(
+              (pc) =>
+                !cloudList.some(
+                  (cc) =>
+                    cc.id === pc.id ||
+                    (cc.nicPassport &&
+                      pc.nicPassport &&
+                      cc.nicPassport.trim().toUpperCase() === pc.nicPassport.trim().toUpperCase())
+                )
+            );
+            unsynced.forEach((c) => syncCustomerToSupabase(c));
+            const merged = [...cloudList, ...unsynced];
+            try {
+              localStorage.setItem('v_rental_customers', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
         // Always load rentals from Supabase to ensure history is up to date
         if (cloudData.activeRentals !== undefined) setActiveRentals(cloudData.activeRentals.map(sanitizeRentalRecordNumber));
         if (cloudData.completedRentals !== undefined) {

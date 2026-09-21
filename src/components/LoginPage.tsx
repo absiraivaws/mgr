@@ -39,7 +39,13 @@ import {
   setCurrentUserSession,
   getStoredUsers
 } from '../utils/auth';
-import { syncUserAccountToSupabase } from '../lib/supabaseSync';
+import { 
+  syncUserAccountToSupabase,
+  syncTransportOwnerToSupabase,
+  syncTransportVehicleToSupabase,
+  syncTransportDriverToSupabase,
+  syncCustomerToSupabase
+} from '../lib/supabaseSync';
 import { ACCENT_COLORS, AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 
 interface LoginPageProps {
@@ -191,8 +197,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     // If owner, also create owner & vehicle (with status: 'pending' for admin approval)
     if (regRole === 'owner') {
       try {
-        const ownerId = `OWN-MGR-${Date.now().toString().slice(-5)}`;
-        const newOwner = {
+        const ownerId = `OWN-MGR-${newUser.id.replace('supa-', '').slice(-5)}`;
+        const newOwner: any = {
           id: ownerId,
           fullName: regName.trim(),
           nicPassport: regNic.trim(),
@@ -212,6 +218,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         ownersList.unshift(newOwner);
         localStorage.setItem('mgr_transport_owners', JSON.stringify(ownersList));
 
+        // Immediately sync owner to Supabase
+        await syncTransportOwnerToSupabase(newOwner);
+
         const vehicleTypePrefix = regVehicleType.toUpperCase();
         const vehicleDefaults: Record<string, { make: string; model: string; seats: number; price: number; photo: string }> = {
           car: { make: 'Toyota', model: 'Prius Luxury Hybrid', seats: 4, price: 12500, photo: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=600&q=80' },
@@ -222,7 +231,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         };
 
         const vInfo = vehicleDefaults[regVehicleType] || vehicleDefaults.car;
-        const newVehicle = {
+        const newVehicle: any = {
           id: `MGR-${vehicleTypePrefix}-${Date.now().toString().slice(-5)}`,
           ownerId: ownerId,
           ownerName: regName.trim(),
@@ -255,8 +264,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         vehiclesList.unshift(newVehicle);
         localStorage.setItem('mgr_transport_vehicles', JSON.stringify(vehiclesList));
 
+        // Immediately sync vehicle to Supabase
+        await syncTransportVehicleToSupabase(newVehicle);
+
         // Create initial driver record
-        const newDriver = {
+        const newDriver: any = {
           id: `DRV-MGR-${Date.now().toString().slice(-5)}`,
           ownerId: ownerId,
           fullName: regName.trim(),
@@ -276,15 +288,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         const driversList = existingDriversRaw ? JSON.parse(existingDriversRaw) : [];
         driversList.unshift(newDriver);
         localStorage.setItem('mgr_transport_drivers', JSON.stringify(driversList));
+
+        // Immediately sync driver to Supabase
+        await syncTransportDriverToSupabase(newDriver);
       } catch (err) {
-        console.warn('Could not save driver registration data:', err);
+        console.error('Error syncing owner registration data to Supabase:', err);
       }
     } else {
       // Passenger registration: also register as customer in Cycly Rent customers
       try {
         const existingCustRaw = localStorage.getItem('v_rental_customers');
         const custs = existingCustRaw ? JSON.parse(existingCustRaw) : [];
-        const newCust = {
+        const newCust: any = {
           id: `CUST-${Date.now()}`,
           nicPassport: regNic.trim(),
           name: regName.trim(),
@@ -298,7 +313,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         };
         custs.unshift(newCust);
         localStorage.setItem('v_rental_customers', JSON.stringify(custs));
-      } catch {}
+
+        // Immediately sync customer to Supabase
+        await syncCustomerToSupabase(newCust);
+      } catch (err) {
+        console.error('Error syncing passenger customer to Supabase:', err);
+      }
     }
 
     setSuccessMessage(`Account registered successfully as ${regRole === 'owner' ? 'Vehicle / Boat Owner' : 'Passenger'}! You can now log in using your registered email: ${regEmail.trim().toLowerCase()}`);

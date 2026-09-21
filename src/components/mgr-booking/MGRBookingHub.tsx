@@ -48,6 +48,7 @@ import {
   syncTransportRouteToSupabase,
   deleteTransportRouteFromSupabase,
   syncTransportBookingToSupabase,
+  deleteTransportBookingFromSupabase,
   syncMarketplaceSettingsToSupabase,
 } from '../../lib/supabaseSync';
 
@@ -197,59 +198,116 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
   }, [settings]);
 
   // Initial load from Supabase if connected
+  // Initial load from Supabase if connected with bidirectional merge
   useEffect(() => {
     fetchMGRTransportData().then((remote) => {
       if (!remote) return;
 
-      // Vehicles sync: prioritize remote if populated, otherwise auto-push existing local vehicles to Supabase
-      if (remote.vehicles && remote.vehicles.length > 0) {
-        setVehicles(remote.vehicles);
-        try { localStorage.setItem('mgr_transport_vehicles', JSON.stringify(remote.vehicles)); } catch {}
-      } else if (vehicles.length > 0) {
-        vehicles.forEach((v) => syncTransportVehicleToSupabase(v));
-      }
+      // Vehicles sync: bidirectional merge
+      setVehicles((prevVehicles) => {
+        const remoteList = remote.vehicles || [];
+        const unsynced = prevVehicles.filter(
+          (pv) =>
+            !remoteList.some(
+              (rv) =>
+                rv.id === pv.id ||
+                (rv.registrationNumber &&
+                  pv.registrationNumber &&
+                  rv.registrationNumber.trim().toUpperCase() === pv.registrationNumber.trim().toUpperCase())
+            )
+        );
+        unsynced.forEach((v) => syncTransportVehicleToSupabase(v));
+        const merged = [...remoteList, ...unsynced];
+        try {
+          localStorage.setItem('mgr_transport_vehicles', JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
 
-      // Owners sync
-      if (remote.owners && remote.owners.length > 0) {
-        setOwners(remote.owners);
-        try { localStorage.setItem('mgr_transport_owners', JSON.stringify(remote.owners)); } catch {}
-      } else if (owners.length > 0) {
-        owners.forEach((o) => syncTransportOwnerToSupabase(o));
-      }
+      // Owners sync: bidirectional merge
+      setOwners((prevOwners) => {
+        const remoteList = remote.owners || [];
+        const unsynced = prevOwners.filter(
+          (po) =>
+            !remoteList.some(
+              (ro) =>
+                ro.id === po.id ||
+                (ro.email && po.email && ro.email.trim().toLowerCase() === po.email.trim().toLowerCase())
+            )
+        );
+        unsynced.forEach((o) => syncTransportOwnerToSupabase(o));
+        const merged = [...remoteList, ...unsynced];
+        try {
+          localStorage.setItem('mgr_transport_owners', JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
 
-      // Drivers sync
-      if (remote.drivers && remote.drivers.length > 0) {
-        setDrivers(remote.drivers);
-        try { localStorage.setItem('mgr_transport_drivers', JSON.stringify(remote.drivers)); } catch {}
-      } else if (drivers.length > 0) {
-        drivers.forEach((d) => syncTransportDriverToSupabase(d));
-      }
+      // Drivers sync: bidirectional merge
+      setDrivers((prevDrivers) => {
+        const remoteList = remote.drivers || [];
+        const unsynced = prevDrivers.filter(
+          (pd) =>
+            !remoteList.some(
+              (rd) =>
+                rd.id === pd.id ||
+                (rd.licenceNumber &&
+                  pd.licenceNumber &&
+                  rd.licenceNumber.trim().toUpperCase() === pd.licenceNumber.trim().toUpperCase())
+            )
+        );
+        unsynced.forEach((d) => syncTransportDriverToSupabase(d));
+        const merged = [...remoteList, ...unsynced];
+        try {
+          localStorage.setItem('mgr_transport_drivers', JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
 
-      // Routes sync
-      if (remote.routes && remote.routes.length > 0) {
-        setRoutes(remote.routes);
-        try { localStorage.setItem('mgr_transport_routes', JSON.stringify(remote.routes)); } catch {}
-      } else if (routes.length > 0) {
-        routes.forEach((r) => syncTransportRouteToSupabase(r));
-      }
+      // Routes sync: bidirectional merge
+      setRoutes((prevRoutes) => {
+        const remoteList = remote.routes || [];
+        const unsynced = prevRoutes.filter((pr) => !remoteList.some((rr) => rr.id === pr.id));
+        unsynced.forEach((r) => syncTransportRouteToSupabase(r));
+        const merged = [...remoteList, ...unsynced];
+        try {
+          localStorage.setItem('mgr_transport_routes', JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
 
       // Schedules sync
       if (remote.schedules && remote.schedules.length > 0) {
         setSchedules(remote.schedules);
-        try { localStorage.setItem('mgr_transport_schedules', JSON.stringify(remote.schedules)); } catch {}
+        try {
+          localStorage.setItem('mgr_transport_schedules', JSON.stringify(remote.schedules));
+        } catch {}
       }
 
-      // Bookings sync
-      if (remote.bookings && remote.bookings.length > 0) {
-        setBookings(remote.bookings);
-        try { localStorage.setItem('mgr_transport_bookings', JSON.stringify(remote.bookings)); } catch {}
-      } else if (bookings.length > 0) {
-        bookings.forEach((b) => syncTransportBookingToSupabase(b));
-      }
+      // Bookings sync: bidirectional merge
+      setBookings((prevBookings) => {
+        const remoteList = remote.bookings || [];
+        const unsynced = prevBookings.filter(
+          (pb) =>
+            !remoteList.some(
+              (rb) =>
+                rb.id === pb.id ||
+                (rb.bookingNumber && pb.bookingNumber && rb.bookingNumber === pb.bookingNumber)
+            )
+        );
+        unsynced.forEach((b) => syncTransportBookingToSupabase(b));
+        const merged = [...remoteList, ...unsynced];
+        try {
+          localStorage.setItem('mgr_transport_bookings', JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
 
       if (remote.settings) {
         setSettings(remote.settings);
-        try { localStorage.setItem('mgr_marketplace_settings', JSON.stringify(remote.settings)); } catch {}
+        try {
+          localStorage.setItem('mgr_marketplace_settings', JSON.stringify(remote.settings));
+        } catch {}
       }
     });
   }, []);
@@ -270,6 +328,7 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
 
   const handleDeleteBooking = (id: string) => {
     setBookings(prev => prev.filter(b => b.id !== id));
+    deleteTransportBookingFromSupabase(id);
   };
 
   const handleAddVehicle = (newVehicle: TransportVehicle) => {

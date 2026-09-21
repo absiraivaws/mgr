@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import type { TransportV2Request } from '../../types/mgrTransportV2';
 import type { TransportBooking } from '../../types/mgrBooking';
-import type { UserAccount } from '../../utils/auth';
+import { UserAccount, getOwnerIdForUser, isOwnedByUser } from '../../utils/auth';
 import { getSupabase, isSupabaseConfigured } from '../../lib/supabase';
 
 interface MGRHistoryViewProps {
@@ -271,12 +271,19 @@ export const MGRHistoryView: React.FC<MGRHistoryViewProps> = ({
       console.warn('[MGRHistoryView] Error reading bookings:', e);
     }
 
+    // 3. Load owners to support accurate owner vehicle mapping
+    let ownersList: any[] = [];
+    try {
+      const rawOwners = localStorage.getItem('mgr_transport_owners');
+      if (rawOwners) ownersList = JSON.parse(rawOwners);
+    } catch {}
+
     // Filter by Role Persona
     let scoped = unified;
     if (isPassenger) {
       scoped = unified.filter(item => {
-        const itemEmail = (item.passengerEmail || '').toLowerCase();
-        const itemName = (item.passengerName || '').toLowerCase();
+        const itemEmail = (item.passengerEmail || '').toLowerCase().trim();
+        const itemName = (item.passengerName || '').toLowerCase().trim();
         const itemPhone = (item.passengerPhone || '').trim();
         return (
           (userEmail && itemEmail === userEmail) ||
@@ -286,10 +293,10 @@ export const MGRHistoryView: React.FC<MGRHistoryViewProps> = ({
       });
     } else if (isOwner) {
       scoped = unified.filter(item => {
-        const itemOwnerName = (item.ownerName || '').toLowerCase();
+        const itemOwnerName = (item.ownerName || '').toLowerCase().trim();
         const itemOwnerPhone = (item.ownerPhone || '').trim();
         return (
-          (item.ownerId && currentUser?.id && item.ownerId === currentUser.id) ||
+          isOwnedByUser(item.ownerId, currentUser, ownersList) ||
           (userName && itemOwnerName.includes(userName)) ||
           (userPhone && itemOwnerPhone === userPhone)
         );

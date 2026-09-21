@@ -31,7 +31,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { TransportOwner, TransportDriver, TransportVehicle, VerificationStatus } from '../../types/mgrBooking';
-import { UserAccount, getMGRPersona } from '../../utils/auth';
+import { UserAccount, getMGRPersona, getOwnerIdForUser, isOwnedByUser } from '../../utils/auth';
 
 interface MGROwnersDriversViewProps {
   owners: TransportOwner[];
@@ -95,23 +95,24 @@ export const MGROwnersDriversView: React.FC<MGROwnersDriversViewProps> = ({
   const [driverSortDir, setDriverSortDir] = useState<'asc' | 'desc'>('asc');
   const pageSize = 20;
 
-  const userEmail = (currentUser?.email || '').toLowerCase();
-  const userName = (currentUser?.name || '').toLowerCase();
+  const userEmail = (currentUser?.email || '').toLowerCase().trim();
+  const userName = (currentUser?.name || '').toLowerCase().trim();
   const userPhone = (currentUser?.phone || '').trim();
   const persona = getMGRPersona(currentUser);
   const isOwnerUser = persona === 'owner';
 
-  // Identify registered owner from logged-in user or fallback
-  const registeredOwner = owners.find(o =>
-    (userEmail && o.email && o.email.toLowerCase() === userEmail) ||
-    (userName && o.fullName && o.fullName.toLowerCase() === userName) ||
-    (userPhone && (o.mobileNumber === userPhone || o.whatsappNumber === userPhone)) ||
-    (currentUser?.id && o.id === currentUser.id)
-  ) || (isOwnerUser ? owners[0] : undefined);
+  const registeredOwnerId = getOwnerIdForUser(currentUser, owners);
+  const registeredOwner = owners.find(o => o.id === registeredOwnerId) ||
+    owners.find(o =>
+      (userEmail && o.email && o.email.toLowerCase().trim() === userEmail) ||
+      (userName && o.fullName && o.fullName.toLowerCase().trim() === userName) ||
+      (userPhone && (o.mobileNumber === userPhone || o.whatsappNumber === userPhone)) ||
+      (currentUser?.id && o.id === currentUser.id)
+    );
 
   const filteredDrivers = drivers.filter(d => {
     if (!isAdmin) {
-      const isMine = registeredOwner && d.ownerId === registeredOwner.id;
+      const isMine = isOwnedByUser(d.ownerId, currentUser, owners);
       if (!isMine) return false;
     }
 
@@ -184,9 +185,9 @@ export const MGROwnersDriversView: React.FC<MGROwnersDriversViewProps> = ({
     e.preventDefault();
     if (!driverName || !driverMobile || !driverLicenceNo) return;
 
-    const finalOwnerId = (!isAdmin && registeredOwner)
-      ? registeredOwner.id
-      : (driverOwnerId || registeredOwner?.id || owners[0]?.id || 'OWN-MGR-00001');
+    const finalOwnerId = !isAdmin
+      ? (registeredOwnerId || registeredOwner?.id || 'OWN-MGR-00001')
+      : (driverOwnerId && driverOwnerId !== 'all' ? driverOwnerId : (owners[0]?.id || 'OWN-MGR-00001'));
 
     const newDriver: TransportDriver = {
       id: `DRV-MGR-${Math.floor(10000 + Math.random() * 90000)}`,

@@ -38,7 +38,7 @@ import {
   VehicleBookingType,
   VehicleScheduleItem,
 } from '../../types/mgrBooking';
-import { UserAccount } from '../../utils/auth';
+import { UserAccount, getOwnerIdForUser, isOwnedByUser } from '../../utils/auth';
 import { formatVehicleCode } from '../../utils/mgrUniqueId';
 
 interface MGRFleetViewProps {
@@ -166,6 +166,7 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
   };
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'maintenance'>('all');
+  const [selectedOwnerFilter, setSelectedOwnerFilter] = useState<string>('all');
   const [sortColumn, setSortColumn] = useState<string>('createdAt');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -190,27 +191,28 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
     currentUser?.email?.toLowerCase() === 'absiraiva@gmail.com'
   );
 
-  const userEmail = (currentUser?.email || '').toLowerCase();
-  const userName = (currentUser?.name || '').toLowerCase();
+  const userEmail = (currentUser?.email || '').toLowerCase().trim();
+  const userName = (currentUser?.name || '').toLowerCase().trim();
   const userPhone = (currentUser?.phone || '').trim();
 
-  const currentOwner = owners.find(
-    o => (o.email && o.email.toLowerCase() === userEmail) ||
-         (o.fullName && o.fullName.toLowerCase() === userName) ||
+  const currentOwnerId = getOwnerIdForUser(currentUser, owners);
+  const currentOwner = owners.find(o => o.id === currentOwnerId) || owners.find(
+    o => (o.email && o.email.toLowerCase().trim() === userEmail) ||
+         (o.fullName && o.fullName.toLowerCase().trim() === userName) ||
          (userPhone && (o.mobileNumber === userPhone || o.whatsappNumber === userPhone))
   );
-  const currentOwnerId = currentOwner ? currentOwner.id : (currentUser?.id || null);
 
   const filteredVehicles = vehicles.filter(v => {
     // Role-based visibility: If not admin/staff, only show vehicles owned by the logged-in owner
     if (!isStaffOrAdmin) {
-      const isMine = (currentOwnerId && v.ownerId === currentOwnerId) ||
-                     (v.ownerName && v.ownerName.toLowerCase() === userName) ||
-                     (v.ownerId && currentUser?.id && v.ownerId === currentUser.id);
+      const isMine = isOwnedByUser(v.ownerId, currentUser, owners) ||
+                     (userName && v.ownerName && v.ownerName.toLowerCase().trim() === userName) ||
+                     (currentOwner && currentOwner.fullName && v.ownerName && v.ownerName.toLowerCase().trim() === currentOwner.fullName.toLowerCase().trim());
       if (!isMine) return false;
     }
 
     if (isStaffOrAdmin && statusFilter !== 'all' && v.status !== statusFilter) return false;
+    if (isStaffOrAdmin && selectedOwnerFilter !== 'all' && v.ownerId !== selectedOwnerFilter) return false;
 
     let matchesType = false;
     if (selectedType === 'all') {
@@ -264,9 +266,10 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
     e.preventDefault();
     if (!newRegNumber || !newMake || !newModel) return;
 
-    const matchedOwner = owners.find(o => o.id === newOwnerId);
-    const ownerIdToUse = !isAdmin ? (currentOwnerId || newOwnerId) : newOwnerId;
-    const ownerNameToUse = !isAdmin ? (currentOwner?.fullName || currentUser?.name || 'My Fleet') : (matchedOwner?.fullName || 'Registered Owner');
+    const resolvedOwnerId = !isAdmin ? (currentOwnerId || newOwnerId) : newOwnerId;
+    const matchedOwner = owners.find(o => o.id === resolvedOwnerId);
+    const ownerIdToUse = resolvedOwnerId;
+    const ownerNameToUse = !isAdmin ? (currentOwner?.fullName || currentUser?.name || 'Registered Owner') : (matchedOwner?.fullName || 'Registered Owner');
 
     const idPrefix =
       newType === 'car'
@@ -511,6 +514,21 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
               <option value="safari">Safari 4x4</option>
               <option value="boat">Boats</option>
             </select>
+
+            {isStaffOrAdmin && (
+              <select
+                value={selectedOwnerFilter}
+                onChange={e => { setSelectedOwnerFilter(e.target.value); setCurrentPage(1); }}
+                className="px-3 py-2 rounded-xl text-xs font-bold bg-white border border-slate-300 text-slate-800 shadow-xs focus:outline-none focus:border-emerald-500 cursor-pointer"
+              >
+                <option value="all">All Owners ({owners.length})</option>
+                {owners.map(o => (
+                  <option key={o.id} value={o.id}>
+                    {o.fullName || o.businessName || o.id}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Add Transport Button */}

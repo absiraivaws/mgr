@@ -39,9 +39,9 @@ import {
   TransportPaymentStatus,
 } from '../../types/mgrTransportV2';
 import { triggerLifecycleNotifications, getWhatsAppUrl } from '../../utils/mgrTransportNotifications';
-import { UserAccount, getMGRPersona } from '../../utils/auth';
+import { UserAccount, getMGRPersona, getOwnerIdForUser, isOwnedByUser } from '../../utils/auth';
 import { formatVehicleCode, formatBookingCode, formatScheduleCode } from '../../utils/mgrUniqueId';
-import { fetchTransportRequestsV2, syncTransportRequestV2ToSupabase } from '../../lib/supabaseSync';
+import { fetchTransportRequestsV2, syncTransportRequestV2ToSupabase, deleteTransportRequestV2FromSupabase } from '../../lib/supabaseSync';
 import { MGRPaymentModal } from './MGRPaymentModal';
 
 export interface MGRTransportBookingProps {
@@ -195,26 +195,26 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   const isPassengerUser = persona === 'passenger';
   const isOwnerUser = persona === 'owner';
 
-  const currentUserEmail = (currentUser?.email || '').toLowerCase();
-  const currentUserName = (currentUser?.name || currentUser?.username || '').toLowerCase();
+  const currentUserEmail = (currentUser?.email || '').toLowerCase().trim();
+  const currentUserName = (currentUser?.name || '').toLowerCase().trim();
   const currentUserPhone = (currentUser?.phone || '').trim();
 
-  // Scoped logged-in owner info
-  const myOwnerRecord = owners.find(
+  // Scoped logged-in owner info using centralized helper
+  const myOwnerId = getOwnerIdForUser(currentUser, owners);
+  const myOwnerRecord = owners.find(o => o.id === myOwnerId) || owners.find(
     o =>
-      (o.email && o.email.toLowerCase() === currentUserEmail) ||
-      (o.fullName && o.fullName.toLowerCase() === currentUserName) ||
+      (currentUserEmail && o.email && o.email.toLowerCase().trim() === currentUserEmail) ||
+      (currentUserName && o.fullName && o.fullName.toLowerCase().trim() === currentUserName) ||
       (currentUserPhone && (o.mobileNumber === currentUserPhone || o.whatsappNumber === currentUserPhone))
   );
-  const myOwnerId = myOwnerRecord ? myOwnerRecord.id : currentUser?.id || null;
 
   const myVehicleIds = new Set(
     (vehicles || [])
       .filter(
         v =>
-          (myOwnerId && v.ownerId === myOwnerId) ||
-          (v.ownerName && v.ownerName.toLowerCase() === currentUserName) ||
-          (v.ownerId && currentUser?.id && v.ownerId === currentUser.id)
+          isOwnedByUser(v.ownerId, currentUser, owners) ||
+          (currentUserName && v.ownerName && v.ownerName.toLowerCase().trim() === currentUserName) ||
+          (myOwnerRecord && myOwnerRecord.fullName && v.ownerName && v.ownerName.toLowerCase().trim() === myOwnerRecord.fullName.toLowerCase().trim())
       )
       .map(v => v.id)
   );
@@ -240,17 +240,23 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   });
   const [requestsHydrated, setRequestsHydrated] = useState(false);
 
-  // Hydrate from Supabase (source of truth for payment callbacks), falling back to local cache
+  // Hydrate from Supabase with bidirectional merge so newly made local requests are preserved
   useEffect(() => {
     let cancelled = false;
     fetchTransportRequestsV2()
       .then((remote) => {
         if (cancelled) return;
-        // Keep the local cache when the cloud table is empty (fresh migration) so
-        // existing bookings are not wiped; the persist effect will push them up.
-        if (remote && remote.length > 0) {
-          setRequests(remote);
-        }
+        setRequests((prev) => {
+          const remoteList = remote || [];
+          // Retain any local requests that haven't synced to remote yet, and push them up
+          const unsynced = prev.filter((p) => !remoteList.some((r) => r.id === p.id));
+          unsynced.forEach((r) => syncTransportRequestV2ToSupabase(r));
+          const merged = [...remoteList, ...unsynced];
+          try {
+            localStorage.setItem('mgr_transport_v2_requests', JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
       })
       .finally(() => {
         if (!cancelled) setRequestsHydrated(true);
@@ -431,8 +437,8 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   const filteredRequests = requests.filter(req => {
     if (!isAppAdmin) {
       if (isPassengerUser) {
-        const passEmail = (req.passenger?.email || '').toLowerCase();
-        const passName = (req.passenger?.name || '').toLowerCase();
+        const passEmail = (req.passenger?.email || '').toLowerCase().trim();
+        const passName = (req.passenger?.name || '').toLowerCase().trim();
         const passPhone = (req.passenger?.phone || '').trim();
         const matchesMe =
           (currentUserEmail && passEmail === currentUserEmail) ||
@@ -440,7 +446,11 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
           (currentUserPhone && passPhone === currentUserPhone);
         if (!matchesMe) return false;
       } else if (isOwnerUser) {
-        if (!myVehicleIds.has(req.vehicleId) && req.ownerId !== myOwnerId) return false;
+        const isMyOwner = isOwnedByUser(req.ownerId, currentUser, owners);
+        const isMyVehicle = myVehicleIds.has(req.vehicleId);
+        const matchesOwnerName = (currentUserName && req.ownerName && req.ownerName.toLowerCase().trim() === currentUserName) ||
+          (myOwnerRecord && myOwnerRecord.fullName && req.ownerName && req.ownerName.toLowerCase().trim() === myOwnerRecord.fullName.toLowerCase().trim());
+        if (!isMyOwner && !isMyVehicle && !matchesOwnerName) return false;
       }
     }
 
@@ -807,6 +817,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   // 7. DELETE REQUEST (Requirement 11, Admin Only)
   const handleConfirmDeleteRequest = () => {
     if (!deletingRequest) return;
+    deleteTransportRequestV2FromSupabase(deletingRequest.id);
     setRequests(prev => prev.filter(r => r.id !== deletingRequest.id));
     setDeletingRequest(null);
   };

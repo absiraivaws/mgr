@@ -1011,6 +1011,63 @@ export function getMGRPersona(user: UserAccount | null | undefined): MGRUserPers
   return 'staff';
 }
 
+export function getOwnerIdForUser(
+  user: UserAccount | null | undefined,
+  owners: Array<{ id: string; email?: string; fullName?: string; mobileNumber?: string; whatsappNumber?: string }> = []
+): string | null {
+  if (!user) return null;
+  const userEmail = (user.email || '').toLowerCase().trim();
+  const userName = (user.name || '').toLowerCase().trim();
+  const userPhone = (user.phone || '').trim();
+
+  // 1. Match by email in owners
+  if (userEmail && owners.length > 0) {
+    const byEmail = owners.find(o => o.email && o.email.toLowerCase().trim() === userEmail);
+    if (byEmail) return byEmail.id;
+  }
+  // 2. Match by exact ID
+  if (user.id && owners.length > 0) {
+    const byId = owners.find(o => o.id === user.id);
+    if (byId) return byId.id;
+  }
+  // 3. Match by standard OWN-MGR- prefix
+  if (user.id && owners.length > 0) {
+    const standardId = `OWN-MGR-${user.id.slice(-5)}`;
+    const byStdId = owners.find(o => o.id === standardId);
+    if (byStdId) return byStdId.id;
+  }
+  // 4. Match by phone
+  if (userPhone && owners.length > 0) {
+    const byPhone = owners.find(o => o.mobileNumber === userPhone || o.whatsappNumber === userPhone);
+    if (byPhone) return byPhone.id;
+  }
+  // 5. Match by full name
+  if (userName && owners.length > 0) {
+    const byName = owners.find(o => o.fullName && o.fullName.toLowerCase().trim() === userName);
+    if (byName) return byName.id;
+  }
+  // If user has owner role, return standard generated owner ID
+  if ((user.role === 'owner' || userEmail.includes('owner')) && user.id) {
+    return `OWN-MGR-${user.id.slice(-5)}`;
+  }
+  return user.id || null;
+}
+
+export function isOwnedByUser(
+  ownerId: string | undefined | null,
+  user: UserAccount | null | undefined,
+  owners: Array<{ id: string; email?: string; fullName?: string; mobileNumber?: string; whatsappNumber?: string }> = []
+): boolean {
+  if (!user || !ownerId) return false;
+  const targetOwnerId = getOwnerIdForUser(user, owners);
+  if (targetOwnerId && ownerId === targetOwnerId) return true;
+  if (user.id && ownerId === user.id) return true;
+  if (user.id && ownerId === `OWN-MGR-${user.id.slice(-5)}`) return true;
+  const userEmail = (user.email || '').toLowerCase().trim();
+  if (userEmail && owners.some(o => o.id === ownerId && o.email && o.email.toLowerCase().trim() === userEmail)) return true;
+  return false;
+}
+
 export function getDeletedUserEmails(): string[] {
   try {
     const raw = localStorage.getItem(STORAGE_DELETED_USERS_KEY);

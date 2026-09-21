@@ -30,7 +30,7 @@ import {
   MarketplaceSettings,
   MGRTabType,
 } from '../../types/mgrBooking';
-import { UserAccount, getMGRPersona } from '../../utils/auth';
+import { UserAccount, getMGRPersona, getOwnerIdForUser, isOwnedByUser } from '../../utils/auth';
 import { getWhatsAppUrl } from '../../utils/mgrTransportNotifications';
 
 interface MGRDashboardViewProps {
@@ -55,6 +55,12 @@ export const MGRDashboardView: React.FC<MGRDashboardViewProps> = ({
 }) => {
   const persona = getMGRPersona(currentUser);
   const isAdmin = persona === 'admin';
+  const isOwner = persona === 'owner';
+  const isPassenger = persona === 'passenger';
+
+  const userEmail = (currentUser?.email || '').toLowerCase().trim();
+  const userName = (currentUser?.name || '').toLowerCase().trim();
+  const userPhone = (currentUser?.phone || '').trim();
 
   // Read V2 requests from localStorage to include in metrics
   let v2Requests: any[] = [];
@@ -63,17 +69,42 @@ export const MGRDashboardView: React.FC<MGRDashboardViewProps> = ({
     if (raw) v2Requests = JSON.parse(raw);
   } catch {}
 
+  // Scoped datasets based on user persona
+  const scopedVehicles = isOwner
+    ? vehicles.filter(v => isOwnedByUser(v.ownerId, currentUser, owners))
+    : vehicles;
+  const scopedVehicleIds = new Set(scopedVehicles.map(v => v.id));
+
+  const scopedDrivers = isOwner
+    ? drivers.filter(d => isOwnedByUser(d.ownerId, currentUser, owners))
+    : drivers;
+
+  const scopedBookings = isOwner
+    ? bookings.filter(b => isOwnedByUser(b.ownerId, currentUser, owners) || scopedVehicleIds.has(b.vehicleId))
+    : isPassenger
+    ? bookings.filter(b => (userEmail && b.passengerEmail?.toLowerCase().trim() === userEmail) || (userPhone && b.passengerPhone === userPhone))
+    : bookings;
+
+  const scopedV2Requests = isOwner
+    ? v2Requests.filter(r => isOwnedByUser(r.ownerId, currentUser, owners) || scopedVehicleIds.has(r.vehicleId))
+    : isPassenger
+    ? v2Requests.filter(r => (userEmail && r.passenger?.email?.toLowerCase().trim() === userEmail) || (userPhone && r.passenger?.phone === userPhone))
+    : v2Requests;
+
   // Financial Metrics
-  const totalGrossRevenue = bookings.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
+  const totalGrossRevenue = scopedBookings.reduce((sum, b) => sum + (b.totalAmount || 0), 0) +
+    scopedV2Requests.filter(r => r.paymentStatus === 'paid').reduce((sum, r) => sum + (r.finalAmount || r.ownerTravelCharge || 0), 0);
   const convenienceFeeRate = settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5;
   const platformIncome = Math.round(totalGrossRevenue * (convenienceFeeRate / 100));
+  const ownerNetEarnings = isOwner ? Math.max(0, totalGrossRevenue - platformIncome) : totalGrossRevenue;
 
   // Counts
-  const pendingRequests = v2Requests.filter(r => r.requestStatus === 'pending_owner').length;
-  const awaitingPayment = v2Requests.filter(r => r.requestStatus === 'awaiting_payment').length;
-  const confirmedTrips = bookings.filter(b => b.status === 'confirmed' || b.status === 'completed').length;
-  const activeFleetCount = vehicles.filter(v => v.status === 'active').length;
-  const activeDriversCount = drivers.filter(d => d.status === 'verified').length;
+  const pendingRequests = scopedV2Requests.filter(r => r.requestStatus === 'pending_owner').length;
+  const awaitingPayment = scopedV2Requests.filter(r => r.requestStatus === 'awaiting_payment').length;
+  const confirmedTrips = scopedBookings.filter(b => b.status === 'confirmed' || b.status === 'completed').length +
+    scopedV2Requests.filter(r => r.requestStatus === 'confirmed' || r.paymentStatus === 'paid').length;
+  const activeFleetCount = scopedVehicles.filter(v => v.status === 'active').length;
+  const activeDriversCount = scopedDrivers.filter(d => d.status === 'verified').length;
 
   return (
     <div className="space-y-6 animate-fade-in text-slate-900">
@@ -81,13 +112,19 @@ export const MGRDashboardView: React.FC<MGRDashboardViewProps> = ({
       <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-slate-900">MGR Transport Operations Dashboard</h2>
+            <h2 className="text-lg font-bold text-slate-900">
+              {isOwner ? 'Vehicle & Boat Owner Operations Dashboard' : isPassenger ? 'Passenger Travel Dashboard' : 'MGR Transport Operations Dashboard'}
+            </h2>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200">
               {persona.toUpperCase()} MODE
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Real-time transport bookings, fleet availability, fee earnings, and passenger pipeline.
+            {isOwner
+              ? 'Real-time performance of your registered vehicles, incoming ride requests, and earnings.'
+              : isPassenger
+              ? 'Your booking requests, confirmed passenger trips, and travel history.'
+              : 'Real-time transport bookings, fleet availability, fee earnings, and passenger pipeline.'}
           </p>
         </div>
 
@@ -128,33 +165,39 @@ export const MGRDashboardView: React.FC<MGRDashboardViewProps> = ({
 
       {/* 4 Primary KPI Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Gross Booking Revenue */}
+        {/* Gross / Net Revenue */}
         <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-semibold uppercase tracking-wider">Gross Booking Value</span>
+            <span className="font-semibold uppercase tracking-wider">
+              {isOwner ? 'Owner Net Earnings' : isPassenger ? 'Trip Spendings' : 'Gross Booking Value'}
+            </span>
             <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <div className="text-2xl font-extrabold text-slate-900 mt-2">
-            Rs. {totalGrossRevenue.toLocaleString()}
+            Rs. {(isOwner ? ownerNetEarnings : totalGrossRevenue).toLocaleString()}
           </div>
-          <p className="text-[11px] text-slate-500 mt-1">Across all passenger transport bookings</p>
+          <p className="text-[11px] text-slate-500 mt-1">
+            {isOwner ? 'Your net payout after platform fees' : isPassenger ? 'Total spendings on transport' : 'Across all passenger transport bookings'}
+          </p>
         </div>
 
-        {/* Platform Revenue from Convenience Fee */}
+        {/* Platform Revenue / Bookings */}
         <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-semibold uppercase tracking-wider">Platform Convenience Fee</span>
+            <span className="font-semibold uppercase tracking-wider">
+              {isOwner ? 'Platform Fee (5%)' : isPassenger ? 'Bookings Placed' : 'Platform Convenience Fee'}
+            </span>
             <div className="w-8 h-8 rounded-xl bg-cyan-100 text-cyan-700 flex items-center justify-center">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
           <div className="text-2xl font-extrabold text-cyan-700 mt-2">
-            Rs. {platformIncome.toLocaleString()}
+            {isPassenger ? scopedBookings.length + scopedV2Requests.length : `Rs. ${platformIncome.toLocaleString()}`}
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
-            Calculated dynamically at {convenienceFeeRate}%
+            {isPassenger ? 'Total rides requested or booked' : `Calculated dynamically at ${convenienceFeeRate}%`}
           </p>
         </div>
 
@@ -169,22 +212,26 @@ export const MGRDashboardView: React.FC<MGRDashboardViewProps> = ({
           <div className="text-2xl font-extrabold text-purple-700 mt-2">
             {confirmedTrips}
           </div>
-          <p className="text-[11px] text-slate-500 mt-1">Successfully scheduled passenger rides</p>
+          <p className="text-[11px] text-slate-500 mt-1">
+            {isOwner ? 'Trips completed or paid for your fleet' : 'Successfully scheduled passenger rides'}
+          </p>
         </div>
 
         {/* Active Fleet & Crew */}
         <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-semibold uppercase tracking-wider">Fleet & Crew</span>
+            <span className="font-semibold uppercase tracking-wider">
+              {isOwner ? 'My Vehicles' : isPassenger ? 'Available Fleet' : 'Fleet & Crew'}
+            </span>
             <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
               <Car className="w-4 h-4" />
             </div>
           </div>
           <div className="text-2xl font-extrabold text-amber-700 mt-2">
-            {activeFleetCount} / {vehicles.length}
+            {isOwner ? `${scopedVehicles.length} Vehicles` : `${activeFleetCount} / ${vehicles.length}`}
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
-            Active Vehicles • {activeDriversCount} Drivers
+            {isOwner ? `${activeFleetCount} Active • ${scopedDrivers.length} Drivers` : `Active Vehicles • ${activeDriversCount} Drivers`}
           </p>
         </div>
       </div>
