@@ -1690,7 +1690,14 @@ export async function sendStaffPasswordResetEmail(
   const supaAuth = getSupabaseAuth();
   if (supaAuth) {
     try {
-      const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/` : undefined;
+      let originUrl = 'https://booking.mannargreenride.com';
+      if (typeof window !== 'undefined' && window.location.origin) {
+        const currentOrigin = window.location.origin;
+        if (!currentOrigin.includes('localhost:3000')) {
+          originUrl = currentOrigin;
+        }
+      }
+      const redirectUrl = `${originUrl}/`;
       const { error } = await supaAuth.auth.resetPasswordForEmail(normalizedEmail, {
         redirectTo: redirectUrl,
       });
@@ -1701,7 +1708,6 @@ export async function sendStaffPasswordResetEmail(
 
       // Also dispatch a backup notification email directly via the system sender mannargreenride@gmail.com
       try {
-        const originUrl = typeof window !== 'undefined' ? window.location.origin : 'https://booking.mannargreenride.com';
         fetch('/api/email/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

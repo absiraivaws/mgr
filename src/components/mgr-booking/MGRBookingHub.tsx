@@ -102,7 +102,10 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
           !v.id?.startsWith('MGR-VAN-0000') &&
           !v.id?.startsWith('MGR-BUS-0000') &&
           !v.id?.startsWith('MGR-BOAT-0000') &&
-          !v.id?.startsWith('MGR-SAFARI-0000')
+          !v.id?.startsWith('MGR-SAFARI-0000') &&
+          !v.id?.startsWith('MGR-VEH-0000010') &&
+          v.registrationNumber !== 'WP NG-9911' &&
+          v.registrationNumber !== 'EP CAB-3180'
         ) : [];
       }
     } catch {}
@@ -189,13 +192,57 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
   useEffect(() => {
     fetchMGRTransportData().then((remote) => {
       if (!remote) return;
-      if (remote.owners && remote.owners.length > 0) setOwners(remote.owners);
-      if (remote.vehicles && remote.vehicles.length > 0) setVehicles(remote.vehicles);
-      if (remote.drivers && remote.drivers.length > 0) setDrivers(remote.drivers);
-      if (remote.routes && remote.routes.length > 0) setRoutes(remote.routes);
-      if (remote.schedules && remote.schedules.length > 0) setSchedules(remote.schedules);
-      if (remote.bookings && remote.bookings.length > 0) setBookings(remote.bookings);
-      if (remote.settings) setSettings(remote.settings);
+
+      // Vehicles sync: prioritize remote if populated, otherwise auto-push existing local vehicles to Supabase
+      if (remote.vehicles && remote.vehicles.length > 0) {
+        setVehicles(remote.vehicles);
+        try { localStorage.setItem('mgr_transport_vehicles', JSON.stringify(remote.vehicles)); } catch {}
+      } else if (vehicles.length > 0) {
+        vehicles.forEach((v) => syncTransportVehicleToSupabase(v));
+      }
+
+      // Owners sync
+      if (remote.owners && remote.owners.length > 0) {
+        setOwners(remote.owners);
+        try { localStorage.setItem('mgr_transport_owners', JSON.stringify(remote.owners)); } catch {}
+      } else if (owners.length > 0) {
+        owners.forEach((o) => syncTransportOwnerToSupabase(o));
+      }
+
+      // Drivers sync
+      if (remote.drivers && remote.drivers.length > 0) {
+        setDrivers(remote.drivers);
+        try { localStorage.setItem('mgr_transport_drivers', JSON.stringify(remote.drivers)); } catch {}
+      } else if (drivers.length > 0) {
+        drivers.forEach((d) => syncTransportDriverToSupabase(d));
+      }
+
+      // Routes sync
+      if (remote.routes && remote.routes.length > 0) {
+        setRoutes(remote.routes);
+        try { localStorage.setItem('mgr_transport_routes', JSON.stringify(remote.routes)); } catch {}
+      } else if (routes.length > 0) {
+        routes.forEach((r) => syncTransportRouteToSupabase(r));
+      }
+
+      // Schedules sync
+      if (remote.schedules && remote.schedules.length > 0) {
+        setSchedules(remote.schedules);
+        try { localStorage.setItem('mgr_transport_schedules', JSON.stringify(remote.schedules)); } catch {}
+      }
+
+      // Bookings sync
+      if (remote.bookings && remote.bookings.length > 0) {
+        setBookings(remote.bookings);
+        try { localStorage.setItem('mgr_transport_bookings', JSON.stringify(remote.bookings)); } catch {}
+      } else if (bookings.length > 0) {
+        bookings.forEach((b) => syncTransportBookingToSupabase(b));
+      }
+
+      if (remote.settings) {
+        setSettings(remote.settings);
+        try { localStorage.setItem('mgr_marketplace_settings', JSON.stringify(remote.settings)); } catch {}
+      }
     });
   }, []);
 
