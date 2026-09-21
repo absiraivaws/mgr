@@ -340,10 +340,22 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
     setCalMonthOffset(0);
   };
 
+  const getTodayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+  const getMax30DayStr = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+  };
+
   const handleToggleTripDate = (dateStr: string) => {
-    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+    const todayStr = getTodayStr();
+    const maxDateStr = getMax30DayStr();
     if (dateStr < todayStr) {
       alert(`Cannot mark availability for past dates (${dateStr}). Availability can only be set for today (${todayStr}) or upcoming future dates.`);
+      return;
+    }
+    if (dateStr > maxDateStr) {
+      alert(`Owners can select availability only for the next 30 days maximum (up to ${maxDateStr}).`);
       return;
     }
 
@@ -365,9 +377,13 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
 
   const handleSaveTripAvailability = () => {
     if (!availabilityVehicle || !onEditVehicle) return;
+    const todayStr = getTodayStr();
+    const maxDateStr = getMax30DayStr();
+    // Enforce 30-day window and filter past dates
+    const sanitizedDates = tempTripDates.filter(d => d >= todayStr && d <= maxDateStr);
     const updated: TransportVehicle = {
       ...availabilityVehicle,
-      availableDates: tempTripDates,
+      availableDates: sanitizedDates,
     };
     onEditVehicle(updated);
     setAvailabilityVehicle(null);
@@ -1637,6 +1653,14 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                 </button>
               </div>
 
+              {/* 30-Day Maximum Availability Alert */}
+              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  <strong>Next 30 Days Maximum:</strong> Availability can only be selected for the next 30 days (up to <span className="font-bold underline">{getMax30DayStr()}</span>). Past dates and dates beyond 30 days are locked.
+                </span>
+              </div>
+
               {/* Month Navigation */}
               <div className="flex items-center justify-between px-2 py-1.5 bg-slate-50 rounded-xl border border-slate-200">
                 <button
@@ -1656,7 +1680,13 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setCalMonthOffset(prev => prev + 1)}
-                  className="px-2.5 py-1 rounded-lg font-bold text-xs text-slate-700 hover:bg-white hover:shadow-xs transition cursor-pointer"
+                  disabled={calMonthOffset >= 1}
+                  className={`px-2.5 py-1 rounded-lg font-bold text-xs transition ${
+                    calMonthOffset >= 1
+                      ? 'text-slate-300 cursor-not-allowed bg-transparent'
+                      : 'text-slate-700 hover:bg-white hover:shadow-xs cursor-pointer'
+                  }`}
+                  title={calMonthOffset >= 1 ? "Availability restricted to next 30 days" : "Next Month"}
                 >
                   Next ›
                 </button>
@@ -1678,19 +1708,25 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                     if (!dateStr) {
                       return <div key={`empty-${idx}`} className="h-9 rounded-lg bg-slate-50/50" />;
                     }
-                    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+                    const todayStr = getTodayStr();
+                    const maxDateStr = getMax30DayStr();
                     const isPast = dateStr < todayStr;
+                    const isBeyond30 = dateStr > maxDateStr;
                     const isToday = dateStr === todayStr;
                     const isSelected = tempTripDates.includes(dateStr);
+                    const isDisabled = isPast || isBeyond30;
                     const dayNumber = Number(dateStr.split('-')[2]);
                     return (
                       <button
                         key={dateStr}
                         type="button"
-                        onClick={() => handleToggleTripDate(dateStr)}
+                        onClick={() => !isDisabled && handleToggleTripDate(dateStr)}
+                        disabled={isDisabled}
                         title={
                           isPast
                             ? `Cannot mark availability: ${dateStr} is in the past`
+                            : isBeyond30
+                            ? `Beyond 30 days limit: max date is ${maxDateStr}`
                             : isToday
                             ? `Today (${dateStr})`
                             : dateStr
@@ -1698,6 +1734,8 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                         className={`h-9 rounded-lg font-bold text-xs transition flex flex-col items-center justify-center border relative ${
                           isPast
                             ? 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed opacity-60 line-through'
+                            : isBeyond30
+                            ? 'bg-slate-100/70 border-slate-200 text-slate-300 cursor-not-allowed opacity-50'
                             : isSelected
                             ? 'bg-emerald-600 border-emerald-700 text-white shadow-xs cursor-pointer'
                             : isToday
@@ -1706,7 +1744,7 @@ export const MGRFleetView: React.FC<MGRFleetViewProps> = ({
                         }`}
                       >
                         <span>{dayNumber}</span>
-                        {isSelected && !isPast && <span className="w-1 h-1 rounded-full bg-white mt-0.5" />}
+                        {isSelected && !isDisabled && <span className="w-1 h-1 rounded-full bg-white mt-0.5" />}
                       </button>
                     );
                   })}

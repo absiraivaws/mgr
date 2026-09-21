@@ -129,6 +129,18 @@ export const MGRSettingsView: React.FC<MGRSettingsViewProps> = ({
   const [supportEmail, setSupportEmail] = useState<string>(
     settings.supportEmail || 'booking@mannargreenride.lk'
   );
+  const [dataSyncInterval, setDataSyncInterval] = useState<number>(
+    settings.dataSyncInterval ?? 30000
+  );
+  const [channelEmail, setChannelEmail] = useState<boolean>(
+    settings.notificationChannels?.email ?? true
+  );
+  const [channelWhatsApp, setChannelWhatsApp] = useState<boolean>(
+    settings.notificationChannels?.whatsapp ?? true
+  );
+  const [channelSMS, setChannelSMS] = useState<boolean>(
+    settings.notificationChannels?.sms ?? true
+  );
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   // SQL Runner Console State
@@ -150,7 +162,16 @@ export const MGRSettingsView: React.FC<MGRSettingsViewProps> = ({
       instantBookingEnabled: instantBooking,
       contactWhatsAppNumber: whatsappNumber,
       supportEmail,
+      dataSyncInterval: Number(dataSyncInterval) as any,
+      notificationChannels: {
+        email: channelEmail,
+        whatsapp: channelWhatsApp,
+        sms: channelSMS,
+      },
     };
+    try {
+      localStorage.setItem('mgr_marketplace_settings', JSON.stringify(updated));
+    } catch {}
     onUpdateSettings(updated);
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
@@ -349,10 +370,102 @@ export const MGRSettingsView: React.FC<MGRSettingsViewProps> = ({
                   id="instant-toggle"
                   checked={instantBooking}
                   onChange={e => setInstantBooking(e.target.checked)}
-                  className="w-4 h-4 rounded accent-emerald-600"
+                  className="w-4 h-4 rounded accent-emerald-600 cursor-pointer"
                 />
                 <label htmlFor="instant-toggle" className="text-slate-700 font-medium cursor-pointer">
                   Enable instant booking
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Additional Realtime & Channel Controls */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-slate-100">
+            {/* Data Sync Interval Dropdown */}
+            <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-indigo-900 flex items-center gap-1.5">
+                  <RotateCcw className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Data Sync Interval</span>
+                </label>
+                <span className="font-mono font-extrabold text-xs text-indigo-800 px-2 py-0.5 rounded bg-indigo-100">
+                  {dataSyncInterval === 10000 ? '10 seconds' : dataSyncInterval === 30000 ? '30 seconds' : dataSyncInterval === 60000 ? '1 minute' : '2 minutes'}
+                </span>
+              </div>
+              <select
+                id="select-data-sync-interval"
+                value={dataSyncInterval}
+                onChange={e => setDataSyncInterval(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-xl border border-indigo-200 bg-white font-semibold text-indigo-950 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
+              >
+                <option value={10000}>10 seconds</option>
+                <option value={30000}>30 seconds</option>
+                <option value={60000}>1 minute</option>
+                <option value={120000}>2 minutes</option>
+              </select>
+              <p className="text-[11px] text-slate-600">
+                Frequency for automatic real-time background syncing of bookings, availability dates, and vehicle fleet data from Supabase.
+              </p>
+            </div>
+
+            {/* Notification Channels Validation & Controls */}
+            <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-emerald-900 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Notification Channels</span>
+                </label>
+                <span className="text-[10px] uppercase font-extrabold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                  {[channelEmail && 'Email', channelWhatsApp && 'WhatsApp', channelSMS && 'SMS'].filter(Boolean).length} Active
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-600">
+                Validate & select which channels dispatch alerts for new booking requests, acceptance, and confirmations:
+              </p>
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                <label className={`flex items-center gap-2 p-2 rounded-xl border cursor-pointer transition ${
+                  channelEmail ? 'bg-white border-emerald-400 shadow-xs' : 'bg-slate-50 border-slate-200 opacity-60'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={channelEmail}
+                    onChange={e => setChannelEmail(e.target.checked)}
+                    className="w-4 h-4 rounded accent-emerald-600 cursor-pointer"
+                  />
+                  <div>
+                    <div className="font-bold text-slate-800 text-xs">☑ Email</div>
+                    <div className="text-[10px] text-slate-500">Alerts & Receipts</div>
+                  </div>
+                </label>
+
+                <label className={`flex items-center gap-2 p-2 rounded-xl border cursor-pointer transition ${
+                  channelWhatsApp ? 'bg-white border-emerald-400 shadow-xs' : 'bg-slate-50 border-slate-200 opacity-60'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={channelWhatsApp}
+                    onChange={e => setChannelWhatsApp(e.target.checked)}
+                    className="w-4 h-4 rounded accent-emerald-600 cursor-pointer"
+                  />
+                  <div>
+                    <div className="font-bold text-slate-800 text-xs">☑ WhatsApp</div>
+                    <div className="text-[10px] text-slate-500">Instant Chat</div>
+                  </div>
+                </label>
+
+                <label className={`flex items-center gap-2 p-2 rounded-xl border cursor-pointer transition ${
+                  channelSMS ? 'bg-white border-emerald-400 shadow-xs' : 'bg-slate-50 border-slate-200 opacity-60'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={channelSMS}
+                    onChange={e => setChannelSMS(e.target.checked)}
+                    className="w-4 h-4 rounded accent-emerald-600 cursor-pointer"
+                  />
+                  <div>
+                    <div className="font-bold text-slate-800 text-xs">☑ SMS</div>
+                    <div className="text-[10px] text-slate-500">Phone Text</div>
+                  </div>
                 </label>
               </div>
             </div>

@@ -992,7 +992,7 @@ export const MGR_INITIAL_ACCOUNTS: UserAccount[] = [
   },
 ];
 
-export type MGRUserPersona = 'passenger' | 'owner' | 'admin' | 'staff';
+export type MGRUserPersona = 'passenger' | 'owner' | 'admin' | 'staff' | 'driver';
 
 export function getMGRPersona(user: UserAccount | null | undefined): MGRUserPersona {
   if (!user) return 'passenger';
@@ -1004,6 +1004,9 @@ export function getMGRPersona(user: UserAccount | null | undefined): MGRUserPers
   }
   if (role === 'owner' || email.includes('owner')) {
     return 'owner';
+  }
+  if (role === 'driver' || email.includes('driver')) {
+    return 'driver';
   }
   if (role === 'passenger' || email.includes('passenger')) {
     return 'passenger';

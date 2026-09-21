@@ -72,19 +72,49 @@ export const dispatchTransportNotification = async (
   return fullEvent;
 };
 
+export interface ActiveNotificationChannels {
+  email: boolean;
+  whatsapp: boolean;
+  sms: boolean;
+}
+
 /**
- * Generates and triggers multi-party notifications across the request lifecycle
+ * Validates which notification channels are currently active based on Admin Settings
+ */
+export const getActiveNotificationChannels = (): ActiveNotificationChannels => {
+  try {
+    const raw = localStorage.getItem('mgr_marketplace_settings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.notificationChannels) {
+        return {
+          email: parsed.notificationChannels.email ?? true,
+          whatsapp: parsed.notificationChannels.whatsapp ?? true,
+          sms: parsed.notificationChannels.sms ?? true,
+        };
+      }
+    }
+  } catch {}
+  return { email: true, whatsapp: true, sms: true };
+};
+
+/**
+ * Generates and triggers multi-party notifications across the request lifecycle,
+ * strictly validating currently active notification channels (Email, WhatsApp, SMS)
  */
 export const triggerLifecycleNotifications = async (
   eventType: NotificationEvent['eventType'],
   request: TransportV2Request
 ) => {
-  const adminContact = (import.meta as any).env?.VITE_MGR_ADMIN_WHATSAPP || '+94779876543';
+  const adminWhatsApp = (import.meta as any).env?.VITE_MGR_ADMIN_WHATSAPP || '+94779876543';
+  const adminEmail = (import.meta as any).env?.VITE_MGR_ADMIN_EMAIL || 'admin@mannargreenride.lk';
+  const channels = getActiveNotificationChannels();
 
   // 1. Message contents based on event type
   let passengerMsg = '';
   let ownerMsg = '';
   let adminMsg = '';
+  let driverMsg = '';
   let title = '';
 
   switch (eventType) {
@@ -92,79 +122,172 @@ export const triggerLifecycleNotifications = async (
       title = `New Transport Request: ${request.requestNumber}`;
       passengerMsg = `Hello ${request.passenger.name}, your transport request (${request.requestNumber}) for ${request.vehicleName} on ${request.travelDate} has been sent to the owner for pricing review.`;
       ownerMsg = `Hello ${request.ownerName}, new travel request received for ${request.vehicleName} (${request.registrationNumber}) on ${request.travelDate}. Route: ${request.routeFrom} ➔ ${request.routeTo}. Please accept and enter your Travel Charge.`;
-      adminMsg = `[MGR Admin Alert] New request ${request.requestNumber} by ${request.passenger.name} for ${request.vehicleName}. Awaiting owner travel charge.`;
+      adminMsg = `[MGR Admin/Staff Alert] New request ${request.requestNumber} by ${request.passenger.name} for ${request.vehicleName}. Awaiting owner review.`;
       break;
 
     case 'owner_accepted':
       title = `Owner Accepted: ${request.requestNumber}`;
       passengerMsg = `Great news ${request.passenger.name}! The owner accepted your request ${request.requestNumber}.\nTravel Charge: Rs. ${(request.ownerTravelCharge || 0).toLocaleString()}\nConvenience Fee: Rs. ${(request.convenienceFee || 0).toLocaleString()}\nTotal Payable: Rs. ${(request.finalAmount || 0).toLocaleString()}.\nPlease complete payment to confirm your ride.`;
-      ownerMsg = `You accepted request ${request.requestNumber} with Travel Charge Rs. ${(request.ownerTravelCharge || 0).toLocaleString()}. Passenger has been notified to proceed with payment.`;
-      adminMsg = `[MGR Admin Alert] Request ${request.requestNumber} accepted by owner. Travel Charge: Rs. ${(request.ownerTravelCharge || 0).toLocaleString()} + Fee: Rs. ${(request.convenienceFee || 0).toLocaleString()}. Awaiting passenger payment.`;
+      ownerMsg = `You accepted request ${request.requestNumber} with Travel Charge Rs. ${(request.ownerTravelCharge || 0).toLocaleString()}. Passenger and Admin have been notified.`;
+      adminMsg = `[MGR Admin/Staff Alert] Request ${request.requestNumber} accepted by owner. Travel Charge: Rs. ${(request.ownerTravelCharge || 0).toLocaleString()} + Fee: Rs. ${(request.convenienceFee || 0).toLocaleString()}. Awaiting passenger payment.`;
       break;
 
     case 'owner_rejected':
       title = `Request Declined: ${request.requestNumber}`;
-      passengerMsg = `Hello ${request.passenger.name}, unfortunately the vehicle owner could not accommodate request ${request.requestNumber} on ${request.travelDate}. Please browse other available transport services.`;
-      ownerMsg = `You have declined request ${request.requestNumber}. The passenger has been notified.`;
-      adminMsg = `[MGR Admin Alert] Request ${request.requestNumber} was rejected by owner ${request.ownerName}.`;
+      passengerMsg = `Hello ${request.passenger.name}, unfortunately the vehicle owner could not accommodate request ${request.requestNumber} on ${request.travelDate}. Reason: ${request.rejectionReason || 'Operator unavailable'}.`;
+      ownerMsg = `You have declined request ${request.requestNumber}. The passenger and Admin have been updated.`;
+      adminMsg = `[MGR Admin/Staff Alert] Request ${request.requestNumber} was declined by owner ${request.ownerName}. Reason: ${request.rejectionReason || 'None specified'}.`;
       break;
 
     case 'booking_confirmed':
       title = `Booking CONFIRMED: ${request.requestNumber}`;
-      passengerMsg = `🎉 CONFIRMED! Your booking ${request.requestNumber} for ${request.vehicleName} (${request.registrationNumber}) is confirmed.\nRoute: ${request.routeFrom} ➔ ${request.routeTo}\nDate: ${request.travelDate} at ${request.travelTime || '08:00'}\nAmount Paid: Rs. ${(request.finalAmount || 0).toLocaleString()}.\nDriver/Owner Contact: ${request.ownerPhone}.`;
+      passengerMsg = `🎉 CONFIRMED! Your booking ${request.requestNumber} for ${request.vehicleName} (${request.registrationNumber}) is confirmed.\nRoute: ${request.routeFrom} ➔ ${request.routeTo}\nDate: ${request.travelDate} at ${request.travelTime || '08:00'}\nAmount Paid: Rs. ${(request.finalAmount || 0).toLocaleString()}.\nContact: ${request.ownerPhone}.`;
       ownerMsg = `🎉 Booking ${request.requestNumber} is CONFIRMED and PAID!\nPassenger: ${request.passenger.name} (${request.passenger.phone})\nRoute: ${request.routeFrom} ➔ ${request.routeTo}\nDate: ${request.travelDate}\nYour Payout: Rs. ${(request.ownerTravelCharge || 0).toLocaleString()}.`;
-      adminMsg = `[MGR Admin Alert] Booking ${request.requestNumber} is confirmed & paid. Total: Rs. ${(request.finalAmount || 0).toLocaleString()} (Convenience Fee: Rs. ${(request.convenienceFee || 0).toLocaleString()}).`;
+      adminMsg = `[MGR Admin/Staff Alert] Booking ${request.requestNumber} is confirmed & paid. Total: Rs. ${(request.finalAmount || 0).toLocaleString()} (Fee: Rs. ${(request.convenienceFee || 0).toLocaleString()}).`;
+      driverMsg = `🚗 Driver Assignment: Booking ${request.requestNumber} confirmed for ${request.travelDate} at ${request.travelTime || '08:00'}. Route: ${request.routeFrom} ➔ ${request.routeTo}. Passenger: ${request.passenger.name} (${request.passenger.phone}).`;
       break;
 
     case 'booking_cancelled':
       title = `Booking Cancelled: ${request.requestNumber}`;
-      passengerMsg = `Booking ${request.requestNumber} has been cancelled. If any refund is applicable, our team will process it.`;
-      ownerMsg = `Booking ${request.requestNumber} has been cancelled. Your calendar has been updated.`;
-      adminMsg = `[MGR Admin Alert] Booking ${request.requestNumber} was cancelled.`;
+      passengerMsg = `Booking ${request.requestNumber} has been cancelled.`;
+      ownerMsg = `Booking ${request.requestNumber} has been cancelled.`;
+      adminMsg = `[MGR Admin/Staff Alert] Booking ${request.requestNumber} was cancelled.`;
       break;
 
     default:
       return;
   }
 
-  // Dispatch WhatsApp and Email to Passenger
-  await dispatchTransportNotification({
-    eventType,
-    requestId: request.id,
-    requestNumber: request.requestNumber,
-    recipientRole: 'passenger',
-    recipientName: request.passenger.name,
-    recipientContact: request.passenger.whatsapp || request.passenger.phone,
-    channel: 'whatsapp',
-    title,
-    message: passengerMsg,
-  });
+  // 2. DISPATCH NOTIFICATIONS STRICTLY VALIDATING ACTIVE CHANNELS
 
-  // Dispatch WhatsApp to Owner
-  await dispatchTransportNotification({
-    eventType,
-    requestId: request.id,
-    requestNumber: request.requestNumber,
-    recipientRole: 'owner',
-    recipientName: request.ownerName,
-    recipientContact: request.ownerWhatsApp || request.ownerPhone,
-    channel: 'whatsapp',
-    title,
-    message: ownerMsg,
-  });
+  // --- WHATSAPP CHANNEL ---
+  if (channels.whatsapp) {
+    if (request.passenger?.phone || request.passenger?.whatsapp) {
+      await dispatchTransportNotification({
+        eventType,
+        requestId: request.id,
+        requestNumber: request.requestNumber,
+        recipientRole: 'passenger',
+        recipientName: request.passenger.name,
+        recipientContact: request.passenger.whatsapp || request.passenger.phone,
+        channel: 'whatsapp',
+        title,
+        message: passengerMsg,
+      });
+    }
+    if (request.ownerWhatsApp || request.ownerPhone) {
+      await dispatchTransportNotification({
+        eventType,
+        requestId: request.id,
+        requestNumber: request.requestNumber,
+        recipientRole: 'owner',
+        recipientName: request.ownerName,
+        recipientContact: request.ownerWhatsApp || request.ownerPhone,
+        channel: 'whatsapp',
+        title,
+        message: ownerMsg,
+      });
+    }
+    if (adminWhatsApp) {
+      await dispatchTransportNotification({
+        eventType,
+        requestId: request.id,
+        requestNumber: request.requestNumber,
+        recipientRole: 'admin',
+        recipientName: 'MGR System Admin & Staff',
+        recipientContact: adminWhatsApp,
+        channel: 'whatsapp',
+        title,
+        message: adminMsg,
+      });
+    }
+    if (driverMsg && (request.driverPhone || request.driverId)) {
+      await dispatchTransportNotification({
+        eventType,
+        requestId: request.id,
+        requestNumber: request.requestNumber,
+        recipientRole: 'driver',
+        recipientName: request.driverName || 'Assigned Driver',
+        recipientContact: request.driverPhone || '',
+        channel: 'whatsapp',
+        title,
+        message: driverMsg,
+      });
+    }
+  }
 
-  // Dispatch WhatsApp to Admin
-  await dispatchTransportNotification({
-    eventType,
-    requestId: request.id,
-    requestNumber: request.requestNumber,
-    recipientRole: 'admin',
-    recipientName: 'MGR System Admin',
-    recipientContact: adminContact,
-    channel: 'whatsapp',
-    title,
-    message: adminMsg,
-  });
+  // --- EMAIL CHANNEL ---
+  if (channels.email) {
+    if (request.passenger?.email) {
+      await dispatchTransportNotification({
+        eventType,
+        requestId: request.id,
+        requestNumber: request.requestNumber,
+        recipientRole: 'passenger',
+        recipientName: request.passenger.name,
+        recipientContact: request.passenger.email,
+        channel: 'email',
+        title,
+        message: passengerMsg,
+      });
+    }
+    if (adminEmail) {
+      await dispatchTransportNotification({
+        eventType,
+        requestId: request.id,
+        requestNumber: request.requestNumber,
+        recipientRole: 'admin',
+        recipientName: 'MGR System Admin & Staff',
+        recipientContact: adminEmail,
+        channel: 'email',
+        title,
+        message: adminMsg,
+      });
+    }
+  }
+
+  // --- SMS CHANNEL ---
+  if (channels.sms) {
+    if (request.passenger?.phone) {
+      await dispatchTransportNotification({
+        eventType,
+        requestId: request.id,
+        requestNumber: request.requestNumber,
+        recipientRole: 'passenger',
+        recipientName: request.passenger.name,
+        recipientContact: request.passenger.phone,
+        channel: 'sms',
+        title,
+        message: passengerMsg,
+      });
+    }
+    if (request.ownerPhone) {
+      await dispatchTransportNotification({
+        eventType,
+        requestId: request.id,
+        requestNumber: request.requestNumber,
+        recipientRole: 'owner',
+        recipientName: request.ownerName,
+        recipientContact: request.ownerPhone,
+        channel: 'sms',
+        title,
+        message: ownerMsg,
+      });
+    }
+    if (driverMsg && request.driverPhone) {
+      await dispatchTransportNotification({
+        eventType,
+        requestId: request.id,
+        requestNumber: request.requestNumber,
+        recipientRole: 'driver',
+        recipientName: request.driverName || 'Assigned Driver',
+        recipientContact: request.driverPhone,
+        channel: 'sms',
+        title,
+        message: driverMsg,
+      });
+    }
+  }
 };
 
 /**

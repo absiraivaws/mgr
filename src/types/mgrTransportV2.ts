@@ -102,8 +102,8 @@ export interface TransportV2Request {
   updatedAt: number;
 }
 
-export type NotificationChannel = 'whatsapp' | 'email';
-export type NotificationRecipientRole = 'passenger' | 'owner' | 'admin';
+export type NotificationChannel = 'whatsapp' | 'email' | 'sms';
+export type NotificationRecipientRole = 'passenger' | 'owner' | 'admin' | 'driver' | 'staff';
 
 export interface NotificationEvent {
   id: string;

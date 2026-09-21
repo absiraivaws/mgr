@@ -312,6 +312,36 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
     });
   }, []);
 
+  // Periodic background data sync based on Admin Settings (10s, 30s, 1m, 2m)
+  useEffect(() => {
+    const intervalMs = settings.dataSyncInterval || 30000;
+    const timer = setInterval(() => {
+      fetchTransportDataFromSupabase().then(remote => {
+        if (!remote) return;
+        if (remote.vehicles && remote.vehicles.length > 0) {
+          setVehicles(remote.vehicles);
+        }
+        if (remote.owners && remote.owners.length > 0) {
+          setOwners(remote.owners);
+        }
+        if (remote.bookings && remote.bookings.length > 0) {
+          setBookings(prev => {
+            const remoteList = remote.bookings || [];
+            const unsynced = prev.filter(
+              pb => !remoteList.some(rb => rb.id === pb.id || (rb.bookingNumber && pb.bookingNumber && rb.bookingNumber === pb.bookingNumber))
+            );
+            return [...remoteList, ...unsynced];
+          });
+        }
+        if (remote.settings) {
+          setSettings(remote.settings);
+        }
+      });
+    }, intervalMs);
+
+    return () => clearInterval(timer);
+  }, [settings.dataSyncInterval]);
+
   const handleUpdateBookingStatus = (bookingId: string, newStatus: BookingStatus) => {
     setBookings(prev => {
       const updated = prev.map(b => (b.id === bookingId ? { ...b, status: newStatus } : b));
@@ -456,6 +486,7 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
           owners={owners}
           currentUser={currentUser}
           convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
+          settings={settings}
         />
       )}
 
@@ -466,6 +497,7 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
           owners={owners}
           currentUser={currentUser}
           convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
+          settings={settings}
         />
       )}
 
@@ -630,6 +662,7 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
           owners={owners}
           currentUser={currentUser}
           convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
+          settings={settings}
         />
       )}
 

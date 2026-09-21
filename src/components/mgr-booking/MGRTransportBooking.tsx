@@ -50,19 +50,8 @@ export interface MGRTransportBookingProps {
   owners: TransportOwner[];
   currentUser?: UserAccount;
   convenienceFeePercentage?: number; // default 5%
+  settings?: MarketplaceSettings;
 }
-
-// Helper to generate next 60 days
-const generateAvailableDates = (): string[] => {
-  const dates: string[] = [];
-  const start = new Date();
-  for (let i = 0; i < 60; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    dates.push(d.toISOString().split('T')[0]);
-  }
-  return dates;
-};
 
 // Helper: Convert actual fleet vehicles into active listings dynamically (Requirement 9)
 const createListingsFromVehicles = (
@@ -70,6 +59,10 @@ const createListingsFromVehicles = (
   ownersList: TransportOwner[]
 ): TransportV2Listing[] => {
   const listings: TransportV2Listing[] = [];
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+  const max30Date = new Date();
+  max30Date.setDate(max30Date.getDate() + 30);
+  const max30Str = max30Date.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
 
   vehiclesList.forEach((v, vIdx) => {
     if (v.status !== 'active') return;
@@ -124,7 +117,6 @@ const createListingsFromVehicles = (
         });
       } else {
         // Default single schedule entry for today
-        const todayStr = new Date().toISOString().split('T')[0];
         listings.push({
           id: `LST-${v.id}-DEFAULT`,
           uniqueCode: vehicleCode,
@@ -152,9 +144,9 @@ const createListingsFromVehicles = (
         });
       }
     } else {
-      // Trip Booking Type
-      const dates =
-        v.availableDates && v.availableDates.length > 0 ? v.availableDates : generateAvailableDates();
+      // Trip Booking Type: Vehicle availability must be based ONLY on the dates selected by the Owner
+      // under Trip Availability (maximum next 30 days, no automatic 60-day fallback)
+      const dates = (v.availableDates || []).filter(d => d >= todayStr && d <= max30Str);
 
       listings.push({
         id: `LST-${v.id}`,
@@ -188,12 +180,15 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   owners,
   currentUser,
   convenienceFeePercentage = 5,
+  settings,
 }) => {
   const persona = getMGRPersona(currentUser);
   const isOwnerOrAdmin = persona === 'owner' || persona === 'admin';
   const isAppAdmin = persona === 'admin';
+  const isStaffUser = persona === 'staff';
   const isPassengerUser = persona === 'passenger';
   const isOwnerUser = persona === 'owner';
+  const isDriverUser = persona === 'driver';
 
   const currentUserEmail = (currentUser?.email || '').toLowerCase().trim();
   const currentUserName = (currentUser?.name || '').toLowerCase().trim();
@@ -240,31 +235,41 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   });
   const [requestsHydrated, setRequestsHydrated] = useState(false);
 
-  // Hydrate from Supabase with bidirectional merge so newly made local requests are preserved
+  // Hydrate from Supabase and auto-poll on configured Data Sync Interval
   useEffect(() => {
     let cancelled = false;
-    fetchTransportRequestsV2()
-      .then((remote) => {
-        if (cancelled) return;
-        setRequests((prev) => {
-          const remoteList = remote || [];
-          // Retain any local requests that haven't synced to remote yet, and push them up
-          const unsynced = prev.filter((p) => !remoteList.some((r) => r.id === p.id));
-          unsynced.forEach((r) => syncTransportRequestV2ToSupabase(r));
-          const merged = [...remoteList, ...unsynced];
-          try {
-            localStorage.setItem('mgr_transport_v2_requests', JSON.stringify(merged));
-          } catch {}
-          return merged;
+
+    const syncRequestsFromRemote = () => {
+      fetchTransportRequestsV2()
+        .then((remote) => {
+          if (cancelled) return;
+          setRequests((prev) => {
+            const remoteList = remote || [];
+            // Retain any local requests that haven't synced to remote yet, and push them up
+            const unsynced = prev.filter((p) => !remoteList.some((r) => r.id === p.id));
+            unsynced.forEach((r) => syncTransportRequestV2ToSupabase(r));
+            const merged = [...remoteList, ...unsynced];
+            try {
+              localStorage.setItem('mgr_transport_v2_requests', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        })
+        .finally(() => {
+          if (!cancelled) setRequestsHydrated(true);
         });
-      })
-      .finally(() => {
-        if (!cancelled) setRequestsHydrated(true);
-      });
+    };
+
+    syncRequestsFromRemote();
+
+    const intervalMs = settings?.dataSyncInterval || 30000;
+    const timer = setInterval(syncRequestsFromRemote, intervalMs);
+
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
-  }, []);
+  }, [settings?.dataSyncInterval]);
 
   useEffect(() => {
     localStorage.setItem('mgr_transport_v2_requests', JSON.stringify(requests));
@@ -417,8 +422,13 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 
     // Trip vs Schedule search checks
     if (isTripMode) {
-      if (searchDate && item.availableDates && item.availableDates.length > 0) {
-        if (!item.availableDates.includes(searchDate)) return false;
+      // Vehicle availability must be based ONLY on the dates selected by the Owner under Trip Availability.
+      // Owners can select availability only for the next 30 days maximum.
+      if (searchDate) {
+        if (!item.availableDates || !item.availableDates.includes(searchDate)) return false;
+      } else {
+        // If no travel date is filtered, only show vehicles that have at least one active date set by owner
+        if (!item.availableDates || item.availableDates.length === 0) return false;
       }
       if (item.totalSeats < searchPassengers) return false;
     } else {
@@ -433,25 +443,41 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     return true;
   });
 
-  // ─── FILTER REQUESTS (User Data Scoping, Requirement 12) ───────────
+  // ─── FILTER REQUESTS (User Data Scoping & Role-Based Access Validation) ───
   const filteredRequests = requests.filter(req => {
-    if (!isAppAdmin) {
-      if (isPassengerUser) {
-        const passEmail = (req.passenger?.email || '').toLowerCase().trim();
-        const passName = (req.passenger?.name || '').toLowerCase().trim();
-        const passPhone = (req.passenger?.phone || '').trim();
-        const matchesMe =
-          (currentUserEmail && passEmail === currentUserEmail) ||
-          (currentUserName && passName === currentUserName) ||
-          (currentUserPhone && passPhone === currentUserPhone);
-        if (!matchesMe) return false;
-      } else if (isOwnerUser) {
-        const isMyOwner = isOwnedByUser(req.ownerId, currentUser, owners);
-        const isMyVehicle = myVehicleIds.has(req.vehicleId);
-        const matchesOwnerName = (currentUserName && req.ownerName && req.ownerName.toLowerCase().trim() === currentUserName) ||
-          (myOwnerRecord && myOwnerRecord.fullName && req.ownerName && req.ownerName.toLowerCase().trim() === myOwnerRecord.fullName.toLowerCase().trim());
-        if (!isMyOwner && !isMyVehicle && !matchesOwnerName) return false;
-      }
+    if (isAppAdmin) {
+      // Admin: full access to all bookings
+    } else if (isStaffUser) {
+      // Staff: full staff visibility across bookings
+    } else if (isDriverUser) {
+      // Driver: only assigned/authorized booking information
+      const matchesDriver =
+        (req.driverId && currentUser?.id && req.driverId === currentUser.id) ||
+        (req.driverName && currentUserName && req.driverName.toLowerCase().trim() === currentUserName) ||
+        (req.driverPhone && currentUserPhone && req.driverPhone.trim() === currentUserPhone) ||
+        myVehicleIds.has(req.vehicleId);
+      if (!matchesDriver) return false;
+    } else if (isOwnerUser) {
+      // Owner: only own vehicles/bookings
+      const isMyOwner = isOwnedByUser(req.ownerId, currentUser, owners);
+      const isMyVehicle = myVehicleIds.has(req.vehicleId);
+      const matchesOwnerName =
+        (currentUserName && req.ownerName && req.ownerName.toLowerCase().trim() === currentUserName) ||
+        (myOwnerRecord && myOwnerRecord.fullName && req.ownerName && req.ownerName.toLowerCase().trim() === myOwnerRecord.fullName.toLowerCase().trim());
+      if (!isMyOwner && !isMyVehicle && !matchesOwnerName) return false;
+    } else if (isPassengerUser) {
+      // Passenger: only own bookings
+      const passEmail = (req.passenger?.email || '').toLowerCase().trim();
+      const passName = (req.passenger?.name || '').toLowerCase().trim();
+      const passPhone = (req.passenger?.phone || '').trim();
+      const matchesMe =
+        (currentUserEmail && passEmail === currentUserEmail) ||
+        (currentUserName && passName === currentUserName) ||
+        (currentUserPhone && passPhone === currentUserPhone);
+      if (!matchesMe) return false;
+    } else {
+      // Unauthenticated / other personas: deny access
+      return false;
     }
 
     if (statusFilter === 'all') return true;
@@ -609,6 +635,27 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     e.preventDefault();
     if (!requestingListing) return;
 
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+    const max30Date = new Date();
+    max30Date.setDate(max30Date.getDate() + 30);
+    const max30Str = max30Date.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+
+    if (reqTravelDate < todayStr) {
+      alert(`Cannot book past dates (${reqTravelDate}).`);
+      return;
+    }
+    if (reqTravelDate > max30Str) {
+      alert(`Vehicle availability is limited to the next 30 days maximum (up to ${max30Str}).`);
+      return;
+    }
+    if (
+      !requestingListing.availableDates ||
+      !requestingListing.availableDates.includes(reqTravelDate)
+    ) {
+      alert(`Vehicle availability is based only on the dates selected by the Owner under Trip Availability. ${reqTravelDate} is not available for hire.`);
+      return;
+    }
+
     // Strict double-booking conflict prevention
     const conflict = requests.find(
       r =>
@@ -658,8 +705,9 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     };
 
     setRequests(prev => [newRequest, ...prev]);
+    await syncTransportRequestV2ToSupabase(newRequest);
 
-    // Dispatch Lifecycle Notification
+    // Dispatch Lifecycle Notification (validating active channels)
     await triggerLifecycleNotifications('request_created', newRequest);
 
     setBookingSuccessModal({
@@ -689,6 +737,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 
     setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
     setReviewingRequest(null);
+    await syncTransportRequestV2ToSupabase(updated);
 
     await triggerLifecycleNotifications('owner_accepted', updated);
   };
@@ -704,6 +753,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 
     setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
     setReviewingRequest(null);
+    await syncTransportRequestV2ToSupabase(updated);
 
     await triggerLifecycleNotifications('owner_rejected', updated);
   };
@@ -876,7 +926,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 <label className="block font-bold text-slate-700 mb-1">Vehicle Type</label>
                 <select
                   value={searchType}
-                  onChange={e => setSearchType(e.target.value)}
+                  onChange={e => {
+                    setSearchType(e.target.value);
+                    setSearchPage(1);
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 font-medium"
                 >
                   <option value="all">All Vehicles</option>
@@ -894,7 +947,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 <input
                   type="date"
                   value={searchDate}
-                  onChange={e => setSearchDate(e.target.value)}
+                  onChange={e => {
+                    setSearchDate(e.target.value);
+                    setSearchPage(1);
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300"
                 />
               </div>
@@ -906,7 +962,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                   type="text"
                   placeholder="e.g. Mannar Town"
                   value={searchFrom}
-                  onChange={e => setSearchFrom(e.target.value)}
+                  onChange={e => {
+                    setSearchFrom(e.target.value);
+                    setSearchPage(1);
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300"
                 />
               </div>
@@ -918,7 +977,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                   type="text"
                   placeholder="e.g. Jaffna City"
                   value={searchTo}
-                  onChange={e => setSearchTo(e.target.value)}
+                  onChange={e => {
+                    setSearchTo(e.target.value);
+                    setSearchPage(1);
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300"
                 />
               </div>
@@ -931,7 +993,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                   min={1}
                   max={50}
                   value={searchPassengers}
-                  onChange={e => setSearchPassengers(Number(e.target.value))}
+                  onChange={e => {
+                    setSearchPassengers(Math.max(1, Number(e.target.value) || 1));
+                    setSearchPage(1);
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 font-semibold"
                 />
               </div>
@@ -941,7 +1006,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 <label className="block font-bold text-slate-700 mb-1">Driver Option</label>
                 <select
                   value={searchDriverOption}
-                  onChange={e => setSearchDriverOption(e.target.value)}
+                  onChange={e => {
+                    setSearchDriverOption(e.target.value);
+                    setSearchPage(1);
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 font-medium"
                 >
                   <option value="all">Any</option>
@@ -1114,11 +1182,15 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                                 <div className="font-semibold text-slate-800 break-words">
                                   {item.serviceArea || `${searchFrom || 'Mannar'} ➔ ${searchTo || 'Islandwide'}`}
                                 </div>
-                                <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 inline-block">
-                                  {item.availableDates && item.availableDates.length > 0
-                                    ? `${item.availableDates.length} Dates Available`
-                                    : 'Available for Booking'}
-                                </span>
+                                {item.availableDates && item.availableDates.length > 0 ? (
+                                  <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 inline-block">
+                                    {item.availableDates.length} {item.availableDates.length === 1 ? 'Date' : 'Dates'} Available (Next 30 Days)
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 font-medium bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 inline-block">
+                                    No Owner Dates Set
+                                  </span>
+                                )}
                               </div>
                             ) : (
                               <div className="space-y-1">
@@ -1257,7 +1329,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                                     )}
                                   </div>
                                 ) : (
-                                  <span className="italic text-slate-400">Available on request</span>
+                                  <span className="text-[10px] text-slate-400 italic">No Owner Dates Set</span>
                                 )}
                               </div>
                             </div>
@@ -1686,15 +1758,20 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
         const adminCharge = Math.round(seatSubtotal * (convenienceFeePercentage / 100));
         const totalPayable = seatSubtotal + adminCharge;
 
-        // Generate upcoming 21 days for mini-calendar (Trip mode)
+        // Generate upcoming 30 days for mini-calendar (Trip mode)
         const calendarDays = (() => {
           const days = [];
           const today = new Date();
           const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-          for (let i = 0; i < 21; i++) {
+          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+          const max30Date = new Date();
+          max30Date.setDate(max30Date.getDate() + 30);
+          const max30Str = max30Date.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+
+          for (let i = 0; i < 30; i++) {
             const d = new Date(today);
             d.setDate(today.getDate() + i);
-            const dateStr = d.toISOString().split('T')[0];
+            const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
             const dayNum = d.getDate();
             const dayName = dayNames[d.getDay()];
 
@@ -1712,12 +1789,13 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
               status = 'pending';
               statusTooltip = 'Pending owner approval — Held';
             } else if (
-              requestingListing.availableDates &&
-              requestingListing.availableDates.length > 0 &&
-              !requestingListing.availableDates.includes(dateStr)
+              !requestingListing.availableDates ||
+              !requestingListing.availableDates.includes(dateStr) ||
+              dateStr > max30Str ||
+              dateStr < todayStr
             ) {
               status = 'unavailable';
-              statusTooltip = 'Operator not available on this date';
+              statusTooltip = 'Operator not available on this date (availability limited to next 30 days)';
             }
 
             days.push({ dateStr, dayNum, dayName, status, statusTooltip });
@@ -1728,15 +1806,21 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
         // Check selected date conflict status
         const selectedTripDateStatus = (() => {
           if (!reqTravelDate) return null;
+          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+          const max30Date = new Date();
+          max30Date.setDate(max30Date.getDate() + 30);
+          const max30Str = max30Date.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+
           const matchingRequests = requests.filter(
             r => r.vehicleId === requestingListing.vehicleId && r.travelDate === reqTravelDate
           );
           if (matchingRequests.some(r => r.requestStatus === 'confirmed')) return 'confirmed';
           if (matchingRequests.some(r => r.requestStatus === 'pending_owner' || r.requestStatus === 'awaiting_payment')) return 'pending';
           if (
-            requestingListing.availableDates &&
-            requestingListing.availableDates.length > 0 &&
-            !requestingListing.availableDates.includes(reqTravelDate)
+            !requestingListing.availableDates ||
+            !requestingListing.availableDates.includes(reqTravelDate) ||
+            reqTravelDate > max30Str ||
+            reqTravelDate < todayStr
           ) {
             return 'unavailable';
           }
@@ -2038,6 +2122,12 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                           <input
                             type="date"
                             required
+                            min={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' })}
+                            max={(() => {
+                              const d = new Date();
+                              d.setDate(d.getDate() + 30);
+                              return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+                            })()}
                             value={reqTravelDate}
                             onChange={e => setReqTravelDate(e.target.value)}
                             className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-semibold"

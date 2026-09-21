@@ -255,6 +255,8 @@ export interface TransportQuote {
 }
 
 // Marketplace General Settings
+export type DataSyncIntervalOption = 10000 | 30000 | 60000 | 120000;
+
 export interface MarketplaceSettings {
   commissionPercentage: number;
   convenienceFeePercentage?: number;
@@ -263,6 +265,12 @@ export interface MarketplaceSettings {
   contactWhatsAppNumber: string;
   supportEmail: string;
   termsAndConditionsUrl?: string;
+  dataSyncInterval?: DataSyncIntervalOption; // 10s, 30s, 1m, 2m in ms
+  notificationChannels?: {
+    email: boolean;
+    whatsapp: boolean;
+    sms: boolean;
+  };
 }
 
 export type MGRTabType =
