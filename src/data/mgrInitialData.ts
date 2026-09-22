@@ -21,6 +21,7 @@ export const INITIAL_MARKETPLACE_SETTINGS: MarketplaceSettings = {
   contactWhatsAppNumber: '+94 77 987 6543',
   supportEmail: 'booking@mannargreenride.lk',
   termsAndConditionsUrl: '#',
+  autoLogoutMinutes: 15,
 };
 
 // All hardcoded records removed as per production requirement.

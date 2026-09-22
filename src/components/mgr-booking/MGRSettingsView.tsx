@@ -21,6 +21,7 @@ import {
   Table,
   FileText,
   RotateCcw,
+  Clock,
 } from 'lucide-react';
 import { MarketplaceSettings } from '../../types/mgrBooking';
 import { getSupabase } from '../../lib/supabase';
@@ -141,6 +142,9 @@ export const MGRSettingsView: React.FC<MGRSettingsViewProps> = ({
   const [channelSMS, setChannelSMS] = useState<boolean>(
     settings.notificationChannels?.sms ?? true
   );
+  const [autoLogoutMinutes, setAutoLogoutMinutes] = useState<number>(
+    settings.autoLogoutMinutes ?? 15
+  );
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   // SQL Runner Console State
@@ -163,6 +167,7 @@ export const MGRSettingsView: React.FC<MGRSettingsViewProps> = ({
       contactWhatsAppNumber: whatsappNumber,
       supportEmail,
       dataSyncInterval: Number(dataSyncInterval) as any,
+      autoLogoutMinutes: Number(autoLogoutMinutes),
       notificationChannels: {
         email: channelEmail,
         whatsapp: channelWhatsApp,
@@ -380,7 +385,7 @@ export const MGRSettingsView: React.FC<MGRSettingsViewProps> = ({
           </div>
 
           {/* Additional Realtime & Channel Controls */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-slate-100">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2 border-t border-slate-100">
             {/* Data Sync Interval Dropdown */}
             <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/40 space-y-2">
               <div className="flex items-center justify-between">
@@ -405,6 +410,35 @@ export const MGRSettingsView: React.FC<MGRSettingsViewProps> = ({
               </select>
               <p className="text-[11px] text-slate-600">
                 Frequency for automatic real-time background syncing of bookings, availability dates, and vehicle fleet data from Supabase.
+              </p>
+            </div>
+
+            {/* Inactivity & Session Auto-Logout */}
+            <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-amber-900 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Session Auto-Logout</span>
+                </label>
+                <span className="font-mono font-extrabold text-xs text-amber-800 px-2 py-0.5 rounded bg-amber-100">
+                  {autoLogoutMinutes === 0 ? 'Disabled' : `${autoLogoutMinutes} min`}
+                </span>
+              </div>
+              <select
+                id="select-auto-logout-timeout"
+                value={autoLogoutMinutes}
+                onChange={e => setAutoLogoutMinutes(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-xl border border-amber-200 bg-white font-semibold text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer"
+              >
+                <option value={5}>5 minutes (High Security)</option>
+                <option value={10}>10 minutes</option>
+                <option value={15}>15 minutes (Standard Default)</option>
+                <option value={30}>30 minutes</option>
+                <option value={60}>60 minutes (1 hour)</option>
+                <option value={0}>Disabled / Never Auto-Logout</option>
+              </select>
+              <p className="text-[11px] text-slate-600">
+                Automatically logs out idle users after this period of inactivity. Redirects to Login only when session expires.
               </p>
             </div>
 

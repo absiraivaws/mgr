@@ -35,7 +35,7 @@ import {
   CheckSquare,
   ShieldCheck,
 } from 'lucide-react';
-import { TransportVehicle, TransportOwner, DriverOption, TransportReview } from '../../types/mgrBooking';
+import { TransportVehicle, TransportOwner, TransportDriver, DriverOption, TransportReview, MarketplaceSettings } from '../../types/mgrBooking';
 import {
   TransportV2Listing,
   TransportV2Request,
@@ -49,13 +49,28 @@ import { UserAccount, getMGRPersona, getOwnerIdForUser, isOwnedByUser, getStored
 import { fetchTransportRequestsV2, syncTransportRequestV2ToSupabase, deleteTransportRequestV2FromSupabase, syncTransportListingsToSupabase } from '../../lib/supabaseSync';
 import { MGRPaymentModal } from './MGRPaymentModal';
 
+export const safeColomboDate = (d: Date = new Date()): string => {
+  try {
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+  } catch {
+    const colomboMs = d.getTime() + (5.5 * 60 + d.getTimezoneOffset()) * 60 * 1000;
+    const colomboDate = new Date(colomboMs);
+    const y = colomboDate.getFullYear();
+    const m = String(colomboDate.getMonth() + 1).padStart(2, '0');
+    const day = String(colomboDate.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+};
+
 export interface MGRTransportBookingProps {
   view: 'search' | 'requests' | 'owner-listings';
   vehicles: TransportVehicle[];
   owners: TransportOwner[];
+  drivers?: TransportDriver[];
   currentUser?: UserAccount;
   convenienceFeePercentage?: number; // default 5%
   settings?: MarketplaceSettings;
+  onNavigate?: (tab: any) => void;
 }
 
 // Helper: Storage helpers for Transport Ratings & Reviews (Requirement 9)
@@ -92,10 +107,10 @@ const createListingsFromVehicles = (
   ownersList: TransportOwner[]
 ): TransportV2Listing[] => {
   const listings: TransportV2Listing[] = [];
-  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+  const todayStr = safeColomboDate();
   const max30Date = new Date();
   max30Date.setDate(max30Date.getDate() + 30);
-  const max30Str = max30Date.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+  const max30Str = safeColomboDate(max30Date);
 
   vehiclesList.forEach((v, vIdx) => {
     if (v.status === 'suspended' || v.status === 'maintenance') return;
@@ -182,9 +197,11 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   view,
   vehicles,
   owners,
+  drivers = [],
   currentUser,
   convenienceFeePercentage = 5,
   settings,
+  onNavigate,
 }) => {
   const persona = getMGRPersona(currentUser);
   const isOwnerOrAdmin = persona === 'owner' || persona === 'admin';
@@ -288,7 +305,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   // Filter options strictly: 'all' | 'trip' | 'schedule' (Requirement 1)
   const [listingTypeFilter, setListingTypeFilter] = useState<'all' | 'trip' | 'schedule'>('all');
   const [searchType, setSearchType] = useState<string>('all');
-  const [searchDate, setSearchDate] = useState<string>(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' }));
+  const [searchDate, setSearchDate] = useState<string>(() => safeColomboDate());
   const [searchFrom, setSearchFrom] = useState<string>('');
   const [searchTo, setSearchTo] = useState<string>('');
   const [searchPassengers, setSearchPassengers] = useState<number>(1);
@@ -659,10 +676,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     e.preventDefault();
     if (!requestingListing) return;
 
-    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+    const todayStr = safeColomboDate();
     const max30Date = new Date();
     max30Date.setDate(max30Date.getDate() + 30);
-    const max30Str = max30Date.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+    const max30Str = safeColomboDate(max30Date);
 
     if (reqTravelDate < todayStr) {
       alert(`Cannot book past dates (${reqTravelDate}).`);
@@ -865,20 +882,34 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   const handleConfirmAssignDriver = async () => {
     if (!assigningDriverRequest) return;
     let dId = selectedDriverId;
-    let dName = customDriverName;
-    let dPhone = customDriverPhone;
+    let dName = customDriverName.trim();
+    let dPhone = customDriverPhone.trim();
+    let dType = 'driver';
 
     if (selectedDriverId) {
-      const storedUsers = getStoredUsers();
-      const matched = storedUsers.find(u => u.id === selectedDriverId);
-      if (matched) {
-        dName = matched.name;
-        dPhone = matched.phone || dPhone;
+      // 1. Look up in Owner's registered drivers roster
+      const matchedDriver = (drivers || []).find(d => d.id === selectedDriverId);
+      if (matchedDriver) {
+        // Enforce Owner ownership validation
+        if (matchedDriver.ownerId && matchedDriver.ownerId !== assigningDriverRequest.ownerId) {
+          alert('Security Violation: The selected driver does not belong to this vehicle owner. Please select a driver registered under this owner.');
+          return;
+        }
+        dName = matchedDriver.fullName;
+        dPhone = matchedDriver.mobileNumber || dPhone;
+        dType = matchedDriver.type || 'driver';
+      } else {
+        const storedUsers = getStoredUsers();
+        const matched = storedUsers.find(u => u.id === selectedDriverId);
+        if (matched) {
+          dName = matched.name;
+          dPhone = matched.phone || dPhone;
+        }
       }
     }
 
     if (!dName) {
-      alert('Please select a registered driver or enter the driver name.');
+      alert('Please select a registered driver/captain or enter their name.');
       return;
     }
 
@@ -887,6 +918,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       driverId: dId || `DRV-${Date.now()}`,
       driverName: dName,
       driverPhone: dPhone,
+      driverType: dType,
       requestStatus: 'driver_assigned',
       updatedAt: Date.now(),
     };
@@ -900,7 +932,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     setRequests(prev => prev.map(r => (r.id === assigningDriverRequest.id ? updated : r)));
     setAssigningDriverRequest(null);
     await triggerLifecycleNotifications('driver_assigned', updated);
-    alert(`Driver ${dName} assigned to booking ${assigningDriverRequest.requestNumber} successfully! Notifications dispatched.`);
+    alert(`${dType === 'captain' ? 'Captain' : 'Driver'} ${dName} assigned to booking ${assigningDriverRequest.requestNumber} successfully! Notifications dispatched.`);
   };
 
   // 7. START JOURNEY (Lifecycle Requirement 8)
@@ -925,6 +957,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     const updated: TransportV2Request = {
       ...req,
       requestStatus: 'journey_completed',
+      completedAt: Date.now(),
       updatedAt: Date.now(),
     };
     const syncRes = await syncTransportRequestV2ToSupabase(updated);
@@ -934,7 +967,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     }
     setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
     await triggerLifecycleNotifications('journey_completed', updated);
-    alert(`Journey for ride ${req.requestNumber} has completed! Opening Rating & Review dialog.`);
+    alert(`Journey for ride ${req.requestNumber} is marked as Completed! Booking has moved to the History tab with all driver, payment, and journey details preserved.`);
     setReviewingBooking(updated);
     setReviewRating(5);
     setReviewComment('');
@@ -945,6 +978,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     const updated: TransportV2Request = {
       ...req,
       requestStatus: 'completed',
+      completedAt: Date.now(),
       updatedAt: Date.now(),
     };
     const syncRes = await syncTransportRequestV2ToSupabase(updated);
@@ -954,7 +988,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
     }
     setRequests(prev => prev.map(r => (r.id === req.id ? updated : r)));
     await triggerLifecycleNotifications('booking_completed', updated);
-    alert(`Booking ${req.requestNumber} marked as completed!`);
+    alert(`Booking ${req.requestNumber} marked as completed and moved to History!`);
   };
 
   // 10. SUBMIT RATING & REVIEW (Requirement 9)
@@ -994,7 +1028,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       reviewedUserName,
       rating: reviewRating,
       comment: reviewComment.trim(),
-      date: now.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' }),
+      date: safeColomboDate(now),
       time: now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
       createdAt: Date.now(),
     };
@@ -1004,6 +1038,8 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       const updatedReq: TransportV2Request = {
         ...reviewingBooking,
         ...(isPassenger ? { passengerReviewed: true } : { driverReviewed: true }),
+        rating: reviewRating,
+        reviewComment: reviewComment.trim(),
         updatedAt: Date.now(),
       };
       const syncRes = await syncTransportRequestV2ToSupabase(updatedReq);
@@ -2048,7 +2084,8 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
         const isSchedule = requestingListing.listingMode === 'schedule' || requestingListing.listingMode === 'planned_trip';
         const remaining = getRemainingSeatsForListing(requestingListing);
         const seatFare = requestingListing.seatFare || 1200;
-        const seatSubtotal = reqSeats * seatFare;
+        const validSeats = Math.max(1, Number(reqSeats) || 1);
+        const seatSubtotal = validSeats * seatFare;
         const adminCharge = Math.round(seatSubtotal * (convenienceFeePercentage / 100));
         const totalPayable = seatSubtotal + adminCharge;
 
@@ -2057,15 +2094,15 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
           const days = [];
           const today = new Date();
           const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+          const todayStr = safeColomboDate();
           const max30Date = new Date();
           max30Date.setDate(max30Date.getDate() + 30);
-          const max30Str = max30Date.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+          const max30Str = safeColomboDate(max30Date);
 
           for (let i = 0; i < 30; i++) {
             const d = new Date(today);
             d.setDate(today.getDate() + i);
-            const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+            const dateStr = safeColomboDate(d);
             const dayNum = d.getDate();
             const dayName = dayNames[d.getDay()];
 
@@ -2100,10 +2137,10 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
         // Check selected date conflict status
         const selectedTripDateStatus = (() => {
           if (!reqTravelDate) return null;
-          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+          const todayStr = safeColomboDate();
           const max30Date = new Date();
           max30Date.setDate(max30Date.getDate() + 30);
-          const max30Str = max30Date.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+          const max30Str = safeColomboDate(max30Date);
 
           const matchingRequests = requests.filter(
             r => r.vehicleId === requestingListing.vehicleId && r.travelDate === reqTravelDate
@@ -2123,7 +2160,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-            <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs max-h-[92vh] overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl border border-slate-200 text-xs max-h-[90vh] overflow-y-auto overscroll-contain">
               <div className="flex items-center justify-between border-b pb-3">
                 <div>
                   <div className="flex items-center gap-2">
@@ -2416,11 +2453,11 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                           <input
                             type="date"
                             required
-                            min={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' })}
+                            min={safeColomboDate()}
                             max={(() => {
                               const d = new Date();
                               d.setDate(d.getDate() + 30);
-                              return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' });
+                              return safeColomboDate(d);
                             })()}
                             value={reqTravelDate}
                             onChange={e => setReqTravelDate(e.target.value)}
@@ -2453,11 +2490,11 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                 </div>
 
                 {/* Action Buttons */}
-                <div className="pt-3 border-t flex justify-end gap-2">
+                <div className="pt-3 border-t flex flex-wrap justify-end gap-2 sticky bottom-0 bg-white/95 backdrop-blur-xs py-2.5 -mx-6 px-6 shadow-xs z-10">
                   <button
                     type="button"
                     onClick={() => setRequestingListing(null)}
-                    className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold cursor-pointer"
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer transition text-xs"
                   >
                     Cancel
                   </button>
@@ -2467,17 +2504,17 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
                     <button
                       type="submit"
                       disabled={reqSeats > remaining || reqSeats < 1}
-                      className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold cursor-pointer shadow-xs flex items-center gap-1.5"
+                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold cursor-pointer shadow-xs flex items-center gap-1.5 transition text-xs"
                     >
                       <CreditCard className="w-4 h-4" />
-                      <span>Pay & Confirm Seats (Rs. {totalPayable.toLocaleString()})</span>
+                      <span>Pay & Confirm Seats (Rs. {Number.isFinite(totalPayable) ? totalPayable.toLocaleString() : '0'})</span>
                     </button>
                   ) : (
                     /* TRIP: SEND REQUEST TO OPERATOR */
                     <button
                       type="submit"
                       disabled={selectedTripDateStatus !== 'available'}
-                      className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold cursor-pointer shadow-xs flex items-center gap-1.5"
+                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold cursor-pointer shadow-xs flex items-center gap-1.5 transition text-xs"
                     >
                       <Car className="w-4 h-4" />
                       <span>Send Request to Operator</span>
@@ -3153,34 +3190,70 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
             </div>
 
             <div className="space-y-3">
-              {/* Select Registered Driver */}
+              {/* Select Registered Driver / Captain (Filtered strictly to Owner's Roster) */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Select Registered Driver</label>
-                <select
-                  value={selectedDriverId}
-                  onChange={e => {
-                    const selId = e.target.value;
-                    setSelectedDriverId(selId);
-                    if (selId) {
-                      const matched = getStoredUsers().find(u => u.id === selId);
-                      if (matched) {
-                        setCustomDriverName(matched.name);
-                        setCustomDriverPhone(matched.phone || '');
-                      }
-                    }
-                  }}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
-                >
-                  <option value="">-- Choose Registered Driver or Enter Below --</option>
-                  {getStoredUsers()
-                    .filter(u => u.role === 'driver')
-                    .map(d => (
-                      <option key={d.id} value={d.id}>
-                        {d.name} ({d.phone || d.email})
-                      </option>
-                    ))}
-                </select>
+                {(() => {
+                  const ownerDrivers = (drivers || []).filter(
+                    d => d.ownerId === assigningDriverRequest.ownerId
+                  );
+                  return (
+                    <>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-bold text-slate-700">Owner's Registered Drivers / Captains *</label>
+                        <span className="text-[10px] text-purple-700 font-semibold bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                          {ownerDrivers.length} Available
+                        </span>
+                      </div>
+                      <select
+                        value={selectedDriverId}
+                        onChange={e => {
+                          const selId = e.target.value;
+                          setSelectedDriverId(selId);
+                          if (selId) {
+                            const matched = (drivers || []).find(d => d.id === selId);
+                            if (matched) {
+                              setCustomDriverName(matched.fullName);
+                              setCustomDriverPhone(matched.mobileNumber || '');
+                            } else {
+                              const matchedUser = getStoredUsers().find(u => u.id === selId);
+                              if (matchedUser) {
+                                setCustomDriverName(matchedUser.name);
+                                setCustomDriverPhone(matchedUser.phone || '');
+                              }
+                            }
+                          }
+                        }}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-medium text-xs focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      >
+                        <option value="">-- Choose Registered Driver/Captain --</option>
+                        {ownerDrivers.map(d => (
+                          <option key={d.id} value={d.id}>
+                            {d.fullName} ({d.mobileNumber}) {d.type === 'captain' ? '⚓ Boat Captain' : '🚗 Vehicle Driver'} - {d.status}
+                          </option>
+                        ))}
+                      </select>
+                      {ownerDrivers.length === 0 && (
+                        <p className="text-[10px] text-amber-600 mt-1">
+                          No drivers registered under this owner yet. You can register drivers in the Owners & Drivers roster, or enter details below.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
+
+              {/* Display Selected Driver / Captain Details */}
+              {selectedDriverId && (
+                <div className="p-3 bg-purple-50/80 border border-purple-200 rounded-xl space-y-1">
+                  <div className="font-bold text-purple-900 text-xs flex items-center gap-1.5">
+                    <UserCheck className="w-3.5 h-3.5 text-purple-700" />
+                    <span>Selected Driver: {customDriverName || 'Driver'}</span>
+                  </div>
+                  <div className="text-[11px] text-purple-800">
+                    <strong>Phone / WhatsApp:</strong> {customDriverPhone || 'Not provided'}
+                  </div>
+                </div>
+              )}
 
               {/* Driver Details Manual Entry / Override */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

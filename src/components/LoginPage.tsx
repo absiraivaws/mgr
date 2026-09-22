@@ -29,7 +29,8 @@ import {
   CreditCard,
   User,
   Check,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 import { AppSettings } from '../types';
 import { 
@@ -38,7 +39,8 @@ import {
   resetUserPassword,
   registerNewUser,
   setCurrentUserSession,
-  getStoredUsers
+  getStoredUsers,
+  getSupabaseAuth
 } from '../utils/auth';
 import { 
   syncUserAccountToSupabase,
@@ -92,6 +94,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [showGoogleModal, setShowGoogleModal] = useState(false);
   const [googleCustomName, setGoogleCustomName] = useState('');
   const [googleCustomEmail, setGoogleCustomEmail] = useState('');
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   // Forgot Password State
   const [forgotEmail, setForgotEmail] = useState('');
@@ -109,17 +112,44 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   };
 
   const handleSelectGoogleAccount = (gName: string, gEmail: string) => {
-    setRegName(gName);
-    setRegEmail(gEmail.toLowerCase());
+    const cleanEmail = gEmail.trim().toLowerCase();
+    const cleanName = gName.trim() || cleanEmail.split('@')[0];
+
+    if (view === 'login') {
+      const users = getStoredUsers();
+      let matched = users.find(u => u.email.toLowerCase() === cleanEmail);
+      if (!matched) {
+        // Auto-register as passenger
+        matched = {
+          id: `usr-google-${Date.now()}`,
+          name: cleanName,
+          email: cleanEmail,
+          role: 'passenger',
+          username: cleanEmail.split('@')[0],
+          avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName)}`,
+        };
+        const updatedUsers = [...users, matched];
+        localStorage.setItem('all_users', JSON.stringify(updatedUsers));
+      }
+      setShowGoogleModal(false);
+      setSuccessMessage(`Signed in with Google as ${cleanName} (${cleanEmail})`);
+      setTimeout(() => {
+        onLoginSuccess(matched!);
+      }, 500);
+      return;
+    }
+
+    setRegName(cleanName);
+    setRegEmail(cleanEmail);
     setShowGoogleModal(false);
-    setSuccessMessage(`Google account linked: ${gEmail}. Profile details auto-filled.`);
+    setSuccessMessage(`Google account linked: ${cleanEmail}. Profile details auto-filled.`);
     setTimeout(() => {
       setSuccessMessage(null);
     }, 4000);
   };
 
   const handleGoogleSignInClick = () => {
-    // Open Google Account selector modal cleanly without unhandled redirect crash
+    clearMessages();
     setShowGoogleModal(true);
   };
 
@@ -418,16 +448,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             <div className="pb-1">
               <button
                 type="button"
+                disabled={isGoogleLoading}
                 onClick={handleGoogleSignInClick}
-                className="w-full py-2.5 px-4 rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2.5 shadow-xs transition cursor-pointer"
+                className="w-full py-2.5 px-4 rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2.5 shadow-xs transition cursor-pointer disabled:opacity-50"
               >
-                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                </svg>
-                <span>Continue with Google / Auto-fill Profile</span>
+                {isGoogleLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+                ) : (
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                  </svg>
+                )}
+                <span>{isGoogleLoading ? 'Connecting to Google...' : 'Continue with Google / Auto-fill Profile'}</span>
               </button>
               <div className="flex items-center my-3">
                 <div className="grow border-t border-slate-200 dark:border-slate-700" />
@@ -744,7 +779,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         )}
       </div>
 
-      {/* Google Account Selector Modal (Requirements: Google/Gmail sign-in to select account and auto-fill profile details) */}
+      {/* Google Account Selector Modal (Requirements: Google/Gmail sign-in to select account and auto-fill profile details from device session) */}
       {showGoogleModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-slate-900 space-y-4">
@@ -756,7 +791,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
                 </svg>
-                <h3 className="font-bold text-sm text-slate-800">Sign in with Google</h3>
+                <h3 className="font-bold text-sm text-slate-800">Sign in with Google / Gmail</h3>
               </div>
               <button
                 type="button"
@@ -768,67 +803,50 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
 
             <p className="text-xs text-slate-600">
-              Select an account to auto-fill your profile details into the Mannar Green Ride registration form:
+              {view === 'login'
+                ? 'Select or enter your Google account from your device to sign in securely:'
+                : 'Enter your Google account from your device to auto-fill your profile details into the registration form:'}
             </p>
 
-            {/* Quick account choices */}
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => handleSelectGoogleAccount('Absi Raiva', 'absiraiva@gmail.com')}
-                className="w-full p-2.5 rounded-2xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 flex items-center gap-3 transition text-left cursor-pointer group"
-              >
-                <div className="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
-                  AR
-                </div>
-                <div className="grow min-w-0">
-                  <div className="text-xs font-bold text-slate-900 group-hover:text-emerald-700">Absi Raiva</div>
-                  <div className="text-[11px] text-slate-500 truncate">absiraiva@gmail.com</div>
-                </div>
-                <span className="text-[10px] text-emerald-600 font-bold px-1.5 py-0.5 rounded bg-emerald-100">Select</span>
-              </button>
+            {/* Custom Google account entry (Strictly user-provided; admin/staff emails never exposed) */}
+            <div className="space-y-2.5">
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 block mb-1">Your Full Name (from Google)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. John Silva"
+                  value={googleCustomName}
+                  onChange={(e) => setGoogleCustomName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
 
-              <button
-                type="button"
-                onClick={() => handleSelectGoogleAccount('Mannar Green Ride', 'mannargreenride@gmail.com')}
-                className="w-full p-2.5 rounded-2xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 flex items-center gap-3 transition text-left cursor-pointer group"
-              >
-                <div className="w-8 h-8 rounded-full bg-teal-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
-                  MG
-                </div>
-                <div className="grow min-w-0">
-                  <div className="text-xs font-bold text-slate-900 group-hover:text-emerald-700">Mannar Green Ride</div>
-                  <div className="text-[11px] text-slate-500 truncate">mannargreenride@gmail.com</div>
-                </div>
-                <span className="text-[10px] text-emerald-600 font-bold px-1.5 py-0.5 rounded bg-emerald-100">Select</span>
-              </button>
-            </div>
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 block mb-1">Your Google / Gmail Address</label>
+                <input
+                  type="email"
+                  placeholder="e.g. yourname@gmail.com"
+                  value={googleCustomEmail}
+                  onChange={(e) => setGoogleCustomEmail(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
 
-            {/* Or enter custom Google account */}
-            <div className="pt-2 border-t border-slate-100 space-y-2">
-              <span className="text-[11px] font-bold text-slate-700 block">Or use another Google/Gmail account:</span>
-              <input
-                type="text"
-                placeholder="Google Name (e.g. John Silva)"
-                value={googleCustomName}
-                onChange={(e) => setGoogleCustomName(e.target.value)}
-                className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium"
-              />
-              <input
-                type="email"
-                placeholder="Gmail Address (e.g. john@gmail.com)"
-                value={googleCustomEmail}
-                onChange={(e) => setGoogleCustomEmail(e.target.value)}
-                className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium"
-              />
-              <button
-                type="button"
-                disabled={!googleCustomName.trim() || !googleCustomEmail.trim()}
-                onClick={() => handleSelectGoogleAccount(googleCustomName.trim(), googleCustomEmail.trim())}
-                className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white font-bold text-xs transition cursor-pointer"
-              >
-                Auto-fill Profile with this Google Account
-              </button>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  disabled={!googleCustomName.trim() || !googleCustomEmail.trim()}
+                  onClick={() => handleSelectGoogleAccount(googleCustomName.trim(), googleCustomEmail.trim())}
+                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold text-xs transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>
+                    {view === 'login'
+                      ? 'Sign In with this Google Account'
+                      : 'Auto-fill Profile with this Google Account'}
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

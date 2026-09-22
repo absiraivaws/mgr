@@ -289,6 +289,7 @@ export interface MarketplaceSettings {
     whatsapp: boolean;
     sms: boolean;
   };
+  autoLogoutMinutes?: number; // Inactivity timeout in minutes (e.g. 5, 10, 15, 30, 60, 0 for never)
 }
 
 export type MGRTabType =

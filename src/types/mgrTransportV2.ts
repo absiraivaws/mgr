@@ -113,6 +113,10 @@ export interface TransportV2Request {
   // Ratings & Reviews tracking
   passengerReviewed?: boolean;
   driverReviewed?: boolean;
+  rating?: number;
+  reviewComment?: string;
+  driverType?: string;
+  completedAt?: number;
 
   createdAt: number;
   updatedAt: number;

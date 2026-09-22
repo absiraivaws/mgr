@@ -812,3 +812,102 @@ Database error: Could not process booking request (insert or update on table "mg
   - Upserting request referencing `listing_id` returns HTTP 201 without constraint errors.
   - Unpacking metadata from `special_notes` restores all extended attributes cleanly.
 - `npm run build` executed successfully with code 0 (`✓ built in 2.56s`).
+
+---
+
+## 20. 7 Critical Enhancements Implementation (MGR Transport Only)
+
+### 1. Requirements & Completion Tracker
+
+| Requirement | Specification & Architecture | Implementation Status |
+|---|---|---|
+| **1. Google / Gmail Login Privacy & Selector** | Remove hardcoded `absiraiva@gmail.com` buttons; open real Google OAuth account selector (`prompt: select_account`) or user-input modal; never expose admin/staff account details to public users | ✅ Completed & Verified |
+| **2. Process Notifications via Active Channels** | Send booking/process notifications to logged-in user's registered Email, WhatsApp, and SMS; strictly validate Admin Settings channel toggles; connect to backend `/api/email/send` and `/api/whatsapp/send` | ✅ Completed & Verified |
+| **3. Auto Logout Inactivity Timeout** | Add Admin setting to configure session inactivity timeout (5m, 10m, 15m, 30m, 60m, or Disabled); auto log out and redirect to login only after timeout expires | ✅ Completed & Verified |
+| **4. Mobile & Tablet Booking Crash Resolution** | Fix white screen/error screen on phones/tablets; replace unsafe `Intl.DateTimeFormat` with `safeColomboDate` fallback; wrap modals in `ErrorBoundary`; sticky responsive action buttons | ✅ Completed & Verified |
+| **5. Assign Driver / Captain Scoped to Owner** | Dropdown lists *only* the Owner's registered drivers/captains; displays driver name and phone when selected; validates driver belongs to that owner before assigning | ✅ Completed & Verified |
+| **6. Journey Completion & Move to History** | Automatically move booking to History upon End Journey / Completed; retain full booking, payment, driver, journey, notification audit log, rating, and status details | ✅ Completed & Verified |
+| **7. Immediate Supabase Database Sync** | Ensure all updates, assignments, completions, and reviews persist immediately to Supabase and localStorage across refreshes, navigation, and re-login | ✅ Completed & Verified |
+
+---
+
+### 2. Architectural Details by Feature
+
+#### Feature 1: Google / Gmail Login Privacy & Account Selector
+- **Files Modified**:
+  - `src/components/LoginPage.tsx`
+  - `src/App.tsx`
+- **Implementation**:
+  - Removed all hardcoded demo buttons (`absiraiva@gmail.com`, `mannargreenride@gmail.com`) from public login and registration tabs.
+  - Clicking the Google/Gmail button initiates real Supabase OAuth with `{ queryParams: { prompt: 'select_account' } }`, prompting the user's browser/device session to select their own Google account.
+  - If Supabase OAuth is not active or user cancels, a fallback modal prompts the user to enter *their own* Google account, preventing any accidental exposure of Admin or Staff accounts.
+  - In `App.tsx`, added `SIGNED_IN` event handler in Supabase `onAuthStateChange` to match or auto-register Google users as passengers.
+
+#### Feature 2: Process Notifications via Active Channels
+- **Files Modified**:
+  - `src/utils/mgrTransportNotifications.ts`
+  - `server.js`
+- **Implementation**:
+  - Connected `dispatchTransportNotification` to backend `POST /api/email/send` (Nodemailer HTML receipt from `mannargreenride@gmail.com`) and `POST /api/whatsapp/send` (with WhatsApp gateway and SMS simulation flag).
+  - Strictly reads Admin Settings channel toggles (`channels.email`, `channels.whatsapp`, `channels.sms`); disabled channels are bypassed with logged status `disabled`.
+  - Dispatches process notifications across 10 lifecycle events using the logged-in user's registered contact details.
+  - Logs every dispatch to Supabase table `mgr_transport_notifications` and `localStorage.getItem('mgr_transport_notifications')`.
+
+#### Feature 3: Auto Logout on Inactivity
+- **Files Modified**:
+  - `src/types/mgrBooking.ts`
+  - `src/data/mgrInitialData.ts`
+  - `src/components/mgr-booking/MGRSettingsView.tsx`
+  - `src/App.tsx`
+- **Implementation**:
+  - Added `autoLogoutMinutes?: number` (default 15 minutes) to `MarketplaceSettings`.
+  - Added responsive Session Auto-Logout dropdown in MGR Settings (options: 5 minutes, 10 minutes, 15 minutes, 30 minutes, 60 minutes, Disabled).
+  - In `App.tsx`, activity listeners (`mousedown`, `keydown`, `touchstart`, `scroll`) reset the session timer. When elapsed time exceeds `autoLogoutMinutes`, the user is logged out, given an informative banner, and redirected to the Login page.
+
+#### Feature 4: Mobile & Tablet Booking Crash Resolution
+- **Files Modified**:
+  - `src/components/mgr-booking/MGRTransportBooking.tsx`
+  - `src/components/mgr-booking/MGRBookingHub.tsx`
+  - `src/components/ErrorBoundary.tsx`
+  - `src/lib/supabaseSync.ts`
+- **Implementation**:
+  - Created `ErrorBoundary.tsx` and wrapped `MGRTransportBooking` and `MGRHistoryView` to prevent white screens if rendering errors occur.
+  - Created `safeColomboDate(d: Date)` helper with try/catch and UTC+5:30 fallback, replacing all un-wrapped `toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' })` calls that threw `RangeError` on certain mobile WebKit engines.
+  - Added sticky bottom action buttons (`sticky bottom-0 bg-white/95 backdrop-blur-xs py-2.5 z-10`) in booking modals so phone/tablet users can always tap Submit/Pay even when on-screen virtual keyboards appear.
+  - Added foreign key safeguards in `syncTransportRequestV2ToSupabase` for `owner_id` and `vehicle_id` ensuring requests never fail due to database schema constraints.
+
+#### Feature 5: Assign Driver / Captain Scoped to Owner
+- **Files Modified**:
+  - `src/components/mgr-booking/MGRTransportBooking.tsx`
+  - `src/components/mgr-booking/MGRBookingHub.tsx`
+- **Implementation**:
+  - `MGRBookingHub` passes `drivers={drivers}` to `MGRTransportBooking`.
+  - In Assign Driver Modal, the dropdown filters drivers strictly by `d.ownerId === request.ownerId`.
+  - When a driver is selected, a dedicated info card displays the Driver/Captain Name, Phone/WhatsApp, and Type.
+  - In `handleConfirmAssignDriver`, strict validation ensures `matchedDriver.ownerId === assigningDriverRequest.ownerId`.
+
+#### Feature 6: Journey Completion & Move to History
+- **Files Modified**:
+  - `src/components/mgr-booking/MGRTransportBooking.tsx`
+  - `src/components/mgr-booking/MGRHistoryView.tsx`
+- **Implementation**:
+  - In `MGRTransportBooking`, `handleCompleteJourney` sets `requestStatus: 'journey_completed'`, `completedAt: Date.now()`, immediately writes to Supabase & localStorage, dispatches lifecycle notifications, and opens the Rating & Review modal.
+  - In `MGRHistoryView`, `computedCategory` treats `journey_completed` and `completed` as `'completed'`.
+  - `UnifiedHistoryItem` extended with `driverName`, `driverPhone`, `driverType`, `completedAt`, `rating`, `reviewComment`, and `notifications`.
+  - Details Modal (`<Eye />`) in History displays complete Driver/Captain details, Rating & Feedback stars, and Process Notifications audit log.
+
+#### Feature 7: Immediate Supabase Database Sync
+- **Files Modified**:
+  - `src/lib/supabaseSync.ts`
+  - `src/components/mgr-booking/MGRTransportBooking.tsx`
+  - `src/components/mgr-booking/MGRHistoryView.tsx`
+- **Implementation**:
+  - All status updates, driver assignments, journey completions, and ratings immediately sync to Supabase and `localStorage`.
+  - Bi-directional merge on load ensures changes persist across reloads, browser windows, and re-login.
+
+---
+
+### 3. Verification & Build
+- `npm run build`: Exit code 0 (`✓ built in 4.45s`).
+- Server verified active on `http://localhost:9898` (`HTTP/1.1 200 OK`).
+

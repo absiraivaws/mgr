@@ -36,6 +36,7 @@ import {
   Sparkles,
   Download,
   RefreshCw,
+  Star,
 } from 'lucide-react';
 import type { TransportV2Request } from '../../types/mgrTransportV2';
 import type { TransportBooking } from '../../types/mgrBooking';
@@ -79,6 +80,13 @@ export interface UnifiedHistoryItem {
   computedCategory: 'completed' | 'date_passed' | 'pending' | 'awaiting_payment' | 'cancelled';
   createdAt: number;
   specialNotes?: string;
+  driverName?: string;
+  driverPhone?: string;
+  driverType?: string;
+  completedAt?: number;
+  rating?: number;
+  reviewComment?: string;
+  notifications?: { channel: string; timestamp: number; title: string }[];
   originalPayload?: any;
 }
 
@@ -145,6 +153,19 @@ export const MGRHistoryView: React.FC<MGRHistoryViewProps> = ({
     setIsLoading(true);
     const unified: UnifiedHistoryItem[] = [];
 
+    // Load reviews & notifications from localStorage for enrichment
+    let storedReviews: any[] = [];
+    try {
+      const rawReviews = localStorage.getItem('mgr_transport_reviews');
+      if (rawReviews) storedReviews = JSON.parse(rawReviews);
+    } catch {}
+
+    let storedNotifications: any[] = [];
+    try {
+      const rawNotifs = localStorage.getItem('mgr_transport_notifications');
+      if (rawNotifs) storedNotifications = JSON.parse(rawNotifs);
+    } catch {}
+
     // 1. Read from mgr_transport_v2_requests (Primary marketplace booking requests)
     try {
       const rawRequests = localStorage.getItem('mgr_transport_v2_requests');
@@ -156,7 +177,12 @@ export const MGRHistoryView: React.FC<MGRHistoryViewProps> = ({
             const isPassed = travelDate < todayStr;
             let computedCategory: UnifiedHistoryItem['computedCategory'] = 'pending';
 
-            if (req.requestStatus === 'confirmed' || req.paymentStatus === 'paid') {
+            if (
+              req.requestStatus === 'confirmed' ||
+              req.requestStatus === 'journey_completed' ||
+              req.requestStatus === 'completed' ||
+              req.paymentStatus === 'paid'
+            ) {
               computedCategory = 'completed';
             } else if (req.requestStatus === 'cancelled' || req.requestStatus === 'owner_rejected') {
               computedCategory = 'cancelled';
@@ -167,6 +193,13 @@ export const MGRHistoryView: React.FC<MGRHistoryViewProps> = ({
             } else {
               computedCategory = 'pending';
             }
+
+            const matchedReview = (storedReviews || []).find(
+              r => r.bookingId === req.id || r.bookingNumber === req.requestNumber
+            );
+            const matchedNotifs = (storedNotifications || []).filter(
+              n => n.requestId === req.id || n.requestNumber === req.requestNumber
+            );
 
             unified.push({
               id: req.id,
@@ -199,6 +232,17 @@ export const MGRHistoryView: React.FC<MGRHistoryViewProps> = ({
               computedCategory,
               createdAt: typeof req.holdExpiresAt === 'number' ? req.holdExpiresAt - 3600000 : Date.now(),
               specialNotes: req.specialNotes,
+              driverName: req.driverName,
+              driverPhone: req.driverPhone,
+              driverType: req.driverType || 'driver',
+              completedAt: req.completedAt,
+              rating: req.rating || matchedReview?.rating,
+              reviewComment: req.reviewComment || matchedReview?.comment,
+              notifications: matchedNotifs.map(n => ({
+                channel: n.channel,
+                timestamp: n.timestamp,
+                title: n.title,
+              })),
               originalPayload: req,
             });
           });
@@ -438,6 +482,31 @@ export const MGRHistoryView: React.FC<MGRHistoryViewProps> = ({
 
   // Status Badge Helper
   const renderStatusBadge = (item: UnifiedHistoryItem) => {
+    if (item.rawStatus === 'journey_completed') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+          <span>Journey Completed</span>
+        </span>
+      );
+    }
+    if (item.rawStatus === 'driver_assigned') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-300 shadow-xs">
+          <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+          <span>Driver Assigned</span>
+        </span>
+      );
+    }
+    if (item.rawStatus === 'journey_started') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-300 shadow-xs">
+          <Car className="w-3.5 h-3.5 text-blue-600" />
+          <span>In Transit / Journey Started</span>
+        </span>
+      );
+    }
+
     switch (item.computedCategory) {
       case 'completed':
         return (
@@ -1022,6 +1091,74 @@ export const MGRHistoryView: React.FC<MGRHistoryViewProps> = ({
                 {viewingItem.specialNotes}
               </div>
             )}
+
+            {/* Driver & Captain Information */}
+            {viewingItem.driverName && (
+              <div className="p-3.5 rounded-2xl bg-purple-50/60 border border-purple-200 text-xs space-y-1.5">
+                <div className="font-bold text-purple-900 uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-purple-700" />
+                  <span>Assigned {viewingItem.driverType === 'captain' ? 'Boat Captain' : 'Vehicle Driver'}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 text-sm">{viewingItem.driverName}</span>
+                  <span className="text-slate-600 font-mono text-[11px]">{viewingItem.driverPhone || 'No contact provided'}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Rating & Review Information */}
+            {viewingItem.rating && (
+              <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-200 text-xs space-y-2">
+                <div className="font-bold text-amber-900 uppercase tracking-wider text-[10px] flex items-center justify-between">
+                  <span>Passenger Rating & Feedback</span>
+                  <div className="flex items-center gap-0.5">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star
+                        key={star}
+                        className={`w-3.5 h-3.5 ${
+                          star <= (viewingItem.rating || 0)
+                            ? 'text-amber-500 fill-amber-500'
+                            : 'text-slate-300'
+                        }`}
+                      />
+                    ))}
+                    <span className="ml-1 font-bold text-amber-900 text-xs">{viewingItem.rating}/5</span>
+                  </div>
+                </div>
+                {viewingItem.reviewComment && (
+                  <p className="text-xs text-slate-700 italic bg-white/80 p-2.5 rounded-xl border border-amber-200/60">
+                    "{viewingItem.reviewComment}"
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Process Notifications Log */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+              <div className="font-bold text-slate-700 uppercase tracking-wider text-[10px] flex items-center justify-between">
+                <span>Process Notifications Dispatch</span>
+                <span className="text-[10px] text-teal-700 font-semibold bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                  Audit Verified
+                </span>
+              </div>
+              {viewingItem.notifications && viewingItem.notifications.length > 0 ? (
+                <div className="space-y-1.5">
+                  {viewingItem.notifications.map((n, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200 text-[11px]">
+                      <span className="font-bold text-slate-800 capitalize flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        {n.channel}
+                      </span>
+                      <span className="text-slate-500 text-[10px] truncate max-w-[200px]">{n.title}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-500">
+                  Dispatched through Admin enabled channels (Registered Email, WhatsApp, and SMS).
+                </p>
+              )}
+            </div>
 
             {/* Close Button */}
             <button

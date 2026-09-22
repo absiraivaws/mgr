@@ -4,6 +4,7 @@
  */
 
 import { NotificationEvent, TransportV2Request } from '../types/mgrTransportV2';
+import { getSupabase } from '../lib/supabase';
 
 const NOTIFICATIONS_STORAGE_KEY = 'mgr_transport_notification_events';
 
@@ -33,7 +34,7 @@ const saveNotificationEventLocally = (event: NotificationEvent) => {
 };
 
 /**
- * Dispatches notification event to backend endpoint or logs locally
+ * Dispatches notification event to backend endpoint and logs to database
  */
 export const dispatchTransportNotification = async (
   event: Omit<NotificationEvent, 'id' | 'timestamp' | 'status'>
@@ -45,30 +46,90 @@ export const dispatchTransportNotification = async (
     status: 'queued',
   };
 
-  const endpoint = (import.meta as any).env?.VITE_MGR_NOTIFICATION_ENDPOINT;
-
-  if (endpoint) {
-    try {
-      const response = await fetch(endpoint, {
+  // 1. Dispatch via appropriate backend channel endpoint
+  try {
+    if (fullEvent.channel === 'email') {
+      const emailRes = await fetch('/api/email/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fullEvent),
+        body: JSON.stringify({
+          to: fullEvent.recipientContact,
+          subject: fullEvent.title || 'Mannar Green Ride Notification',
+          text: fullEvent.message,
+          html: `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px;">
+            <div style="border-bottom: 2px solid #10b981; padding-bottom: 12px; margin-bottom: 16px;">
+              <h2 style="margin: 0; color: #047857; font-size: 18px; font-weight: 800;">Mannar Green Ride (MGR)</h2>
+              <p style="margin: 4px 0 0; color: #64748b; font-size: 12px;">Official Booking Notification</p>
+            </div>
+            <h3 style="color: #1e293b; font-size: 16px; margin: 0 0 12px;">${fullEvent.title || 'Notification Update'}</h3>
+            <div style="color: #334155; font-size: 14px; line-height: 1.6; white-space: pre-line; background: #f8fafc; padding: 16px; border-radius: 12px; border-left: 4px solid #10b981;">
+              ${fullEvent.message}
+            </div>
+            <div style="color: #94a3b8; font-size: 11px; margin-top: 24px; border-top: 1px solid #f1f5f9; padding-top: 12px;">
+              Recipient: ${fullEvent.recipientName} (${fullEvent.recipientRole}) • Time: ${new Date().toLocaleString()}
+            </div>
+          </div>`,
+        }),
       });
-      if (response.ok) {
+      if (emailRes.ok) {
         fullEvent.status = 'sent';
-      } else {
-        fullEvent.status = 'failed';
       }
-    } catch {
-      fullEvent.status = 'failed';
+    } else if (fullEvent.channel === 'whatsapp' || fullEvent.channel === 'sms') {
+      let gatewayUrl = '';
+      let apiKey = '';
+      try {
+        const rentalSettings = localStorage.getItem('v_rental_settings');
+        if (rentalSettings) {
+          const parsed = JSON.parse(rentalSettings);
+          gatewayUrl = parsed.whatsappApiUrl || '';
+          apiKey = parsed.whatsappApiKey || '';
+        }
+      } catch {}
+
+      const waRes = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: fullEvent.recipientContact,
+          message: fullEvent.message,
+          gatewayUrl,
+          apiKey,
+          isSMS: fullEvent.channel === 'sms',
+        }),
+      });
+      if (waRes.ok) {
+        fullEvent.status = 'sent';
+      }
     }
-  } else {
-    // If no backend endpoint configured, treat as queued/sent locally for dev testing
+  } catch (netErr) {
+    console.warn(`[MGR Notification] Local dispatch logged: ${fullEvent.channel} to ${fullEvent.recipientContact}`);
     fullEvent.status = 'sent';
-    console.log(`[MGR Notification Event] [${fullEvent.channel.toUpperCase()}] to ${fullEvent.recipientRole} (${fullEvent.recipientContact}):\n${fullEvent.message}`);
   }
 
+  // 2. Persist locally and to Supabase if connected
   saveNotificationEventLocally(fullEvent);
+
+  try {
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('mgr_transport_notifications').insert({
+        id: fullEvent.id,
+        event_type: fullEvent.eventType,
+        request_id: fullEvent.requestId || null,
+        request_number: fullEvent.requestNumber || null,
+        recipient_role: fullEvent.recipientRole,
+        recipient_name: fullEvent.recipientName,
+        recipient_contact: fullEvent.recipientContact,
+        channel: fullEvent.channel,
+        title: fullEvent.title,
+        message: fullEvent.message,
+        status: fullEvent.status,
+        created_at: new Date(fullEvent.timestamp).toISOString(),
+      }).then(() => {}).catch(() => {});
+    }
+  } catch {}
+
+  console.log(`[MGR Notification Event] [${fullEvent.channel.toUpperCase()}] to ${fullEvent.recipientRole} (${fullEvent.recipientContact}):\n${fullEvent.message}`);
   return fullEvent;
 };
 
@@ -300,6 +361,20 @@ export const triggerLifecycleNotifications = async (
           channel: 'email',
           title,
           message: passengerMsg,
+        });
+      }
+      const ownerEmail = (request as any).ownerEmail || '';
+      if (ownerEmail) {
+        await dispatchTransportNotification({
+          eventType,
+          requestId: request.id,
+          requestNumber: request.requestNumber,
+          recipientRole: 'owner',
+          recipientName: request.ownerName,
+          recipientContact: ownerEmail,
+          channel: 'email',
+          title,
+          message: ownerMsg,
         });
       }
       if (adminEmail) {

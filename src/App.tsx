@@ -86,6 +86,7 @@ import {
   deleteIncomeEntryFromSupabase,
   deleteRentalFromSupabase,
   fetchMessageTemplatesFromSupabase,
+  syncUserAccountToSupabase,
 } from './lib/supabaseSync';
 import { getStoredMessageTemplates, saveStoredMessageTemplates, getStoredCustomerGroups, saveStoredCustomerGroups, getStoredMessageHistory, saveStoredMessageHistory, DEFAULT_MESSAGE_TEMPLATES } from './utils/customer';
 import { getNextRentalNumber, formatRentalNumber } from './utils/pricing';
@@ -742,6 +743,29 @@ export default function App() {
             if (session?.user?.email) {
               setResetModalEmail(session.user.email);
             }
+          } else if (event === 'SIGNED_IN' && session?.user?.email) {
+            // OAuth return session (e.g. Google Sign-In)
+            const gEmail = session.user.email.toLowerCase();
+            const allUsers = getStoredUsers();
+            let matched = allUsers.find(u => u.email?.toLowerCase() === gEmail);
+            if (!matched) {
+              const gName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email.split('@')[0] || 'Passenger';
+              matched = {
+                id: `USR-${Date.now()}`,
+                auth_user_id: session.user.id,
+                name: gName,
+                email: gEmail,
+                role: 'passenger',
+                status: 'active',
+                createdAt: Date.now(),
+              };
+              const updatedList = [...allUsers, matched];
+              localStorage.setItem('v_rental_users', JSON.stringify(updatedList));
+              syncUserAccountToSupabase(matched);
+            }
+            setCurrentUser(matched);
+            setCurrentUserSession(matched);
+            setIsFullLoginPage(false);
           }
         });
 
@@ -1493,9 +1517,20 @@ export default function App() {
     } catch {}
   };
 
-  // Auto-logout inactivity monitor based on settings.autoLogoutMinutes
+  // Auto-logout inactivity monitor based on settings.autoLogoutMinutes & MGR marketplace settings
   useEffect(() => {
-    const timeoutMinutes = settings.autoLogoutMinutes ?? 15;
+    let mgrAutoLogout: number | undefined;
+    try {
+      const rawMgr = localStorage.getItem('mgr_marketplace_settings');
+      if (rawMgr) {
+        const parsed = JSON.parse(rawMgr);
+        if (typeof parsed.autoLogoutMinutes === 'number') {
+          mgrAutoLogout = parsed.autoLogoutMinutes;
+        }
+      }
+    } catch {}
+
+    const timeoutMinutes = mgrAutoLogout !== undefined ? mgrAutoLogout : (settings.autoLogoutMinutes ?? 15);
     if (timeoutMinutes <= 0 || isFullLoginPage || !currentUser) return;
 
     const timeoutMs = timeoutMinutes * 60 * 1000;

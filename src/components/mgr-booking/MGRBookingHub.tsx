@@ -37,6 +37,7 @@ import { MGRHistoryView } from './MGRHistoryView';
 import { Customer } from '../../types';
 import { UserAccount, getMGRPersona } from '../../utils/auth';
 import { ShieldCheck, Car } from 'lucide-react';
+import { ErrorBoundary } from '../ErrorBoundary';
 import {
   fetchMGRTransportData,
   syncTransportVehicleToSupabase,
@@ -641,33 +642,43 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
       )}
 
       {activeTab === 'mgr-search' && (
-        <MGRTransportBooking
-          view="search"
-          vehicles={vehicles}
-          owners={owners}
-          currentUser={currentUser}
-          convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
-          settings={settings}
-        />
+        <ErrorBoundary componentName="MGR Transport Search & Booking">
+          <MGRTransportBooking
+            view="search"
+            vehicles={vehicles}
+            owners={owners}
+            drivers={drivers}
+            currentUser={currentUser}
+            convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
+            settings={settings}
+            onNavigate={(tab) => setActiveTab(tab)}
+          />
+        </ErrorBoundary>
       )}
 
       {activeTab === 'mgr-bookings' && (
-        <MGRTransportBooking
-          view="requests"
-          vehicles={vehicles}
-          owners={owners}
-          currentUser={currentUser}
-          convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
-          settings={settings}
-        />
+        <ErrorBoundary componentName="MGR Transport Requests & Operations">
+          <MGRTransportBooking
+            view="requests"
+            vehicles={vehicles}
+            owners={owners}
+            drivers={drivers}
+            currentUser={currentUser}
+            convenienceFeePercentage={settings.convenienceFeePercentage ?? settings.commissionPercentage ?? 5}
+            settings={settings}
+            onNavigate={(tab) => setActiveTab(tab)}
+          />
+        </ErrorBoundary>
       )}
 
       {activeTab === 'mgr-history' && (
-        <MGRHistoryView
-          currentUser={currentUser}
-          isAdmin={isAdminUser}
-          themeMode={themeMode}
-        />
+        <ErrorBoundary componentName="MGR Transport History">
+          <MGRHistoryView
+            currentUser={currentUser}
+            isAdmin={isAdminUser}
+            themeMode={themeMode}
+          />
+        </ErrorBoundary>
       )}
 
       {activeTab === 'mgr-fleet' && (
