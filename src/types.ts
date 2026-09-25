@@ -1,6 +1,8 @@
 export interface PricingRates {
-  firstHour: number; // Charge for first 60 mins
-  every30Min: number; // Charge for every continuing 30 mins after the first 60 mins
+  firstHour: number; // Charge for first base period (default 60 mins or customized minutes)
+  every30Min: number; // Charge for continuing interval (default 30 mins or customized minutes)
+  firstDurationMinutes?: number; // Custom minutes for the first base duration (default 60)
+  continuingDurationMinutes?: number; // Custom minutes for continuing interval duration (default 30)
   /** @deprecated backward-compat fallback */
   next30Min?: number;
   continuingHour?: number;
@@ -37,10 +39,15 @@ export interface PricingBreakdown {
   totalMinutes: number;
   durationFormatted: string;
   firstHourAmount: number;
-  firstHourMinutes: number; // e.g. up to 60
-  every30MinCount: number; // number of additional 30-min blocks (e.g. 1, 2, 3...)
-  every30MinRate: number; // charge per 30 mins
-  every30MinAmount: number; // total amount for additional 30-min blocks
+  firstHourMinutes: number; // e.g. up to 60 or custom minutes
+  firstDurationMinutes?: number; // Configured first duration minutes (e.g. 60)
+  every30MinCount: number; // number of additional blocks (e.g. 1, 2, 3...)
+  continuingBlocksCount?: number; // alias for additional blocks
+  every30MinRate: number; // charge per continuing block
+  continuingBlockRate?: number; // alias for continuing rate
+  every30MinAmount: number; // total amount for additional blocks
+  continuingBlockAmount?: number; // alias for additional block amount
+  continuingDurationMinutes?: number; // Configured continuing interval minutes (e.g. 30)
   subtotal: number;
   totalAmount: number;
   // Backward compatibility fields

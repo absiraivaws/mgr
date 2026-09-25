@@ -318,10 +318,28 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
         [tabKey]: nextVal,
       };
 
-      if (tabKey === 'accessFinance') {
-        updated.accessIncome = nextVal;
-      } else if (tabKey === 'accessIncome') {
+      if (tabKey === 'accessFinance' || tabKey === 'accessIncome') {
         updated.accessFinance = nextVal;
+        updated.accessIncome = nextVal;
+        if (nextVal) {
+          updated.canAddFinanceTransaction = true;
+          updated.canViewPL = true;
+          updated.canViewStatement = true;
+          updated.canExportFinanceReports = true;
+        } else {
+          updated.canAddFinanceTransaction = false;
+          updated.canViewPL = false;
+          updated.canViewStatement = false;
+          updated.canExportFinanceReports = false;
+        }
+      } else if (tabKey === 'accessRentals') {
+        updated.canRent = nextVal;
+        updated.canSettle = nextVal;
+      } else if (tabKey === 'accessSettings') {
+        updated.canEditPricing = nextVal;
+        updated.canEditFleet = nextVal;
+      } else if (tabKey === 'accessHistory') {
+        updated.canExportReports = nextVal;
       }
 
       return {

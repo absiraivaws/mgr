@@ -22,10 +22,12 @@ import {
   formatTime 
 } from '../utils/pricing';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
+import { DEFAULT_USER, UserAccount, getUserPermissions } from '../utils/auth';
 
 interface ActiveRentalsListProps {
   activeRentals: RentalRecord[];
   settings: AppSettings;
+  currentUser?: UserAccount;
   themeMode?: ThemeMode;
   accent?: AccentColor;
   onStopRental: (rental: RentalRecord) => void;
@@ -34,6 +36,7 @@ interface ActiveRentalsListProps {
 export const ActiveRentalsList: React.FC<ActiveRentalsListProps> = ({
   activeRentals,
   settings,
+  currentUser,
   themeMode = 'dark',
   accent = 'emerald',
   onStopRental,
@@ -42,6 +45,13 @@ export const ActiveRentalsList: React.FC<ActiveRentalsListProps> = ({
   const [now, setNow] = useState<number>(Date.now());
 
   const t = getThemeClasses(themeMode, accent);
+
+  const userPerms = getUserPermissions(currentUser);
+  const isRootAdmin = currentUser?.email?.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+                      currentUser?.email?.toLowerCase() === 'absiraiva@gmail.com' ||
+                      currentUser?.email?.toLowerCase() === 'admin@mannargreenride.lk';
+  const isAdmin = currentUser?.role === 'admin' || isRootAdmin;
+  const canSettle = isAdmin || Boolean(userPerms.canSettle);
 
   // Update timer every second for live accurate durations and amounts
   useEffect(() => {
@@ -224,22 +234,24 @@ export const ActiveRentalsList: React.FC<ActiveRentalsListProps> = ({
                         </div>
                         <div className="text-[10px] text-teal-500 font-medium">
                           {breakdown.every30MinCount > 0
-                            ? `+${breakdown.every30MinCount} × 30m (+${formatCurrency(breakdown.every30MinAmount, settings.currencySymbol, settings.currencyPosition)})`
-                            : 'First 60 Min Base'}
+                            ? `+${breakdown.every30MinCount} × ${breakdown.continuingDurationMinutes || 30}m (+${formatCurrency(breakdown.every30MinAmount, settings.currencySymbol, settings.currencyPosition)})`
+                            : `First ${breakdown.firstDurationMinutes || 60} Min Base`}
                         </div>
                       </div>
                     </div>
 
                     {/* Stop & Settle Action */}
-                    <button
-                      id={`btn-stop-${rental.vehicleSerialNumber}`}
-                      type="button"
-                      onClick={() => onStopRental(rental)}
-                      className="w-full sm:w-auto px-4 py-3 bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-rose-600/25 transition cursor-pointer shrink-0 min-h-[44px]"
-                    >
-                      <Square className="w-4 h-4 fill-white" />
-                      <span>Stop & Settle</span>
-                    </button>
+                    {canSettle && (
+                      <button
+                        id={`btn-stop-${rental.vehicleSerialNumber}`}
+                        type="button"
+                        onClick={() => onStopRental(rental)}
+                        className="w-full sm:w-auto px-4 py-3 bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-rose-600/25 transition cursor-pointer shrink-0 min-h-[44px]"
+                      >
+                        <Square className="w-4 h-4 fill-white" />
+                        <span>Stop & Settle</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -278,9 +290,9 @@ export const ActiveRentalsList: React.FC<ActiveRentalsListProps> = ({
                 <div className={`pt-2 border-t ${t.divider} flex flex-wrap items-center justify-between gap-2 text-[11px] ${t.textMuted}`}>
                   <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <span>Plan:</span>
-                    <span>1st 60m: {formatCurrency(rental.rateSnapshot.firstHour, settings.currencySymbol, settings.currencyPosition)}</span>
+                    <span>1st {rental.rateSnapshot.firstDurationMinutes || 60}m: {formatCurrency(rental.rateSnapshot.firstHour, settings.currencySymbol, settings.currencyPosition)}</span>
                     <span>•</span>
-                    <span>Every +30m: +{formatCurrency(rental.rateSnapshot.every30Min ?? rental.rateSnapshot.next30Min ?? 0, settings.currencySymbol, settings.currencyPosition)}</span>
+                    <span>Every +{rental.rateSnapshot.continuingDurationMinutes || 30}m: +{formatCurrency(rental.rateSnapshot.every30Min ?? rental.rateSnapshot.next30Min ?? 0, settings.currencySymbol, settings.currencyPosition)}</span>
                   </div>
                   {rental.depositAmount && rental.depositAmount > 0 && (
                     <span className="text-amber-500 font-bold">

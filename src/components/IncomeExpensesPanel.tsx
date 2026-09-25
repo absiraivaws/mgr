@@ -931,7 +931,7 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
 
                     {/* Delete: Admin Only */}
                     <td className="px-4 py-3 text-center">
-                      {isAdmin ? (
+                      {isAdmin && (
                         deleteConfirmId === entry.id ? (
                           <div className="flex items-center justify-center gap-1.5">
                             <button
@@ -963,15 +963,6 @@ export const IncomeExpensesPanel: React.FC<IncomeExpensesPanelProps> = ({
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => alert('Permission Denied: Only an Administrator can delete income/expense records.')}
-                          className="p-1.5 rounded-lg transition text-slate-500 opacity-40 border border-slate-500/20 cursor-not-allowed inline-flex items-center justify-center"
-                          title="Admin Only: Only administrators can delete records"
-                        >
-                          <Lock className="w-3.5 h-3.5" />
-                        </button>
                       )}
                     </td>
                   </tr>

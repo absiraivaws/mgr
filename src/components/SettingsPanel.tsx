@@ -31,7 +31,9 @@ import {
   ShieldCheck,
   Lock,
   QrCode,
-  Printer
+  Printer,
+  RefreshCw,
+  Clock
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { AppSettings, Customer, PricingRates, RentalRecord, RentalStartMethod, Vehicle, VehicleIconType, VehicleType } from '../types';
@@ -40,7 +42,7 @@ import { formatCurrency } from '../utils/pricing';
 import { SupabaseSettingsTab } from './SupabaseSettingsTab';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
-import { DEFAULT_USER, UserAccount } from '../utils/auth';
+import { DEFAULT_USER, UserAccount, getUserPermissions } from '../utils/auth';
 
 interface SettingsPanelProps {
   vehicleTypes: VehicleType[];
@@ -52,8 +54,8 @@ interface SettingsPanelProps {
   currentUser?: UserAccount;
   themeMode?: ThemeMode;
   accent?: AccentColor;
-  onUpdateVehicleTypes: (types: VehicleType[]) => void;
-  onUpdateVehicles: (vehicles: Vehicle[]) => void;
+  onUpdateVehicleTypes: (types: VehicleType[]) => void | Promise<void>;
+  onUpdateVehicles: (vehicles: Vehicle[]) => void | Promise<void>;
   onUpdateSettings: (settings: AppSettings) => void;
   onResetSampleData: () => void;
   onToggleTheme?: () => void;
@@ -83,21 +85,30 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const t = getThemeClasses(themeMode, accent);
 
   // Admin Authorization check - Strictly root admin or admin role
-  const isRootAdmin = currentUser?.email?.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+  const isRootAdmin = currentUser?.email?.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+                      currentUser?.email?.toLowerCase() === 'absiraiva@gmail.com' ||
+                      currentUser?.email?.toLowerCase() === 'admin@mannargreenride.lk';
   const isAdmin = currentUser?.role === 'admin' || isRootAdmin;
+  const userPerms = getUserPermissions(currentUser);
+  const canEditPricing = isAdmin || Boolean(userPerms.canEditPricing);
+  const canEditFleet = isAdmin || Boolean(userPerms.canEditFleet);
 
   // Form State for Adding / Editing Vehicle Type
   const [isAddingType, setIsAddingType] = useState(false);
+  const [isSavingType, setIsSavingType] = useState(false);
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
   const [typeName, setTypeName] = useState('');
   const [typeIcon, setTypeIcon] = useState<VehicleIconType>('bicycle');
   const [typeDescription, setTypeDescription] = useState('');
-  const [typeFirstHour, setTypeFirstHour] = useState<string>('5.00');
-  const [typeEvery30Min, setTypeEvery30Min] = useState<string>('2.50');
+  const [typeFirstDurationMinutes, setTypeFirstDurationMinutes] = useState<string>('60');
+  const [typeFirstHour, setTypeFirstHour] = useState<string>('100.00');
+  const [typeContinuingDurationMinutes, setTypeContinuingDurationMinutes] = useState<string>('30');
+  const [typeEvery30Min, setTypeEvery30Min] = useState<string>('50.00');
   const [typeRentalStartMethod, setTypeRentalStartMethod] = useState<RentalStartMethod>('both');
 
   // Form State for Adding Vehicle Inventory (Serial Numbers)
   const [isAddingVehicle, setIsAddingVehicle] = useState(false);
+  const [isSavingVehicle, setIsSavingVehicle] = useState(false);
   const [vehSerial, setVehSerial] = useState('');
   const [vehTypeId, setVehTypeId] = useState(vehicleTypes[0]?.id || '');
   const [vehModel, setVehModel] = useState('');
@@ -235,8 +246,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setTypeName('');
     setTypeIcon('bicycle');
     setTypeDescription('');
-    setTypeFirstHour('5.00');
-    setTypeEvery30Min('2.50');
+    setTypeFirstDurationMinutes('60');
+    setTypeFirstHour('100.00');
+    setTypeContinuingDurationMinutes('30');
+    setTypeEvery30Min('50.00');
     setTypeRentalStartMethod('both');
     setIsAddingType(true);
   };
@@ -246,57 +259,72 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setTypeName(typeItem.name);
     setTypeIcon(typeItem.icon);
     setTypeDescription(typeItem.description || '');
+    setTypeFirstDurationMinutes((typeItem.rates.firstDurationMinutes || 60).toString());
     setTypeFirstHour(typeItem.rates.firstHour.toString());
-    setTypeEvery30Min((typeItem.rates.every30Min ?? typeItem.rates.next30Min ?? 2.5).toString());
+    setTypeContinuingDurationMinutes((typeItem.rates.continuingDurationMinutes || 30).toString());
+    setTypeEvery30Min((typeItem.rates.every30Min ?? typeItem.rates.next30Min ?? 50).toString());
     setTypeRentalStartMethod(typeItem.rentalStartMethod || 'both');
     setIsAddingType(true);
   };
 
-  const handleSaveType = (e: React.FormEvent) => {
+  const handleSaveType = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!typeName.trim()) return;
 
-    const rate30 = Math.max(0, parseFloat(typeEvery30Min) || 0);
+    const firstMins = Math.max(1, parseInt(typeFirstDurationMinutes, 10) || 60);
+    const contMins = Math.max(1, parseInt(typeContinuingDurationMinutes, 10) || 30);
+    const firstRate = Math.max(0, parseFloat(typeFirstHour) || 0);
+    const contRate = Math.max(0, parseFloat(typeEvery30Min) || 0);
+
     const rates: PricingRates = {
-      firstHour: Math.max(0, parseFloat(typeFirstHour) || 0),
-      every30Min: rate30,
-      next30Min: rate30,
-      continuingHour: rate30 * 2,
+      firstHour: firstRate,
+      every30Min: contRate,
+      firstDurationMinutes: firstMins,
+      continuingDurationMinutes: contMins,
+      next30Min: contRate,
+      continuingHour: contRate * 2,
     };
 
-    if (editingTypeId) {
-      const updated = vehicleTypes.map((item) =>
-        item.id === editingTypeId
-          ? {
-              ...item,
-              name: typeName.trim(),
-              icon: typeIcon,
-              description: typeDescription.trim() || undefined,
-              rates,
-              rentalStartMethod: typeRentalStartMethod,
-            }
-          : item
-      );
-      onUpdateVehicleTypes(updated);
-    } else {
-      const newType: VehicleType = {
-        id: `type-${Date.now()}`,
-        name: typeName.trim(),
-        icon: typeIcon,
-        description: typeDescription.trim() || undefined,
-        rates,
-        rentalStartMethod: typeRentalStartMethod,
-      };
-      onUpdateVehicleTypes([...vehicleTypes, newType]);
-    }
+    setIsSavingType(true);
+    try {
+      if (editingTypeId) {
+        const updated = vehicleTypes.map((item) =>
+          item.id === editingTypeId
+            ? {
+                ...item,
+                name: typeName.trim(),
+                icon: typeIcon,
+                description: typeDescription.trim() || undefined,
+                rates,
+                rentalStartMethod: typeRentalStartMethod,
+              }
+            : item
+        );
+        await onUpdateVehicleTypes(updated);
+      } else {
+        const newType: VehicleType = {
+          id: `type-${Date.now()}`,
+          name: typeName.trim(),
+          icon: typeIcon,
+          description: typeDescription.trim() || undefined,
+          rates,
+          rentalStartMethod: typeRentalStartMethod,
+        };
+        await onUpdateVehicleTypes([...vehicleTypes, newType]);
+      }
 
-    setIsAddingType(false);
-    setEditingTypeId(null);
+      setIsAddingType(false);
+      setEditingTypeId(null);
+    } catch (err) {
+      console.error('[Settings] Error saving vehicle type:', err);
+    } finally {
+      setIsSavingType(false);
+    }
   };
 
   const handleDeleteType = (id: string) => {
-    if (!isAdmin) {
-      alert('Permission Denied: Only an administrator can delete vehicle categories.');
+    if (!isAdmin && !canEditPricing) {
+      alert('Permission Denied: You do not have permission to delete vehicle categories.');
       return;
     }
     if (vehicleTypes.length <= 1) {
@@ -314,7 +342,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   };
 
   // Handlers for Vehicles Inventory
-  const handleSaveVehicle = (e: React.FormEvent) => {
+  const handleSaveVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!vehSerial.trim()) return;
 
@@ -338,11 +366,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       totalRentalsCount: 0,
     };
 
-    onUpdateVehicles([newVehicle, ...vehicles]);
-    setVehSerial('');
-    setVehModel('');
-    setVehNotes('');
-    setIsAddingVehicle(false);
+    setIsSavingVehicle(true);
+    try {
+      await onUpdateVehicles([newVehicle, ...vehicles]);
+      setVehSerial('');
+      setVehModel('');
+      setVehNotes('');
+      setIsAddingVehicle(false);
+    } catch (err) {
+      console.error('[Settings] Error saving vehicle unit:', err);
+    } finally {
+      setIsSavingVehicle(false);
+    }
   };
 
   // Bulk Generator Handler
@@ -391,8 +426,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   };
 
   const handleDeleteVehicle = (id: string) => {
-    if (!isAdmin) {
-      alert('Permission Denied: Only an administrator can delete vehicles from inventory.');
+    if (!isAdmin && !canEditFleet) {
+      alert('Permission Denied: You do not have permission to delete vehicles from inventory.');
       return;
     }
     const veh = vehicles.find((v) => v.id === id);
@@ -541,11 +576,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 Vehicle Types & Tiered Pricing Rates
               </h2>
               <p className={`text-xs ${t.textMuted}`}>
-                Configure rent charges for the First 60 Minutes and continuing every 30 Minutes.
+                Configure vehicle categories and tiered rental rates with custom minute intervals.
               </p>
             </div>
 
-            {!isAddingType && (
+            {!isAddingType && canEditPricing && (
               <button
                 id="btn-add-vehicle-type"
                 onClick={handleStartAddType}
@@ -604,35 +639,115 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     <option value="car">🚗 Go-Kart / Car</option>
                   </select>
                 </div>
+              </div>
 
-                <div>
-                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
-                    First 60 Minutes Rate ({settings.currencySymbol})
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    required
-                    value={typeFirstHour}
-                    onChange={(e) => setTypeFirstHour(e.target.value)}
-                    className={`w-full rounded-xl px-3 py-2 text-xs sm:text-sm font-mono ${t.textInput}`}
-                  />
+              {/* Tiered Pricing Configuration: Tier 1 Base Duration + Tier 2 Continuing Interval */}
+              <div className={`p-4 rounded-xl border ${t.cardSubtleBg} space-y-3`}>
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-500">
+                  <Clock className="w-4 h-4" />
+                  <span>Tiered Pricing Structure (Configurable Minutes & Rates)</span>
                 </div>
 
-                <div>
-                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
-                    Every Continuing 30 Minutes Rate ({settings.currencySymbol})
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    required
-                    value={typeEvery30Min}
-                    onChange={(e) => setTypeEvery30Min(e.target.value)}
-                    className={`w-full rounded-xl px-3 py-2 text-xs sm:text-sm font-mono ${t.textInput}`}
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Tier 1: Base Period */}
+                  <div className={`p-3 rounded-xl border ${t.border} ${t.cardBg} space-y-2`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-500">
+                        Tier 1: Initial Base Period
+                      </span>
+                      <span className="text-[11px] font-mono font-medium text-emerald-400">
+                        {typeFirstDurationMinutes || '60'}m @ {settings.currencySymbol} {typeFirstHour || '0'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className={`block text-[11px] font-semibold mb-1 ${t.textHeading}`}>
+                          First Minutes
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            required
+                            placeholder="60"
+                            value={typeFirstDurationMinutes}
+                            onChange={(e) => setTypeFirstDurationMinutes(e.target.value)}
+                            className={`w-full rounded-xl px-3 py-2 text-xs sm:text-sm font-mono pr-10 ${t.textInput}`}
+                          />
+                          <span className={`absolute right-2.5 top-2.5 text-xs font-mono ${t.textMuted}`}>min</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label className={`block text-[11px] font-semibold mb-1 ${t.textHeading}`}>
+                          Rate ({settings.currencySymbol})
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          required
+                          placeholder="100.00"
+                          value={typeFirstHour}
+                          onChange={(e) => setTypeFirstHour(e.target.value)}
+                          className={`w-full rounded-xl px-3 py-2 text-xs sm:text-sm font-mono ${t.textInput}`}
+                        />
+                      </div>
+                    </div>
+                    <p className={`text-[11px] ${t.textMuted}`}>
+                      Base charge: First {typeFirstDurationMinutes || '60'} minutes at {settings.currencySymbol} {typeFirstHour || '0.00'}.
+                    </p>
+                  </div>
+
+                  {/* Tier 2: Continuing Interval */}
+                  <div className={`p-3 rounded-xl border ${t.border} ${t.cardBg} space-y-2`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-teal-500">
+                        Tier 2: Continuing Interval
+                      </span>
+                      <span className="text-[11px] font-mono font-medium text-teal-400">
+                        +{typeContinuingDurationMinutes || '30'}m @ +{settings.currencySymbol} {typeEvery30Min || '0'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className={`block text-[11px] font-semibold mb-1 ${t.textHeading}`}>
+                          Every Minutes
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            required
+                            placeholder="30"
+                            value={typeContinuingDurationMinutes}
+                            onChange={(e) => setTypeContinuingDurationMinutes(e.target.value)}
+                            className={`w-full rounded-xl px-3 py-2 text-xs sm:text-sm font-mono pr-10 ${t.textInput}`}
+                          />
+                          <span className={`absolute right-2.5 top-2.5 text-xs font-mono ${t.textMuted}`}>min</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label className={`block text-[11px] font-semibold mb-1 ${t.textHeading}`}>
+                          Rate ({settings.currencySymbol})
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          required
+                          placeholder="50.00"
+                          value={typeEvery30Min}
+                          onChange={(e) => setTypeEvery30Min(e.target.value)}
+                          className={`w-full rounded-xl px-3 py-2 text-xs sm:text-sm font-mono ${t.textInput}`}
+                        />
+                      </div>
+                    </div>
+                    <p className={`text-[11px] ${t.textMuted}`}>
+                      Recurring charge: Each continuing {typeContinuingDurationMinutes || '30'} minutes at +{settings.currencySymbol} {typeEvery30Min || '0.00'}.
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -677,10 +792,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className={`px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn}`}
+                  disabled={isSavingType}
+                  className={`px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn} ${isSavingType ? 'opacity-70 cursor-wait' : ''}`}
                 >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>{editingTypeId ? 'Update Rates' : 'Save Category'}</span>
+                  {isSavingType ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  <span>{isSavingType ? 'Saving...' : editingTypeId ? 'Update Rates' : 'Save Category'}</span>
                 </button>
               </div>
             </form>
@@ -721,31 +837,24 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => handleStartEditType(typeObj)}
-                        className={`p-2 rounded-lg text-xs font-semibold cursor-pointer ${t.inactiveTab}`}
-                        title="Edit Type and Pricing"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      {isAdmin ? (
+                      {canEditPricing && (
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditType(typeObj)}
+                          className={`p-2 rounded-lg text-xs font-semibold cursor-pointer ${t.inactiveTab}`}
+                          title="Edit Type and Pricing"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {(isAdmin || canEditPricing) && (
                         <button
                           type="button"
                           onClick={() => handleDeleteType(typeObj.id)}
                           className="p-2 rounded-lg text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition cursor-pointer"
-                          title="Delete Category (Admin Only)"
+                          title="Delete Category"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => alert('Permission Denied: Only an administrator can delete vehicle categories.')}
-                          className="p-2 rounded-lg text-slate-500 opacity-40 border border-slate-500/20 cursor-not-allowed"
-                          title="Admin Only: Only administrators can delete categories"
-                        >
-                          <Lock className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
@@ -754,13 +863,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   {/* Rates Tag */}
                   <div className={`p-3 rounded-lg border flex items-center justify-between text-xs font-mono ${t.cardBg}`}>
                     <div>
-                      <span className={t.textMuted}>1st 60 Min: </span>
+                      <span className={t.textMuted}>1st {typeObj.rates.firstDurationMinutes || 60}m: </span>
                       <strong className="text-emerald-500">
                         {formatCurrency(typeObj.rates.firstHour, settings.currencySymbol, settings.currencyPosition)}
                       </strong>
                     </div>
                     <div>
-                      <span className={t.textMuted}>+30 Min: </span>
+                      <span className={t.textMuted}>+{typeObj.rates.continuingDurationMinutes || 30}m: </span>
                       <strong className="text-teal-500">
                         +{formatCurrency(typeObj.rates.every30Min ?? typeObj.rates.next30Min ?? 0, settings.currencySymbol, settings.currencyPosition)}
                       </strong>
@@ -786,31 +895,33 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                id="btn-open-bulk-gen"
-                onClick={() => {
-                  setIsBulkMode(true);
-                  setIsAddingVehicle(false);
-                }}
-                className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${t.inactiveTab}`}
-              >
-                <Sparkles className="w-3.5 h-3.5 inline mr-1" />
-                <span>Bulk Generate Serials</span>
-              </button>
+            {canEditFleet && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  id="btn-open-bulk-gen"
+                  onClick={() => {
+                    setIsBulkMode(true);
+                    setIsAddingVehicle(false);
+                  }}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${t.inactiveTab}`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 inline mr-1" />
+                  <span>Bulk Generate Serials</span>
+                </button>
 
-              <button
-                id="btn-open-add-veh"
-                onClick={() => {
-                  setIsAddingVehicle(true);
-                  setIsBulkMode(false);
-                }}
-                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer ${t.primaryBtn}`}
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Single Serial</span>
-              </button>
-            </div>
+                <button
+                  id="btn-open-add-veh"
+                  onClick={() => {
+                    setIsAddingVehicle(true);
+                    setIsBulkMode(false);
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer ${t.primaryBtn}`}
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Single Serial</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Bulk Serial Generator */}
@@ -943,8 +1054,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 <button type="button" onClick={() => setIsAddingVehicle(false)} className={`px-4 py-2 rounded-xl text-xs ${t.inactiveTab}`}>
                   Cancel
                 </button>
-                <button type="submit" className={`px-5 py-2 rounded-xl text-xs font-bold ${t.primaryBtn}`}>
-                  Save Vehicle
+                <button
+                  type="submit"
+                  disabled={isSavingVehicle}
+                  className={`px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn} ${isSavingVehicle ? 'opacity-70 cursor-wait' : ''}`}
+                >
+                  {isSavingVehicle ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  <span>{isSavingVehicle ? 'Saving...' : 'Save Vehicle'}</span>
                 </button>
               </div>
             </form>
@@ -1035,31 +1151,24 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       </td>
                       <td className="px-3.5 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleMaintenance(v.id)}
-                            className={`p-1.5 rounded-lg text-xs font-semibold cursor-pointer ${t.inactiveTab}`}
-                            title="Toggle Maintenance"
-                          >
-                            <Wrench className="w-3.5 h-3.5" />
-                          </button>
-                          {isAdmin ? (
+                          {canEditFleet && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleMaintenance(v.id)}
+                              className={`p-1.5 rounded-lg text-xs font-semibold cursor-pointer ${t.inactiveTab}`}
+                              title="Toggle Maintenance"
+                            >
+                              <Wrench className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {(isAdmin || canEditFleet) && (
                             <button
                               type="button"
                               onClick={() => handleDeleteVehicle(v.id)}
                               className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition cursor-pointer"
-                              title="Delete Vehicle (Admin Only)"
+                              title="Delete Vehicle"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => alert('Permission Denied: Only an administrator can delete vehicles from inventory.')}
-                              className="p-1.5 rounded-lg text-slate-500 opacity-40 border border-slate-500/20 cursor-not-allowed"
-                              title="Admin Only: Only administrators can delete vehicles"
-                            >
-                              <Lock className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>

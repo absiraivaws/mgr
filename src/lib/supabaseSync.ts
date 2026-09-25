@@ -3,6 +3,7 @@ import { AppSettings, Customer, CustomerGroup, CustomerStatus, MessageHistoryEnt
 import { RoleDefinition, UserAccount } from '../utils/auth';
 import type {
   TransportV2Request,
+  TransportV2Listing,
   TransportListingMode,
   TransportRequestStatus,
   TransportPaymentStatus,
@@ -66,7 +67,7 @@ export async function fetchSupabaseData(): Promise<{
         description: row.description,
         color: row.color,
         rates: row.rates,
-        rentalStartMethod: row.rental_start_method || 'both',
+        rentalStartMethod: row.rental_start_method || row.rates?.rentalStartMethod || 'both',
       }));
     }
 
@@ -408,36 +409,54 @@ export async function syncVehicleToSupabase(vehicle: Vehicle) {
 /**
  * Sync vehicle types to Supabase
  */
-export async function syncVehicleTypeToSupabase(type: VehicleType) {
+export async function syncVehicleTypeToSupabase(type: VehicleType): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
 
   try {
-    await supabase.from('vehicle_types').upsert({
+    const ratesWithMethod = {
+      ...type.rates,
+      rentalStartMethod: type.rentalStartMethod || 'both',
+    };
+    const payload = {
       id: type.id,
       name: type.name,
-      icon: type.icon,
-      description: type.description,
-      color: type.color,
-      rates: type.rates,
-      rental_start_method: type.rentalStartMethod || 'both',
-    }, { onConflict: 'id' });
-  } catch (err) {
+      icon: type.icon || 'bicycle',
+      description: type.description || '',
+      color: type.color || 'emerald',
+      rates: ratesWithMethod,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from('vehicle_types').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.error('Failed to sync vehicle type to Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.error('Failed to sync vehicle type to Supabase:', err);
+    return { success: false, error: err?.message || 'Unknown error' };
   }
 }
 
 /**
  * Delete vehicle type from Supabase
  */
-export async function deleteVehicleTypeFromSupabase(id: string) {
+export async function deleteVehicleTypeFromSupabase(id: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: true };
 
   try {
-    await supabase.from('vehicle_types').delete().eq('id', id);
-  } catch (err) {
+    const { error } = await supabase.from('vehicle_types').delete().eq('id', id);
+    if (error) {
+      console.error('Failed to delete vehicle type from Supabase:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
     console.error('Failed to delete vehicle type from Supabase:', err);
+    return { success: false, error: err?.message || 'Unknown error' };
   }
 }
 
@@ -700,7 +719,10 @@ export async function pushAllLocalDataToSupabase(params: {
           icon: t.icon,
           description: t.description || '',
           color: t.color || 'emerald',
-          rates: t.rates,
+          rates: {
+            ...t.rates,
+            rentalStartMethod: t.rentalStartMethod || 'both',
+          },
         };
         if (existingTypeMap.has(t.id)) {
           const { error } = await supabase.from('vehicle_types').update(payload).eq('id', t.id);

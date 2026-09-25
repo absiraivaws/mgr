@@ -726,7 +726,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                           </button>
 
                           {/* Delete Action: Admin user ONLY */}
-                          {isAdmin ? (
+                          {isAdmin && (
                             <button
                               id={`btn-delete-receipt-${rental.rentalNumber}`}
                               type="button"
@@ -736,16 +736,6 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                               <span>Delete</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => alert('Permission Denied: Only an Administrator can delete settled rental records.')}
-                              className="px-2 py-1.5 rounded-lg transition inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 opacity-40 border border-slate-500/20 cursor-not-allowed"
-                              title="Admin Only: Only administrators can delete records"
-                            >
-                              <Lock className="w-3.5 h-3.5" />
-                              <span className="text-[10px]">Delete</span>
                             </button>
                           )}
                         </div>

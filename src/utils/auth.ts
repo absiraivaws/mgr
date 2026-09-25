@@ -348,6 +348,72 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       canEditFleet: true,
       canManageUsers: false,
       canManageRoles: false,
+      canAddFinanceTransaction: false,
+      canEditFinanceTransaction: false,
+      canDeleteFinanceTransaction: false,
+      canViewPL: false,
+      canViewStatement: false,
+      canExportFinanceReports: false,
+    },
+  },
+  {
+    id: 'mgr_owner',
+    name: 'MGR Owner',
+    description: 'Executive business owner with full financial, rental desk and management visibility across active modules.',
+    color: 'teal',
+    isSystem: false,
+    permissions: {
+      accessDashboard: true,
+      accessRentals: true,
+      accessHistory: true,
+      accessCustomers: true,
+      accessMessages: true,
+      accessUsers: false,
+      accessSettings: false,
+      accessIncome: true,
+      accessFinance: true,
+      // Top menu access
+      accessBicyclePOS: true,
+      accessMGRTransport: true,
+      accessPRHRental: true,
+      // MGR Transport tabs
+      accessMGRDashboard: true,
+      accessMGRSearch: true,
+      accessMGRBookings: true,
+      accessMGRHistory: true,
+      accessMGRFleet: true,
+      accessMGRCustomers: true,
+      accessMGROwners: true,
+      accessMGRSettings: false,
+      // PRH tabs
+      accessPRHDashboard: false,
+      accessPRHNewRental: false,
+      accessPRHActiveRentals: false,
+      accessPRHReturns: false,
+      accessPRHCustomers: false,
+      accessPRHEquipment: false,
+      accessPRHInventory: false,
+      accessPRHReservations: false,
+      accessPRHPayments: false,
+      accessPRHFinance: false,
+      accessPRHMaintenance: false,
+      accessPRHReminders: false,
+      accessPRHReports: false,
+      accessPRHSettings: false,
+      // Privileges
+      canRent: true,
+      canSettle: true,
+      canExportReports: true,
+      canEditPricing: false,
+      canEditFleet: true,
+      canManageUsers: false,
+      canManageRoles: false,
+      canAddFinanceTransaction: true,
+      canEditFinanceTransaction: false,
+      canDeleteFinanceTransaction: false,
+      canViewPL: true,
+      canViewStatement: true,
+      canExportFinanceReports: true,
     },
   },
   {
@@ -524,19 +590,19 @@ export function getStoredRoles(): RoleDefinition[] {
           accessPRHReports: role.permissions?.accessPRHReports ?? (defaultMatch?.permissions?.accessPRHReports ?? (role.id === 'admin' || role.id === 'manager')),
           accessPRHSettings: role.permissions?.accessPRHSettings ?? (defaultMatch?.permissions?.accessPRHSettings ?? false),
           // Privileges
-          canRent: role.permissions?.canRent ?? true,
-          canSettle: role.permissions?.canSettle ?? true,
-          canExportReports: role.permissions?.canExportReports ?? false,
-          canEditPricing: role.permissions?.canEditPricing ?? false,
-          canEditFleet: role.permissions?.canEditFleet ?? false,
+          canRent: role.permissions?.canRent ?? (Boolean(role.permissions?.accessRentals) ? true : (defaultMatch?.permissions?.canRent ?? true)),
+          canSettle: role.permissions?.canSettle ?? (Boolean(role.permissions?.accessRentals) ? true : (defaultMatch?.permissions?.canSettle ?? true)),
+          canExportReports: role.permissions?.canExportReports ?? (Boolean(role.permissions?.accessHistory) ? true : (defaultMatch?.permissions?.canExportReports ?? false)),
+          canEditPricing: role.permissions?.canEditPricing ?? (Boolean(role.permissions?.accessSettings) ? true : (defaultMatch?.permissions?.canEditPricing ?? false)),
+          canEditFleet: role.permissions?.canEditFleet ?? (Boolean(role.permissions?.accessSettings) ? true : (defaultMatch?.permissions?.canEditFleet ?? false)),
           canManageUsers: role.permissions?.canManageUsers ?? false,
           canManageRoles: role.permissions?.canManageRoles ?? false,
-          canAddFinanceTransaction: role.permissions?.canAddFinanceTransaction ?? (defaultMatch?.permissions?.canAddFinanceTransaction ?? false),
+          canAddFinanceTransaction: role.permissions?.canAddFinanceTransaction ?? (Boolean(role.permissions?.accessFinance || role.permissions?.accessIncome) ? true : (defaultMatch?.permissions?.canAddFinanceTransaction ?? false)),
           canEditFinanceTransaction: role.permissions?.canEditFinanceTransaction ?? (defaultMatch?.permissions?.canEditFinanceTransaction ?? false),
           canDeleteFinanceTransaction: role.permissions?.canDeleteFinanceTransaction ?? (defaultMatch?.permissions?.canDeleteFinanceTransaction ?? false),
-          canViewPL: role.permissions?.canViewPL ?? (defaultMatch?.permissions?.canViewPL ?? false),
-          canViewStatement: role.permissions?.canViewStatement ?? (defaultMatch?.permissions?.canViewStatement ?? false),
-          canExportFinanceReports: role.permissions?.canExportFinanceReports ?? (defaultMatch?.permissions?.canExportFinanceReports ?? false),
+          canViewPL: role.permissions?.canViewPL ?? (Boolean(role.permissions?.accessFinance || role.permissions?.accessIncome) ? true : (defaultMatch?.permissions?.canViewPL ?? false)),
+          canViewStatement: role.permissions?.canViewStatement ?? (Boolean(role.permissions?.accessFinance || role.permissions?.accessIncome) ? true : (defaultMatch?.permissions?.canViewStatement ?? false)),
+          canExportFinanceReports: role.permissions?.canExportFinanceReports ?? (Boolean(role.permissions?.accessFinance || role.permissions?.accessIncome) ? true : (defaultMatch?.permissions?.canExportFinanceReports ?? false)),
         },
       };
     });
@@ -576,6 +642,34 @@ export function updateRolePermissions(
     updatedPerms.accessUsers = true;
     updatedPerms.canManageUsers = true;
     updatedPerms.canManageRoles = true;
+  }
+
+  // User Access = Full Function Access:
+  // If access to a module is granted, enable all permitted functions inside that module
+  if (updatedPerms.accessFinance || updatedPerms.accessIncome) {
+    if (updatedPerms.canAddFinanceTransaction === undefined || updatedPerms.canAddFinanceTransaction === null) {
+      updatedPerms.canAddFinanceTransaction = true;
+    }
+    if (updatedPerms.canViewPL === undefined || updatedPerms.canViewPL === null) {
+      updatedPerms.canViewPL = true;
+    }
+    if (updatedPerms.canViewStatement === undefined || updatedPerms.canViewStatement === null) {
+      updatedPerms.canViewStatement = true;
+    }
+    if (updatedPerms.canExportFinanceReports === undefined || updatedPerms.canExportFinanceReports === null) {
+      updatedPerms.canExportFinanceReports = true;
+    }
+  }
+  if (updatedPerms.accessRentals) {
+    if (updatedPerms.canRent === undefined || updatedPerms.canRent === null) updatedPerms.canRent = true;
+    if (updatedPerms.canSettle === undefined || updatedPerms.canSettle === null) updatedPerms.canSettle = true;
+  }
+  if (updatedPerms.accessSettings) {
+    if (updatedPerms.canEditPricing === undefined || updatedPerms.canEditPricing === null) updatedPerms.canEditPricing = true;
+    if (updatedPerms.canEditFleet === undefined || updatedPerms.canEditFleet === null) updatedPerms.canEditFleet = true;
+  }
+  if (updatedPerms.accessHistory) {
+    if (updatedPerms.canExportReports === undefined || updatedPerms.canExportReports === null) updatedPerms.canExportReports = true;
   }
 
   roles[idx] = {
@@ -755,6 +849,32 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
     const found = roles.find(r => r.id === user.role);
     if (found) {
       rawPerms = { ...found.permissions };
+      // User Access = Full Function Access:
+      if (rawPerms.accessFinance || rawPerms.accessIncome) {
+        if (rawPerms.canAddFinanceTransaction === undefined || rawPerms.canAddFinanceTransaction === null) {
+          rawPerms.canAddFinanceTransaction = true;
+        }
+        if (rawPerms.canViewPL === undefined || rawPerms.canViewPL === null) {
+          rawPerms.canViewPL = true;
+        }
+        if (rawPerms.canViewStatement === undefined || rawPerms.canViewStatement === null) {
+          rawPerms.canViewStatement = true;
+        }
+        if (rawPerms.canExportFinanceReports === undefined || rawPerms.canExportFinanceReports === null) {
+          rawPerms.canExportFinanceReports = true;
+        }
+      }
+      if (rawPerms.accessRentals) {
+        if (rawPerms.canRent === undefined || rawPerms.canRent === null) rawPerms.canRent = true;
+        if (rawPerms.canSettle === undefined || rawPerms.canSettle === null) rawPerms.canSettle = true;
+      }
+      if (rawPerms.accessSettings) {
+        if (rawPerms.canEditPricing === undefined || rawPerms.canEditPricing === null) rawPerms.canEditPricing = true;
+        if (rawPerms.canEditFleet === undefined || rawPerms.canEditFleet === null) rawPerms.canEditFleet = true;
+      }
+      if (rawPerms.accessHistory) {
+        if (rawPerms.canExportReports === undefined || rawPerms.canExportReports === null) rawPerms.canExportReports = true;
+      }
     } else {
       rawPerms = { ...EMPTY_PERMS };
     }

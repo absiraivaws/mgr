@@ -44,7 +44,7 @@ import {
 import { AppSettings, IncomeEntry, FinanceCategoryConfig } from '../types';
 import { formatCurrency } from '../utils/pricing';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
-import { DEFAULT_USER, UserAccount, getStoredUsers, hasPermission } from '../utils/auth';
+import { DEFAULT_USER, UserAccount, getStoredUsers, hasPermission, getUserPermissions } from '../utils/auth';
 import { recordAuditLog } from '../utils/audit';
 
 interface FinancePanelProps {
@@ -99,14 +99,16 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
   const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
   const isAdmin = activeUser.role === 'admin' || isRootAdmin;
 
-  // RBAC checks: Store Manager can Add only (no Edit or Delete). Admin can View, Add, Edit, and Delete.
-  const canAccessFinance = hasPermission(activeUser, 'accessFinance') || isAdmin;
-  const canAdd = hasPermission(activeUser, 'canAddFinanceTransaction') || isAdmin;
-  const canEdit = (hasPermission(activeUser, 'canEditFinanceTransaction') && activeUser.role !== 'manager') || isAdmin;
-  const canDelete = (hasPermission(activeUser, 'canDeleteFinanceTransaction') && activeUser.role !== 'manager') || isAdmin;
-  const canViewPL = hasPermission(activeUser, 'canViewPL') || isAdmin;
-  const canViewStatement = hasPermission(activeUser, 'canViewStatement') || isAdmin;
-  const canExport = hasPermission(activeUser, 'canExportFinanceReports') || isAdmin;
+  // RBAC checks: Admin has unrestricted access. Staff & Owners follow assigned permissions.
+  // User Access = Full Function Access: Any role granted access to Finance is permitted to Add transactions and view reports.
+  const userPerms = getUserPermissions(activeUser);
+  const canAccessFinance = hasPermission(activeUser, 'accessFinance') || Boolean(userPerms.accessFinance) || Boolean(userPerms.accessIncome) || isAdmin;
+  const canAdd = isAdmin || Boolean(userPerms.canAddFinanceTransaction) || (canAccessFinance && userPerms.canAddFinanceTransaction !== false);
+  const canEdit = (Boolean(userPerms.canEditFinanceTransaction) && activeUser.role !== 'manager') || isAdmin;
+  const canDelete = (Boolean(userPerms.canDeleteFinanceTransaction) && activeUser.role !== 'manager') || isAdmin;
+  const canViewPL = Boolean(userPerms.canViewPL) || (canAccessFinance && userPerms.canViewPL !== false) || isAdmin;
+  const canViewStatement = Boolean(userPerms.canViewStatement) || (canAccessFinance && userPerms.canViewStatement !== false) || isAdmin;
+  const canExport = Boolean(userPerms.canExportFinanceReports) || (canAccessFinance && userPerms.canExportFinanceReports !== false) || isAdmin;
 
   // Active Sub-tab in Finance
   const [activeSubTab, setActiveSubTab] = useState<'transactions' | 'pl' | 'statement' | 'categories'>('transactions');

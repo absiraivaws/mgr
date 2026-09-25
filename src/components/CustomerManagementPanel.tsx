@@ -1013,7 +1013,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                         </button>
 
                         {/* Delete Profile (Admin-Only) */}
-                        {isAdmin ? (
+                        {isAdmin && (
                           <button
                             id={`btn-delete-customer-${customer.id}`}
                             type="button"
@@ -1022,15 +1022,6 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                             title="Delete Customer Profile"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => alert('Permission Denied: Only Administrators can delete registered customer records.')}
-                            className="p-1.5 rounded-lg border border-slate-500/20 text-slate-500 opacity-40 cursor-not-allowed"
-                            title="Admin Only"
-                          >
-                            <Lock className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>

@@ -1,9 +1,9 @@
 import { PricingBreakdown, PricingRates } from '../types';
 
 /**
- * Calculates rental charge based on business rules:
- * - 1 to 60 min: First hour base charge
- * - > 60 min: First hour base charge + continuing rate for every additional 30 min block (or fraction thereof)
+ * Calculates rental charge based on tiered pricing rules:
+ * - 1 to firstDurationMinutes: First base charge
+ * - > firstDurationMinutes: First base charge + continuing interval rate for each additional continuingDurationMinutes block (or fraction thereof)
  */
 export function calculateRentalBreakdown(
   startTime: number,
@@ -14,17 +14,24 @@ export function calculateRentalBreakdown(
   // Rental duration in minutes (round up to nearest minute, minimum 1 min if active)
   const totalMinutes = Math.max(1, Math.ceil(elapsedMs / (1000 * 60)));
 
+  const firstDurationMinutes = rates.firstDurationMinutes && rates.firstDurationMinutes > 0
+    ? rates.firstDurationMinutes
+    : 60;
+  const continuingDurationMinutes = rates.continuingDurationMinutes && rates.continuingDurationMinutes > 0
+    ? rates.continuingDurationMinutes
+    : 30;
+
   const firstHourAmount = rates.firstHour || 0;
-  const ratePer30Min = rates.every30Min ?? rates.next30Min ?? 0;
+  const ratePerBlock = rates.every30Min ?? rates.next30Min ?? 0;
   
   let every30MinCount = 0;
   let every30MinAmount = 0;
 
-  if (totalMinutes > 60) {
-    const additionalMinutes = totalMinutes - 60;
-    // Each continuing 30-minute block or fraction thereof
-    every30MinCount = Math.ceil(additionalMinutes / 30);
-    every30MinAmount = every30MinCount * ratePer30Min;
+  if (totalMinutes > firstDurationMinutes) {
+    const additionalMinutes = totalMinutes - firstDurationMinutes;
+    // Each continuing interval block or fraction thereof
+    every30MinCount = Math.ceil(additionalMinutes / continuingDurationMinutes);
+    every30MinAmount = every30MinCount * ratePerBlock;
   }
 
   const subtotal = firstHourAmount + every30MinAmount;
@@ -34,10 +41,15 @@ export function calculateRentalBreakdown(
     totalMinutes,
     durationFormatted: formatMinutesHuman(totalMinutes),
     firstHourAmount,
-    firstHourMinutes: Math.min(60, totalMinutes),
+    firstHourMinutes: Math.min(firstDurationMinutes, totalMinutes),
+    firstDurationMinutes,
     every30MinCount,
-    every30MinRate: ratePer30Min,
+    continuingBlocksCount: every30MinCount,
+    every30MinRate: ratePerBlock,
+    continuingBlockRate: ratePerBlock,
     every30MinAmount,
+    continuingBlockAmount: every30MinAmount,
+    continuingDurationMinutes,
     subtotal,
     totalAmount,
     // Backward compatibility fallbacks

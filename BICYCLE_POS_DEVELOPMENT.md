@@ -14,6 +14,35 @@ This document maintains the complete development reference, system specification
 
 ---
 
+## 1.1 Development Tasks & Progress Tracking (Version 2.3.0)
+
+### 📌 Core Requirements & Status
+| Task ID | Requirement Item | Status | Verification & Target File |
+|---|---|:---:|---|
+| **REQ-1** | **Save & Refresh Latest Data** | **Completed** | `src/lib/supabaseSync.ts`, `src/App.tsx`, `src/components/SettingsPanel.tsx` |
+| 1.1 | Fix `syncVehicleTypeToSupabase` schema mismatch (remove nonexistent `rental_start_method` column, store in rates JSONB) | **Completed** | Fixed in `src/lib/supabaseSync.ts` with backward compatibility in `loadDataFromSupabase` |
+| 1.2 | Resilient cloud-local vehicle types merge on load & instant reload after add/edit/delete | **Completed** | Fixed in `src/App.tsx` (`handleUpdateVehicleTypes`, `handleUpdateVehicles`, `loadData`) |
+| 1.3 | Clear Save / Confirm buttons on Add Vehicle Category, Edit Rates, and Delete Category | **Completed** | Added Save Category / Update Rates with loading spinner (`RefreshCw`) in `src/components/SettingsPanel.tsx` |
+| 1.4 | Immediate database reload and display across page refresh, logout/login, and tab navigation | **Completed** | Implemented via `fetchSupabaseData()` triggers in `src/App.tsx` |
+| 1.5 | Clear Save / Confirm buttons and reload on Fleet Inventory (Vehicles), Customers, Rentals, and Finance | **Completed** | Implemented across `SettingsPanel.tsx`, `CustomerManagementPanel.tsx`, `FinancePanel.tsx`, `App.tsx` |
+| **REQ-2** | **User Access = Full Function Access** | **Completed** | `src/utils/auth.ts`, `src/components/user-role/UserRoleMasterHub.tsx`, `src/components/FinancePanel.tsx` |
+| 2.1 | Automatic functional permissions granting when side-menu tab is enabled in Access Matrix (Finance $\rightarrow$ Add, PL, Statement, Export) | **Completed** | Implemented in `UserRoleMasterHub.tsx` (`handleToggleModuleTab`) and `auth.ts` |
+| 2.2 | Full functional access for MGR Owner role in Transaction/Finance module | **Completed** | Updated in `auth.ts`, `FinancePanel.tsx`, and synced to Supabase `user_roles` |
+| 2.3 | Default permissions normalization for all roles with module access in `auth.ts` | **Completed** | Implemented in `getUserPermissions()`, `getStoredRoles()`, `updateRolePermissions()` |
+| **REQ-3** | **Permission Validation Before Button Display** | **Completed** | `src/components/FinancePanel.tsx`, `src/components/SettingsPanel.tsx`, `src/components/RentalHistoryPanel.tsx`, `src/components/CustomerManagementPanel.tsx`, `src/components/StartRentalCard.tsx`, `src/components/ActiveRentalsList.tsx` |
+| 3.1 | Pre-validate permissions before displaying **Add** buttons (Finance, Vehicle Types, Vehicles, Customers) | **Completed** | Buttons conditionally rendered only if role has corresponding permission |
+| 3.2 | Pre-validate permissions before displaying **Edit** buttons (Finance, Categories, Inventory, Customers) | **Completed** | Edit actions omitted if unauthorized; no dead lock icons |
+| 3.3 | Pre-validate permissions before displaying **Delete** buttons (remove dead clicks and alert lock buttons) | **Completed** | Replaced lock buttons alerting "Permission Denied" with pre-validated `{isAdmin && ...}` / `{(isAdmin \|\| canEdit) && ...}` |
+| 3.4 | Pre-validate permissions before displaying **View** sub-tabs (PL Statement, Statement of Accounts) | **Completed** | Sub-tabs pre-validated via `canViewPL` and `canViewStatement` in `FinancePanel.tsx` |
+| 3.5 | Pre-validate permissions before displaying **Approve / Settle / Start** buttons | **Completed** | Validated `canRent` in `StartRentalCard.tsx` and `canSettle` in `ActiveRentalsList.tsx` |
+| **REQ-4** | **Configurable Minute Intervals for Tiered Pricing** | **Completed** | `src/types.ts`, `src/utils/pricing.ts`, `src/components/SettingsPanel.tsx`, `src/components/ActiveRentalsList.tsx`, `src/components/StartRentalCard.tsx` |
+| 4.1 | Custom key-in minutes for Tier 1: First Duration Minutes & Rate | **Completed** | Added `firstDurationMinutes` to `PricingRates`, state in `SettingsPanel.tsx`, paired minute + rate form inputs |
+| 4.2 | Custom key-in minutes for Tier 2: Continuing Interval Minutes & Rate | **Completed** | Added `continuingDurationMinutes` to `PricingRates`, state in `SettingsPanel.tsx`, paired interval + rate form inputs |
+| 4.3 | Dynamic calculation in `calculateRentalBreakdown()` using configured minutes | **Completed** | Replaced hardcoded 60m and 30m blocks with dynamic `firstDurationMinutes` and `continuingDurationMinutes` in `pricing.ts` |
+| 4.4 | Dynamic UI display across Category cards, Rental Desk selection, and Active Rentals | **Completed** | Updated `SettingsPanel.tsx`, `StartRentalCard.tsx`, and `ActiveRentalsList.tsx` to dynamically show configured minutes |
+
+---
+
 ## 2. Rental Serial Numbering Format
 
 ### Standard Format: `REN-0000001`, `REN-0000002`, `REN-0000003`, ...
@@ -127,6 +156,27 @@ All timestamps and date displays strictly use **Sri Lanka Standard Time** (`Asia
 ---
 
 ## 6. Changelog
+
+### Version 2.3.0 (September 2026)
+- **Save & Refresh Latest Data (Bicycle POS)**:
+  - **Supabase `vehicle_types` Schema Fix**: Resolved PostgREST `400 Bad Request (PGRST204)` error when adding vehicle categories by storing `rentalStartMethod` inside the `rates` JSONB column instead of attempting to write to an unmapped raw column. Updated `loadDataFromSupabase()` with backward compatibility fallback.
+  - **Instant DB Refresh & Local Merge**: Updated `App.tsx` (`handleUpdateVehicleTypes`, `handleUpdateVehicles`, `handleStartRental`, `handleConfirmStopAndSettle`, `handleDeleteRental`, `handleAddCustomer`, `handleUpdateCustomer`, `handleDeleteCustomer`, and Finance handlers) to await Supabase operations and immediately reload the latest database state via `fetchSupabaseData()`.
+  - **Explicit Confirmation & Feedback**: Added visible Save/Confirm buttons with live saving spinners (`RefreshCw` / `Save`) for Vehicle Categories, Rates, Inventory Units, Customers, and Settlements. Data remains accurate across refresh (F5), navigation, and logout/login.
+- **User Access = Full Function Access**:
+  - **Operational Privileges Tied to Module Access**: In `UserRoleMasterHub.tsx` and `auth.ts`, granting access to a module automatically activates the full suite of operational privileges for that module (e.g., granting `accessFinance` automatically sets `canAddFinanceTransaction = true`, `canViewPL = true`, `canViewStatement = true`, `canExportFinanceReports = true`; granting `accessRentals` sets `canRent = true` and `canSettle = true`).
+  - **MGR Owner Finance Access Unblocked**: Configured the **MGR Owner** role to possess full transaction privileges in the Finance module both locally and in Supabase `user_roles`.
+- **Permission Validation Before Button Display (Zero Dead Clicks)**:
+  - Validated permissions prior to button rendering across all Bicycle POS panels:
+    - **Add**: `btn-add-vehicle-type`, `btn-open-bulk-gen`, `btn-open-add-veh`, Add Customer, Add Transaction.
+    - **Edit**: Edit Vehicle Type, Edit Customer, Edit Transaction.
+    - **Delete**: Settled rental receipts (`RentalHistoryPanel.tsx`), Customer profiles (`CustomerManagementPanel.tsx`), Vehicle categories & inventory units (`SettingsPanel.tsx`), and Income/Expense records (`IncomeExpensesPanel.tsx`, `FinancePanel.tsx`).
+    - **Approve / Settle / Start**: Pre-validated `canRent` on `btn-start-rental` (`StartRentalCard.tsx`) and `canSettle` on `btn-stop-...` (`ActiveRentalsList.tsx`).
+  - Completely eradicated `<Lock ... onClick={() => alert('Permission Denied...')} />` dead-click buttons, ensuring that if an action is not permitted for the user's role, the button is cleanly omitted rather than displaying an intrusive popup alert.
+- **Configurable Minute Intervals in Tiered Pricing Rates**:
+  - **Custom Minute Key-In**: Added input fields in `SettingsPanel.tsx` under Vehicle Types & Tiered Pricing Rates allowing users to key in any arbitrary number of minutes for both **Tier 1 (Initial Base Duration)** and **Tier 2 (Every Continuing Interval)** alongside their respective rates.
+  - **Dynamic Calculation**: Updated `calculateRentalBreakdown()` in `src/utils/pricing.ts` to dynamically use `firstDurationMinutes` (defaulting to 60) and `continuingDurationMinutes` (defaulting to 30) for tiered cost calculations (`Math.ceil((totalMinutes - firstDurationMinutes) / continuingDurationMinutes)`).
+  - **Schema & Cloud Persistence**: Stored `firstDurationMinutes` and `continuingDurationMinutes` within the `rates` JSONB column in Supabase `vehicle_types` and copied to `rateSnapshot` when starting rentals, ensuring complete cloud synchronization without database migrations.
+  - **Context-Aware UI Displays**: Updated category cards in `SettingsPanel.tsx`, rate preview badges in `StartRentalCard.tsx`, and active rental progress cards in `ActiveRentalsList.tsx` to dynamically render configured minutes (e.g., `1st 45m: 100 LK`, `+15m: +25 LK`).
 
 ### Version 2.2.0 (September 2026)
 - **Store Manager Income & Expense Persistence Across Sessions**:

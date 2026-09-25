@@ -24,7 +24,7 @@ import { VehicleIcon } from './VehicleIcon';
 import { formatCurrency, playSoundEffect, getNextRentalNumber } from '../utils/pricing';
 import { findCustomerByNic, searchCustomers, isCustomerSuspendedOrBlocked, cleanWhatsAppPhoneNumber } from '../utils/customer';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
-import { DEFAULT_USER, UserAccount } from '../utils/auth';
+import { DEFAULT_USER, UserAccount, getUserPermissions } from '../utils/auth';
 import { QRScannerModal } from './QRScannerModal';
 import { LankaQrPaymentModal } from './LankaQrPaymentModal';
 import { recordAuditLog } from '../utils/audit';
@@ -70,6 +70,14 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   onQuickAddSerial,
   onOpenStopRentalModal,
 }) => {
+  const activeUser = currentUser || DEFAULT_USER;
+  const userPerms = getUserPermissions(activeUser);
+  const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+                      activeUser.email.toLowerCase() === 'absiraiva@gmail.com' ||
+                      activeUser.email.toLowerCase() === 'admin@mannargreenride.lk';
+  const isAdmin = activeUser.role === 'admin' || isRootAdmin;
+  const canRent = isAdmin || Boolean(userPerms.canRent);
+
   // Always start with Category and Serial Number blank
   const [selectedTypeId, setSelectedTypeId] = useState<string>('');
   const [selectedSerial, setSelectedSerial] = useState<string>('');
@@ -91,9 +99,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   const [isStartedViaQR, setIsStartedViaQR] = useState<boolean>(false);
   const [qrScanNotice, setQrScanNotice] = useState<string | null>(null);
 
-  const activeUser = currentUser || DEFAULT_USER;
-  const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
-  const isAdmin = activeUser.role === 'admin' || isRootAdmin;
+
   const [customStartTimeInput, setCustomStartTimeInput] = useState<string>(() => {
     const d = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -830,13 +836,13 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
               </div>
               <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
                 <span className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-0.5 rounded-md whitespace-nowrap font-bold">
-                  1st 60m:{' '}
+                  1st {selectedType.rates.firstDurationMinutes || 60}m:{' '}
                   <strong>
                     {formatCurrency(selectedType.rates.firstHour, settings.currencySymbol, settings.currencyPosition)}
                   </strong>
                 </span>
                 <span className="bg-teal-500/10 text-teal-500 border border-teal-500/20 px-2 py-0.5 rounded-md whitespace-nowrap font-bold">
-                  Every +30m:{' '}
+                  Every +{selectedType.rates.continuingDurationMinutes || 30}m:{' '}
                   <strong>
                     +{formatCurrency(selectedType.rates.every30Min ?? selectedType.rates.next30Min ?? 0, settings.currencySymbol, settings.currencyPosition)}
                   </strong>
@@ -1050,7 +1056,14 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
 
           {/* Start Rental Primary Action Button */}
           <div className="pt-2">
-            {matchedCustomer && isCustomerSuspendedOrBlocked(matchedCustomer) ? (
+            {!canRent ? (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center space-y-1">
+                <span className="font-bold text-xs text-amber-400 flex items-center justify-center gap-1.5">
+                  <Info className="w-4 h-4" />
+                  <span>View Only Mode: Starting rentals is restricted for your assigned role</span>
+                </span>
+              </div>
+            ) : matchedCustomer && isCustomerSuspendedOrBlocked(matchedCustomer) ? (
               <div className="p-3 bg-rose-500/20 border border-rose-500/50 rounded-xl text-center space-y-1">
                 <span className="font-bold text-sm text-rose-300 flex items-center justify-center gap-2">
                   <AlertCircle className="w-4 h-4" />

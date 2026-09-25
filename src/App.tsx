@@ -892,7 +892,20 @@ export default function App() {
         fetchMessageTemplatesFromSupabase(),
       ]);
       if (cloudData) {
-        if (cloudData.vehicleTypes && cloudData.vehicleTypes.length > 0) setVehicleTypes(cloudData.vehicleTypes);
+        if (cloudData.vehicleTypes && cloudData.vehicleTypes.length > 0) {
+          setVehicleTypes((prev) => {
+            const cloudList = cloudData.vehicleTypes || [];
+            const unsynced = prev.filter(
+              (pt) => !cloudList.some((ct) => ct.id === pt.id || ct.name.trim().toLowerCase() === pt.name.trim().toLowerCase())
+            );
+            unsynced.forEach((t) => syncVehicleTypeToSupabase(t));
+            const merged = [...cloudList, ...unsynced];
+            try {
+              localStorage.setItem('v_rental_types', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
         if (cloudData.vehicles && cloudData.vehicles.length > 0) {
           setVehicles((prev) => {
             const cloudList = cloudData.vehicles || [];
@@ -1182,7 +1195,7 @@ export default function App() {
     } catch {}
   };
 
-  const handleUpdateVehicleTypes = (newTypes: VehicleType[]) => {
+  const handleUpdateVehicleTypes = async (newTypes: VehicleType[]) => {
     const oldIds = new Set(newTypes.map(t => t.id));
     const deleted = vehicleTypes.filter(t => !oldIds.has(t.id));
 
@@ -1190,8 +1203,21 @@ export default function App() {
     localStorage.setItem('v_rental_types', JSON.stringify(newTypes));
 
     if (isSupabaseConfigured()) {
-      newTypes.forEach(t => syncVehicleTypeToSupabase(t));
-      deleted.forEach(t => deleteVehicleTypeFromSupabase(t.id));
+      for (const t of newTypes) {
+        await syncVehicleTypeToSupabase(t);
+      }
+      for (const t of deleted) {
+        await deleteVehicleTypeFromSupabase(t.id);
+      }
+      try {
+        const fresh = await fetchSupabaseData();
+        if (fresh?.vehicleTypes && fresh.vehicleTypes.length > 0) {
+          setVehicleTypes(fresh.vehicleTypes);
+          localStorage.setItem('v_rental_types', JSON.stringify(fresh.vehicleTypes));
+        }
+      } catch (err) {
+        console.error('[Types] Error reloading from Supabase:', err);
+      }
     }
     try {
       const bc = new BroadcastChannel('bicycle_pos_channel');
@@ -1200,7 +1226,7 @@ export default function App() {
     } catch {}
   };
 
-  const handleUpdateVehicles = (newVehicles: Vehicle[]) => {
+  const handleUpdateVehicles = async (newVehicles: Vehicle[]) => {
     const newIds = new Set(newVehicles.map(v => v.id));
     const deleted = vehicles.filter(v => !newIds.has(v.id));
 
@@ -1208,8 +1234,21 @@ export default function App() {
     localStorage.setItem('v_rental_vehicles', JSON.stringify(newVehicles));
 
     if (isSupabaseConfigured()) {
-      newVehicles.forEach(v => syncVehicleToSupabase(v));
-      deleted.forEach(v => deleteVehicleFromSupabase(v.id));
+      for (const v of newVehicles) {
+        await syncVehicleToSupabase(v);
+      }
+      for (const v of deleted) {
+        await deleteVehicleFromSupabase(v.id);
+      }
+      try {
+        const fresh = await fetchSupabaseData();
+        if (fresh?.vehicles && fresh.vehicles.length > 0) {
+          setVehicles(fresh.vehicles);
+          localStorage.setItem('v_rental_vehicles', JSON.stringify(fresh.vehicles));
+        }
+      } catch (err) {
+        console.error('[Vehicles] Error reloading from Supabase:', err);
+      }
     }
     try {
       const bc = new BroadcastChannel('bicycle_pos_channel');
@@ -1219,7 +1258,7 @@ export default function App() {
   };
 
   // Handler: Start New Rental
-  const handleStartRental = (params: {
+  const handleStartRental = async (params: {
     vehicleTypeId: string;
     vehicleSerialNumber: string;
     customerName?: string;
@@ -1324,12 +1363,12 @@ export default function App() {
 
     // Live sync to Supabase if configured
     if (isSupabaseConfigured()) {
-      syncRentalToSupabase(newRental);
-      if (vehicleObj) syncVehicleToSupabase(vehicleObj);
+      await syncRentalToSupabase(newRental);
+      if (vehicleObj) await syncVehicleToSupabase(vehicleObj);
       if (params.customerNicPassport || params.customerName) {
         const cleanNic = (params.customerNicPassport || '').trim().toUpperCase();
         const matched = customers.find(c => c.nicPassport.trim().toUpperCase() === cleanNic);
-        syncCustomerToSupabase({
+        await syncCustomerToSupabase({
           id: matched?.id || `cust-${Date.now()}`,
           nicPassport: cleanNic,
           name: params.customerName || matched?.name || 'Customer',
@@ -1343,11 +1382,24 @@ export default function App() {
           totalRentalsCount: (matched?.totalRentalsCount || 0) + 1,
         });
       }
+      try {
+        const fresh = await fetchSupabaseData();
+        if (fresh?.activeRentals) {
+          setActiveRentals(fresh.activeRentals);
+          localStorage.setItem('v_rental_active', JSON.stringify(fresh.activeRentals));
+        }
+        if (fresh?.vehicles) {
+          setVehicles(fresh.vehicles);
+          localStorage.setItem('v_rental_vehicles', JSON.stringify(fresh.vehicles));
+        }
+      } catch (err) {
+        console.error('[StartRental] Error reloading after rental start:', err);
+      }
     }
   };
 
   // Handler: Stop & Settle Rental
-  const handleConfirmStopAndSettle = (completedRecord: RentalRecord) => {
+  const handleConfirmStopAndSettle = async (completedRecord: RentalRecord) => {
     // 1. Remove from active rentals
     setActiveRentals((prev) => prev.filter((r) => r.id !== completedRecord.id));
 
@@ -1367,12 +1419,13 @@ export default function App() {
     const rentRef = `RENT-${completedRecord.rentalNumber}`;
     const activeCashier = completedRecord.cashierName || activeUser.name || currentUser?.name || settings.cashierName || 'Staff';
 
+    let rentalIncomeEntry: IncomeEntry | null = null;
     if (completedRecord.totalAmount && completedRecord.totalAmount > 0) {
       setIncomeEntries((prev) => {
         const alreadyExists = prev.some((e) => e.reference === rentRef);
         if (alreadyExists) return prev;
 
-        const rentalIncomeEntry: IncomeEntry = {
+        rentalIncomeEntry = {
           id: `inc-rent-${completedRecord.id}`,
           date: new Date(completedRecord.completedAt || Date.now()).toISOString().slice(0, 10),
           description: `Rental #${completedRecord.rentalNumber} — ${completedRecord.vehicleTypeName} (${completedRecord.vehicleSerialNumber})`,
@@ -1385,10 +1438,6 @@ export default function App() {
           cashierName: activeCashier,
           createdAt: Date.now(),
         };
-
-        if (isSupabaseConfigured()) {
-          syncIncomeEntryToSupabase(rentalIncomeEntry);
-        }
 
         return [rentalIncomeEntry, ...prev];
       });
@@ -1405,10 +1454,34 @@ export default function App() {
 
     // 5. Live sync to Supabase
     if (isSupabaseConfigured()) {
-      syncRentalToSupabase(completedRecord);
+      if (rentalIncomeEntry) {
+        await syncIncomeEntryToSupabase(rentalIncomeEntry);
+      }
+      await syncRentalToSupabase(completedRecord);
       const matchedVeh = vehicles.find((v) => v.serialNumber.toUpperCase() === completedRecord.vehicleSerialNumber.toUpperCase());
       if (matchedVeh) {
-        syncVehicleToSupabase({ ...matchedVeh, status: 'available', lastRentedAt: Date.now() });
+        await syncVehicleToSupabase({ ...matchedVeh, status: 'available', lastRentedAt: Date.now() });
+      }
+      try {
+        const fresh = await fetchSupabaseData();
+        if (fresh?.activeRentals) {
+          setActiveRentals(fresh.activeRentals);
+          localStorage.setItem('v_rental_active', JSON.stringify(fresh.activeRentals));
+        }
+        if (fresh?.completedRentals) {
+          setCompletedRentals(fresh.completedRentals);
+          localStorage.setItem('v_rental_history', JSON.stringify(fresh.completedRentals));
+        }
+        if (fresh?.vehicles) {
+          setVehicles(fresh.vehicles);
+          localStorage.setItem('v_rental_vehicles', JSON.stringify(fresh.vehicles));
+        }
+        if (fresh?.incomeEntries) {
+          setIncomeEntries(fresh.incomeEntries);
+          localStorage.setItem('v_rental_income_entries', JSON.stringify(fresh.incomeEntries));
+        }
+      } catch (err) {
+        console.error('[Settlement] Error reloading from Supabase:', err);
       }
     }
 
@@ -1417,24 +1490,51 @@ export default function App() {
   };
 
   // Handlers for Customer Management
-  const handleAddCustomer = (newCustomer: Customer) => {
+  const handleAddCustomer = async (newCustomer: Customer) => {
     setCustomers((prev) => [newCustomer, ...prev]);
     if (isSupabaseConfigured()) {
-      syncCustomerToSupabase(newCustomer);
+      await syncCustomerToSupabase(newCustomer);
+      try {
+        const fresh = await fetchSupabaseData();
+        if (fresh?.customers && fresh.customers.length > 0) {
+          setCustomers(fresh.customers);
+          localStorage.setItem('v_rental_customers', JSON.stringify(fresh.customers));
+        }
+      } catch (err) {
+        console.error('[Customers] Error reloading from Supabase:', err);
+      }
     }
   };
 
-  const handleUpdateCustomer = (updatedCustomer: Customer) => {
+  const handleUpdateCustomer = async (updatedCustomer: Customer) => {
     setCustomers((prev) => prev.map((c) => (c.id === updatedCustomer.id ? updatedCustomer : c)));
     if (isSupabaseConfigured()) {
-      syncCustomerToSupabase(updatedCustomer);
+      await syncCustomerToSupabase(updatedCustomer);
+      try {
+        const fresh = await fetchSupabaseData();
+        if (fresh?.customers && fresh.customers.length > 0) {
+          setCustomers(fresh.customers);
+          localStorage.setItem('v_rental_customers', JSON.stringify(fresh.customers));
+        }
+      } catch (err) {
+        console.error('[Customers] Error reloading from Supabase:', err);
+      }
     }
   };
 
-  const handleDeleteCustomer = (customerId: string, nicPassport?: string) => {
+  const handleDeleteCustomer = async (customerId: string, nicPassport?: string) => {
     setCustomers((prev) => prev.filter((c) => c.id !== customerId && (!nicPassport || c.nicPassport !== nicPassport)));
     if (isSupabaseConfigured()) {
-      deleteCustomerFromSupabase(customerId, nicPassport);
+      await deleteCustomerFromSupabase(customerId, nicPassport);
+      try {
+        const fresh = await fetchSupabaseData();
+        if (fresh?.customers) {
+          setCustomers(fresh.customers);
+          localStorage.setItem('v_rental_customers', JSON.stringify(fresh.customers));
+        }
+      } catch (err) {
+        console.error('[Customers] Error reloading from Supabase:', err);
+      }
     }
   };
 
@@ -1464,8 +1564,10 @@ export default function App() {
   };
 
   // Handler: Delete Completed Rental (Admin user only)
-  const handleDeleteRental = (rentalId: string) => {
-    const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase();
+  const handleDeleteRental = async (rentalId: string) => {
+    const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+                        activeUser.email.toLowerCase() === 'absiraiva@gmail.com' ||
+                        activeUser.email.toLowerCase() === 'admin@mannargreenride.lk';
     const isAdmin = activeUser.role === 'admin' || isRootAdmin;
     if (!isAdmin) {
       alert('Permission Denied: Only an administrator can delete settled rental records.');
@@ -1487,8 +1589,21 @@ export default function App() {
     );
 
     if (isSupabaseConfigured()) {
-      deleteRentalFromSupabase(target.id, target.rentalNumber);
-      deleteIncomeEntryFromSupabase(`inc-rent-${target.id}`);
+      await deleteRentalFromSupabase(target.id, target.rentalNumber);
+      await deleteIncomeEntryFromSupabase(`inc-rent-${target.id}`);
+      try {
+        const fresh = await fetchSupabaseData();
+        if (fresh?.completedRentals) {
+          setCompletedRentals(fresh.completedRentals);
+          localStorage.setItem('v_rental_history', JSON.stringify(fresh.completedRentals));
+        }
+        if (fresh?.incomeEntries) {
+          setIncomeEntries(fresh.incomeEntries);
+          localStorage.setItem('v_rental_income_entries', JSON.stringify(fresh.incomeEntries));
+        }
+      } catch (err) {
+        console.error('[RentalHistory] Error reloading after delete:', err);
+      }
     }
   };
 
@@ -1897,6 +2012,7 @@ export default function App() {
               <ActiveRentalsList
                 activeRentals={activeRentals}
                 settings={settings}
+                currentUser={activeUser}
                 themeMode={themeMode}
                 accent={accent}
                 onStopRental={(rental) => setSettlingRental(rental)}
@@ -2081,8 +2197,11 @@ export default function App() {
               themeMode={themeMode}
               accent={accent}
               currentUser={activeUser}
-              onAddEntry={(entry) => {
-                const canAdd = hasPermission(activeUser, 'canAddFinanceTransaction') || activeUser.role === 'admin';
+              onAddEntry={async (entry) => {
+                const userPerms = getUserPermissions(activeUser);
+                const canAdd = hasPermission(activeUser, 'canAddFinanceTransaction') || 
+                               activeUser.role === 'admin' || 
+                               (Boolean(userPerms.accessFinance) && userPerms.canAddFinanceTransaction !== false);
                 if (!canAdd) {
                   console.warn('[Finance] Action rejected: Active role does not have permission to add finance records.');
                   return;
@@ -2095,11 +2214,21 @@ export default function App() {
                   return updated;
                 });
                 if (isSupabaseConfigured()) {
-                  syncIncomeEntryToSupabase(entry);
+                  await syncIncomeEntryToSupabase(entry);
+                  try {
+                    const freshIncomes = await fetchIncomeEntries();
+                    if (freshIncomes && freshIncomes.length > 0) {
+                      setIncomeEntries(freshIncomes);
+                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                    }
+                  } catch (err) {
+                    console.error('[Finance] Error reloading income entries:', err);
+                  }
                 }
               }}
-              onUpdateEntry={(updated) => {
-                const canEdit = hasPermission(activeUser, 'canEditFinanceTransaction') || activeUser.role === 'admin';
+              onUpdateEntry={async (updated) => {
+                const userPerms = getUserPermissions(activeUser);
+                const canEdit = (hasPermission(activeUser, 'canEditFinanceTransaction') && activeUser.role !== 'manager') || activeUser.role === 'admin';
                 if (!canEdit) {
                   console.warn('[Finance] Action rejected: Active role does not have permission to update finance records.');
                   return;
@@ -2112,11 +2241,21 @@ export default function App() {
                   return list;
                 });
                 if (isSupabaseConfigured()) {
-                  syncIncomeEntryToSupabase(updated);
+                  await syncIncomeEntryToSupabase(updated);
+                  try {
+                    const freshIncomes = await fetchIncomeEntries();
+                    if (freshIncomes && freshIncomes.length > 0) {
+                      setIncomeEntries(freshIncomes);
+                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                    }
+                  } catch (err) {
+                    console.error('[Finance] Error reloading income entries:', err);
+                  }
                 }
               }}
-              onDeleteEntry={(id) => {
-                const canDelete = hasPermission(activeUser, 'canDeleteFinanceTransaction') || activeUser.role === 'admin';
+              onDeleteEntry={async (id) => {
+                const userPerms = getUserPermissions(activeUser);
+                const canDelete = (hasPermission(activeUser, 'canDeleteFinanceTransaction') && activeUser.role !== 'manager') || activeUser.role === 'admin';
                 if (!canDelete) {
                   console.warn('[Finance] Action rejected: Active role does not have permission to delete finance records.');
                   return;
@@ -2129,7 +2268,16 @@ export default function App() {
                   return list;
                 });
                 if (isSupabaseConfigured()) {
-                  deleteIncomeEntryFromSupabase(id);
+                  await deleteIncomeEntryFromSupabase(id);
+                  try {
+                    const freshIncomes = await fetchIncomeEntries();
+                    if (freshIncomes) {
+                      setIncomeEntries(freshIncomes);
+                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                    }
+                  } catch (err) {
+                    console.error('[Finance] Error reloading income entries:', err);
+                  }
                 }
               }}
             />
