@@ -33,10 +33,19 @@ import {
   QrCode,
   Printer,
   RefreshCw,
-  Clock
+  Clock,
+  Pencil,
+  ArrowDownAZ,
+  ArrowDownZA,
+  ArrowDown01,
+  ArrowDown10,
+  ArrowUpDown,
+  Download,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import QRCode from 'qrcode';
-import { AppSettings, Customer, PricingRates, RentalRecord, RentalStartMethod, Vehicle, VehicleIconType, VehicleType } from '../types';
+import { AppSettings, Customer, PricingRates, RentalRecord, RentalStartMethod, Vehicle, VehicleIconType, VehiclePurpose, VehicleType, VehicleStatus } from '../types';
 import { VehicleIcon } from './VehicleIcon';
 import { formatCurrency } from '../utils/pricing';
 import { SupabaseSettingsTab } from './SupabaseSettingsTab';
@@ -105,6 +114,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [typeContinuingDurationMinutes, setTypeContinuingDurationMinutes] = useState<string>('30');
   const [typeEvery30Min, setTypeEvery30Min] = useState<string>('50.00');
   const [typeRentalStartMethod, setTypeRentalStartMethod] = useState<RentalStartMethod>('both');
+  const [typePurpose, setTypePurpose] = useState<VehiclePurpose>('rental');
 
   // Form State for Adding Vehicle Inventory (Serial Numbers)
   const [isAddingVehicle, setIsAddingVehicle] = useState(false);
@@ -112,6 +122,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [vehSerial, setVehSerial] = useState('');
   const [vehTypeId, setVehTypeId] = useState(vehicleTypes[0]?.id || '');
   const [vehModel, setVehModel] = useState('');
+  const [vehCostPrice, setVehCostPrice] = useState('');
   const [vehNotes, setVehNotes] = useState('');
 
   // Bulk Generator State
@@ -120,6 +131,37 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [bulkStartNum, setBulkStartNum] = useState(1);
   const [bulkCount, setBulkCount] = useState(5);
   const [bulkTypeId, setBulkTypeId] = useState(vehicleTypes[0]?.id || '');
+  const [bulkCostPrice, setBulkCostPrice] = useState('');
+
+  // Edit Vehicle State
+  const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+  const [editVehSerial, setEditVehSerial] = useState('');
+  const [editVehTypeId, setEditVehTypeId] = useState('');
+  const [editVehModel, setEditVehModel] = useState('');
+  const [editVehCostPrice, setEditVehCostPrice] = useState('');
+  const [editVehStatus, setEditVehStatus] = useState<VehicleStatus>('available');
+  const [editVehNotes, setEditVehNotes] = useState('');
+  const [editVehPurchaseRef, setEditVehPurchaseRef] = useState('');
+  const [isSavingEditVehicle, setIsSavingEditVehicle] = useState(false);
+
+  // Sorting state for Fleet Inventory table
+  type InventorySortField = 'serialNumber' | 'type' | 'model' | 'costPrice' | 'status';
+  const [invSortField, setInvSortField] = useState<InventorySortField>('serialNumber');
+  const [invSortDir, setInvSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // Pagination for Fleet Inventory (Max 20 rows per page)
+  const INV_PAGE_SIZE = 20;
+  const [invCurrentPage, setInvCurrentPage] = useState(1);
+
+  const handleInvSort = (field: InventorySortField) => {
+    if (invSortField === field) {
+      setInvSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setInvSortField(field);
+      setInvSortDir(field === 'costPrice' || field === 'serialNumber' ? 'desc' : 'asc');
+    }
+    setInvCurrentPage(1);
+  };
 
   // Inventory search filter
   const [inventorySearch, setInventorySearch] = useState('');
@@ -127,6 +169,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   // QR Viewer / Print State
   const [selectedQRVehicle, setSelectedQRVehicle] = useState<Vehicle | null>(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
+  const [selectedVehicleIdsForQR, setSelectedVehicleIdsForQR] = useState<Set<string>>(new Set());
+  const [isBulkDownloadingQR, setIsBulkDownloadingQR] = useState(false);
 
   const handleOpenVehicleQR = async (v: Vehicle) => {
     setSelectedQRVehicle(v);
@@ -258,6 +302,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setEditingTypeId(typeItem.id);
     setTypeName(typeItem.name);
     setTypeIcon(typeItem.icon);
+    setTypePurpose(typeItem.purpose || 'rental');
     setTypeDescription(typeItem.description || '');
     setTypeFirstDurationMinutes((typeItem.rates.firstDurationMinutes || 60).toString());
     setTypeFirstHour(typeItem.rates.firstHour.toString());
@@ -294,6 +339,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 ...item,
                 name: typeName.trim(),
                 icon: typeIcon,
+                purpose: typePurpose,
                 description: typeDescription.trim() || undefined,
                 rates,
                 rentalStartMethod: typeRentalStartMethod,
@@ -306,6 +352,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           id: `type-${Date.now()}`,
           name: typeName.trim(),
           icon: typeIcon,
+          purpose: typePurpose,
           description: typeDescription.trim() || undefined,
           rates,
           rentalStartMethod: typeRentalStartMethod,
@@ -315,6 +362,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
       setIsAddingType(false);
       setEditingTypeId(null);
+      setTypePurpose('rental');
     } catch (err) {
       console.error('[Settings] Error saving vehicle type:', err);
     } finally {
@@ -356,11 +404,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       return;
     }
 
+    const costVal = parseFloat(vehCostPrice);
     const newVehicle: Vehicle = {
       id: `veh-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       serialNumber: normalizedSerial,
       typeId: vehTypeId,
       modelName: vehModel.trim() || undefined,
+      costPrice: !isNaN(costVal) && costVal >= 0 ? costVal : undefined,
       status: 'available',
       notes: vehNotes.trim() || undefined,
       totalRentalsCount: 0,
@@ -371,6 +421,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       await onUpdateVehicles([newVehicle, ...vehicles]);
       setVehSerial('');
       setVehModel('');
+      setVehCostPrice('');
       setVehNotes('');
       setIsAddingVehicle(false);
     } catch (err) {
@@ -394,6 +445,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     const existingSerials = new Set(vehicles.map((v) => v.serialNumber.toUpperCase()));
     const newVehiclesList: Vehicle[] = [];
     let duplicatesSkipped = 0;
+    const bulkCostVal = parseFloat(bulkCostPrice);
 
     for (let i = 0; i < count; i++) {
       const numStr = (start + i).toString().padStart(3, '0');
@@ -408,6 +460,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         id: `veh-bulk-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 5)}`,
         serialNumber: genSerial,
         typeId: bulkTypeId,
+        costPrice: !isNaN(bulkCostVal) && bulkCostVal >= 0 ? bulkCostVal : undefined,
         status: 'available',
         notes: `Bulk generated batch on ${new Date().toLocaleDateString()}`,
         totalRentalsCount: 0,
@@ -422,19 +475,99 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
     onUpdateVehicles([...newVehiclesList, ...vehicles]);
     setIsBulkMode(false);
+    setBulkCostPrice('');
     alert(`Successfully generated ${newVehiclesList.length} serial numbers!`);
   };
 
+  // Open Edit Vehicle Modal
+  const handleOpenEditVehicle = (v: Vehicle) => {
+    setEditingVehicle(v);
+    setEditVehSerial(v.serialNumber);
+    setEditVehTypeId(v.typeId);
+    setEditVehModel(v.modelName || '');
+    setEditVehCostPrice(v.costPrice !== undefined ? v.costPrice.toString() : '');
+    setEditVehStatus(v.status);
+    setEditVehNotes(v.notes || '');
+    setEditVehPurchaseRef(v.purchaseRef || '');
+  };
+
+  // Save Edit Vehicle Handler
+  const handleSaveEditVehicle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingVehicle || !editVehSerial.trim()) return;
+
+    const normalizedSerial = editVehSerial.trim().toUpperCase();
+    const isDuplicate = vehicles.some(
+      (v) => v.id !== editingVehicle.id && v.serialNumber.toUpperCase() === normalizedSerial
+    );
+    if (isDuplicate) {
+      alert(`Another vehicle with Serial Number "${normalizedSerial}" already exists!`);
+      return;
+    }
+
+    setIsSavingEditVehicle(true);
+    try {
+      const costVal = parseFloat(editVehCostPrice);
+      const updatedList: Vehicle[] = vehicles.map((v) => {
+        if (v.id === editingVehicle.id) {
+          return {
+            ...v,
+            serialNumber: normalizedSerial,
+            typeId: editVehTypeId,
+            modelName: editVehModel.trim() || undefined,
+            costPrice: !isNaN(costVal) && costVal >= 0 ? costVal : undefined,
+            status: editVehStatus,
+            notes: editVehNotes.trim() || undefined,
+            purchaseRef: editVehPurchaseRef.trim() || undefined,
+          };
+        }
+        return v;
+      });
+
+      await onUpdateVehicles(updatedList);
+      setEditingVehicle(null);
+    } catch (err: any) {
+      console.error('[Settings] Error updating vehicle unit:', err);
+      alert(`Failed to update vehicle: ${err.message || err}`);
+    } finally {
+      setIsSavingEditVehicle(false);
+    }
+  };
+
   const handleDeleteVehicle = (id: string) => {
-    if (!isAdmin && !canEditFleet) {
-      alert('Permission Denied: You do not have permission to delete vehicles from inventory.');
+    if (!isAdmin) {
+      alert('Permission Denied: Only Administrator accounts can delete vehicles from inventory.');
       return;
     }
     const veh = vehicles.find((v) => v.id === id);
-    if (veh?.status === 'rented') {
-      alert('Cannot delete an actively rented vehicle. Please stop the rental timer first.');
+    if (!veh) return;
+
+    if (veh.status === 'rented') {
+      alert(`Cannot delete vehicle "${veh.serialNumber}": It is currently actively rented. Please settle the rental first.`);
       return;
     }
+
+    const hasRentals = (activeRentals && activeRentals.some(r => r.vehicleSerialNumber === veh.serialNumber || r.vehicleId === veh.id)) ||
+      (completedRentals && completedRentals.some(r => r.vehicleSerialNumber === veh.serialNumber || r.vehicleId === veh.id));
+
+    if (hasRentals) {
+      const confirmHistoryDelete = window.confirm(
+        `Notice: Vehicle "${veh.serialNumber}" has recorded rental history.\n\n` +
+        `Deleting it will permanently remove it from active fleet inventory while historical transactions will remain archived.\n\n` +
+        `Do you want to proceed with permanent deletion?`
+      );
+      if (!confirmHistoryDelete) return;
+    } else {
+      const confirmDelete = window.confirm(`Are you sure you want to permanently delete vehicle "${veh.serialNumber}"?`);
+      if (!confirmDelete) return;
+    }
+
+    setSelectedVehicleIdsForQR((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+
     onUpdateVehicles(vehicles.filter((item) => item.id !== id));
   };
 
@@ -442,8 +575,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     onUpdateVehicles(
       vehicles.map((v) => {
         if (v.id !== id) return v;
-        if (v.status === 'rented') {
-          alert('Cannot put an actively rented vehicle into maintenance.');
+        if (v.status === 'rented' || v.status === 'sold') {
+          alert(`Cannot modify status of a ${v.status} inventory item.`);
           return v;
         }
         return {
@@ -462,24 +595,250 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setTimeout(() => setSaveSuccessMsg(null), 3000);
   };
 
-  // Vehicle inventory filtered and sorted A-Z by Category then Serial Number
+  // Vehicle inventory filtered and sorted (supports A-Z and Z-A sorting on all columns)
   const filteredVehicles = vehicles
     .filter((v) => {
+      if (!inventorySearch.trim()) return true;
       const q = inventorySearch.toLowerCase();
       const typeObj = vehicleTypes.find((t) => t.id === v.typeId);
       return (
         v.serialNumber.toLowerCase().includes(q) ||
         (v.modelName && v.modelName.toLowerCase().includes(q)) ||
-        (typeObj && typeObj.name.toLowerCase().includes(q))
+        (typeObj && typeObj.name.toLowerCase().includes(q)) ||
+        (v.costPrice !== undefined && v.costPrice.toString().includes(q)) ||
+        (v.status && v.status.toLowerCase().includes(q)) ||
+        (v.notes && v.notes.toLowerCase().includes(q))
       );
     })
     .sort((a, b) => {
-      const aType = vehicleTypes.find((t) => t.id === a.typeId)?.name || '';
-      const bType = vehicleTypes.find((t) => t.id === b.typeId)?.name || '';
-      const typeComp = aType.localeCompare(bType, undefined, { sensitivity: 'base' });
-      if (typeComp !== 0) return typeComp;
-      return a.serialNumber.localeCompare(b.serialNumber, undefined, { numeric: true, sensitivity: 'base' });
+      let comparison = 0;
+      const typeA = vehicleTypes.find((t) => t.id === a.typeId)?.name || '';
+      const typeB = vehicleTypes.find((t) => t.id === b.typeId)?.name || '';
+
+      switch (invSortField) {
+        case 'serialNumber':
+          comparison = a.serialNumber.localeCompare(b.serialNumber, undefined, { numeric: true, sensitivity: 'base' });
+          break;
+        case 'type':
+          comparison = typeA.localeCompare(typeB);
+          break;
+        case 'model':
+          comparison = (a.modelName || '').localeCompare(b.modelName || '');
+          break;
+        case 'costPrice':
+          comparison = (a.costPrice || 0) - (b.costPrice || 0);
+          break;
+        case 'status':
+          comparison = a.status.localeCompare(b.status);
+          break;
+      }
+      return invSortDir === 'asc' ? comparison : -comparison;
     });
+
+  // Total Fleet Inventory Value & Counts for display at the top of the table
+  const totalFleetCost = vehicles.reduce((sum, v) => sum + (v.costPrice || 0), 0);
+  const filteredFleetCost = filteredVehicles.reduce((sum, v) => sum + (v.costPrice || 0), 0);
+  const invAvailableCount = vehicles.filter((v) => v.status === 'available').length;
+  const invRentedCount = vehicles.filter((v) => v.status === 'rented').length;
+  const invMaintenanceCount = vehicles.filter((v) => v.status === 'maintenance').length;
+  const invSoldCount = vehicles.filter((v) => v.status === 'sold').length;
+
+  // Pagination calculations (Max 20 rows per page)
+  const totalInvPages = Math.max(1, Math.ceil(filteredVehicles.length / INV_PAGE_SIZE));
+  const safeInvPage = Math.min(invCurrentPage, totalInvPages);
+  const pagedVehicles = filteredVehicles.slice((safeInvPage - 1) * INV_PAGE_SIZE, safeInvPage * INV_PAGE_SIZE);
+
+  // Bulk QR Selection & Actions
+  const toggleSelectVehicleForQR = (id: string) => {
+    setSelectedVehicleIdsForQR((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const allFilteredSelected = pagedVehicles.length > 0 && pagedVehicles.every((v) => selectedVehicleIdsForQR.has(v.id));
+
+  const toggleSelectAllFilteredVehiclesForQR = () => {
+    setSelectedVehicleIdsForQR((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        pagedVehicles.forEach((v) => next.delete(v.id));
+      } else {
+        pagedVehicles.forEach((v) => next.add(v.id));
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDownloadQR = async () => {
+    const selectedVehiclesList = vehicles.filter((v) => selectedVehicleIdsForQR.has(v.id));
+    if (selectedVehiclesList.length === 0) return;
+
+    setIsBulkDownloadingQR(true);
+    try {
+      for (let i = 0; i < selectedVehiclesList.length; i++) {
+        const v = selectedVehiclesList[i];
+        try {
+          const dataUrl = await QRCode.toDataURL(v.serialNumber, {
+            width: 500,
+            margin: 2,
+            color: { dark: '#000000', light: '#ffffff' },
+          });
+
+          const link = document.createElement('a');
+          link.download = `${v.serialNumber}_QR.png`;
+          link.href = dataUrl;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+
+          if (selectedVehiclesList.length > 1) {
+            await new Promise((r) => setTimeout(r, 200));
+          }
+        } catch (err) {
+          console.error(`Failed to generate QR for ${v.serialNumber}:`, err);
+        }
+      }
+    } finally {
+      setIsBulkDownloadingQR(false);
+    }
+  };
+
+  const handleBulkPrintQRSheet = async () => {
+    const selectedVehiclesList = vehicles.filter((v) => selectedVehicleIdsForQR.has(v.id));
+    if (selectedVehiclesList.length === 0) return;
+
+    const qrItems: { vehicle: Vehicle; dataUrl: string; typeName: string }[] = [];
+    for (const v of selectedVehiclesList) {
+      const typeObj = vehicleTypes.find((t) => t.id === v.typeId);
+      const dataUrl = await QRCode.toDataURL(v.serialNumber, {
+        width: 300,
+        margin: 2,
+        color: { dark: '#000000', light: '#ffffff' },
+      });
+      qrItems.push({
+        vehicle: v,
+        dataUrl,
+        typeName: typeObj?.name || 'Fleet Vehicle',
+      });
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const cardsHtml = qrItems
+      .map(
+        (item) => `
+        <div class="card">
+          <img class="qr-img" src="${item.dataUrl}" alt="${item.vehicle.serialNumber}" />
+          <div class="serial">${item.vehicle.serialNumber}</div>
+          <div class="meta">${item.typeName} ${item.vehicle.modelName ? `— ${item.vehicle.modelName}` : ''}</div>
+          <div class="footer-tag">Scan to Rent / POS Tag</div>
+        </div>
+      `
+      )
+      .join('');
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Fleet QR Codes Sheet (${selectedVehiclesList.length} Units)</title>
+          <style>
+            @page {
+              size: A4;
+              margin: 10mm;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              margin: 0;
+              padding: 10px;
+              color: #111827;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 20px;
+              border-bottom: 2px solid #e5e7eb;
+              padding-bottom: 10px;
+            }
+            .title {
+              font-size: 20px;
+              font-weight: 800;
+              color: #059669;
+              margin: 0;
+            }
+            .subtitle {
+              font-size: 12px;
+              color: #6b7280;
+              margin-top: 4px;
+            }
+            .grid {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 15px;
+            }
+            .card {
+              border: 1.5px dashed #9ca3af;
+              border-radius: 12px;
+              padding: 12px;
+              text-align: center;
+              page-break-inside: avoid;
+              background: #fff;
+            }
+            .qr-img {
+              width: 150px;
+              height: 150px;
+              margin: 0 auto;
+              display: block;
+            }
+            .serial {
+              font-family: monospace;
+              font-size: 16px;
+              font-weight: 800;
+              color: #059669;
+              margin-top: 8px;
+            }
+            .meta {
+              font-size: 11px;
+              color: #4b5563;
+              margin-top: 2px;
+              font-weight: 600;
+            }
+            .footer-tag {
+              font-size: 9px;
+              color: #9ca3af;
+              margin-top: 6px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            @media print {
+              .no-print { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1 class="title">${settings.businessName || 'Cycly Rent'} - Vehicle QR Label Sheet</h1>
+            <p class="subtitle">Generated ${new Date().toLocaleDateString()} | Total ${selectedVehiclesList.length} Units</p>
+          </div>
+          <div class="grid">
+            ${cardsHtml}
+          </div>
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
 
   // Vehicle types sorted A-Z by name
   const sortedVehicleTypes = [...vehicleTypes].sort((a, b) =>
@@ -608,10 +967,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
-                    Vehicle Type Name (Key-in text)
+                    Type / Item Name (Key-in text)
                   </label>
                   <input
                     type="text"
@@ -624,6 +983,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 </div>
 
                 <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-emerald-500 mb-1">
+                    Classification (Rental / Sale)
+                  </label>
+                  <select
+                    value={typePurpose}
+                    onChange={(e) => setTypePurpose(e.target.value as VehiclePurpose)}
+                    className={`w-full rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold ${t.dropdownInput}`}
+                  >
+                    <option value="rental">🚲 Rental Fleet (Rental Only)</option>
+                    <option value="sale">🏷️ Direct Sale (Sale Only)</option>
+                    <option value="both">🔄 Rental & Sale (Both)</option>
+                  </select>
+                </div>
+
+                <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1">
                     Display Icon (Dropdown)
                   </label>
@@ -633,10 +1007,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     className={`w-full rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold ${t.dropdownInput}`}
                   >
                     <option value="bicycle">🚲 Bicycle</option>
-                    <option value="electric_bike">⚡ Electric Bike</option>
+                    <option value="electric-bike">⚡ Electric Bike / E-Bike</option>
                     <option value="motorcycle">🏍️ Motorcycle / Scooter</option>
                     <option value="scooter">🛴 Kick / Electric Scooter</option>
-                    <option value="car">🚗 Go-Kart / Car</option>
+                    <option value="quad">🚗 Quad / Go-Kart / Car</option>
+                    <option value="package">📦 Package / Boxed Item</option>
+                    <option value="tag">🏷️ Retail / Direct Sale Item</option>
+                    <option value="cart">🛒 Accessories & Merch</option>
+                    <option value="gear">⚙️ Spare Parts & Hardware</option>
+                    <option value="other">🎯 Other / General Asset</option>
                   </select>
                 </div>
               </div>
@@ -822,13 +1201,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       <div>
                         <h3 className={`font-bold text-sm sm:text-base ${t.textHeading}`}>{typeObj.name}</h3>
                         <p className={`text-xs ${t.textMuted}`}>{countOfVehicles} registered in fleet</p>
-                        <div className="mt-1">
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                            typeObj.purpose === 'sale'
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              : typeObj.purpose === 'both'
+                              ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                              : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          }`}>
+                            {typeObj.purpose === 'sale' ? 'Sale Only' : typeObj.purpose === 'both' ? 'Rental & Sale' : 'Rental Only'}
+                          </span>
                           <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
                             typeObj.rentalStartMethod === 'qr'
                               ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
                               : typeObj.rentalStartMethod === 'manual'
                               ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                              : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              : 'bg-teal-500/10 text-teal-400 border border-teal-500/20'
                           }`}>
                             Start: {typeObj.rentalStartMethod ? typeObj.rentalStartMethod.toUpperCase() : 'BOTH'}
                           </span>
@@ -837,7 +1225,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1">
-                      {canEditPricing && (
+                      {isAdmin && (
                         <button
                           type="button"
                           onClick={() => handleStartEditType(typeObj)}
@@ -847,7 +1235,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                       )}
-                      {(isAdmin || canEditPricing) && (
+                      {isAdmin && (
                         <button
                           type="button"
                           onClick={() => handleDeleteType(typeObj.id)}
@@ -985,6 +1373,19 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     className={`w-full rounded-xl px-3 py-2 text-xs font-mono ${t.textInput}`}
                   />
                 </div>
+
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>Unit Cost ({settings.currencySymbol})</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="Optional"
+                    value={bulkCostPrice}
+                    onChange={(e) => setBulkCostPrice(e.target.value)}
+                    className={`w-full rounded-xl px-3 py-2 text-xs font-mono ${t.textInput}`}
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -1008,10 +1409,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div>
                   <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
-                    Unique Serial Number (Key-in)
+                    Unique Serial Number (Key-in) *
                   </label>
                   <input
                     type="text"
@@ -1025,7 +1426,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1">
-                    Vehicle Type (Dropdown)
+                    Vehicle Type (Dropdown) *
                   </label>
                   <select
                     value={vehTypeId}
@@ -1048,6 +1449,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     className={`w-full rounded-xl px-3 py-2 text-xs ${t.textInput}`}
                   />
                 </div>
+
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Purchase Value ({settings.currencySymbol})
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="e.g. 45000"
+                    value={vehCostPrice}
+                    onChange={(e) => setVehCostPrice(e.target.value)}
+                    className={`w-full rounded-xl px-3 py-2 text-xs font-mono font-bold ${t.textInput}`}
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -1066,6 +1482,99 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </form>
           )}
 
+          {/* TOTAL INVENTORY VALUE & FLEET STATS BAR (Displayed at top of table) */}
+          <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 p-4 rounded-xl border shadow-sm ${
+            themeMode === 'dark' ? 'bg-gray-900/40 border-gray-700/60' : 'bg-gray-50 border-gray-200'
+          }`}>
+            <div>
+              <div className={`text-[11px] font-semibold uppercase tracking-wider ${
+                themeMode === 'dark' ? 'text-gray-400' : 'text-gray-600'
+              }`}>
+                Total Fleet Purchase Value
+              </div>
+              <div className={`text-xl font-bold mt-1 ${
+                themeMode === 'dark' ? 'text-emerald-400' : 'text-emerald-700'
+              }`}>
+                {formatCurrency(totalFleetCost, settings.currencySymbol, settings.currencyPosition)}
+              </div>
+              {inventorySearch && (
+                <div className={`text-[10px] mt-0.5 ${
+                  themeMode === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                }`}>
+                  Filtered: {formatCurrency(filteredFleetCost, settings.currencySymbol, settings.currencyPosition)}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className={`text-[11px] font-semibold uppercase tracking-wider ${
+                themeMode === 'dark' ? 'text-gray-400' : 'text-gray-600'
+              }`}>
+                Total Fleet Units
+              </div>
+              <div className={`text-xl font-bold mt-1 ${
+                themeMode === 'dark' ? 'text-white' : 'text-gray-900'
+              }`}>
+                {vehicles.length} <span className={`text-xs font-normal ${
+                  themeMode === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                }`}>units</span>
+              </div>
+              <div className={`text-[10px] mt-0.5 ${
+                themeMode === 'dark' ? 'text-gray-400' : 'text-gray-600'
+              }`}>
+                Showing {filteredVehicles.length} of {vehicles.length} records
+              </div>
+            </div>
+
+            <div>
+              <div className={`text-[11px] font-semibold uppercase tracking-wider ${
+                themeMode === 'dark' ? 'text-gray-400' : 'text-gray-600'
+              }`}>
+                Available & Rented
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <span className={`text-sm font-bold ${
+                  themeMode === 'dark' ? 'text-emerald-400' : 'text-emerald-700'
+                }`}>
+                  {invAvailableCount} Available
+                </span>
+                <span className="text-gray-400">•</span>
+                <span className={`text-sm font-bold ${
+                  themeMode === 'dark' ? 'text-blue-400' : 'text-blue-700'
+                }`}>
+                  {invRentedCount} Rented
+                </span>
+              </div>
+              <div className={`text-[10px] mt-0.5 ${
+                themeMode === 'dark' ? 'text-gray-400' : 'text-gray-600'
+              }`}>Operational readiness</div>
+            </div>
+
+            <div>
+              <div className={`text-[11px] font-semibold uppercase tracking-wider ${
+                themeMode === 'dark' ? 'text-gray-400' : 'text-gray-600'
+              }`}>
+                Maintenance & Sold
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <span className={`text-sm font-bold ${
+                  themeMode === 'dark' ? 'text-amber-400' : 'text-amber-700'
+                }`}>
+                  {invMaintenanceCount} Maint.
+                </span>
+                <span className="text-gray-400">•</span>
+                <span className={`text-sm font-bold ${
+                  themeMode === 'dark' ? 'text-purple-400' : 'text-purple-700'
+                }`}>
+                  {invSoldCount} Sold
+                </span>
+              </div>
+              <div className={`text-[10px] mt-0.5 ${
+                themeMode === 'dark' ? 'text-gray-400' : 'text-gray-600'
+              }`}>Offline or archived</div>
+            </div>
+          </div>
+
           {/* DISTINCT FIND / SEARCH BAR (Cyan theme) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -1081,9 +1590,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               <input
                 id="input-inventory-search"
                 type="text"
-                placeholder="Search by serial number, type, or model name..."
+                placeholder="Search by serial number, type, model name, purchase value, status..."
                 value={inventorySearch}
-                onChange={(e) => setInventorySearch(e.target.value)}
+                onChange={(e) => {
+                  setInventorySearch(e.target.value);
+                  setInvCurrentPage(1);
+                }}
                 className={`w-full rounded-xl pl-9 pr-4 py-2.5 text-xs sm:text-sm font-medium ${t.searchInput}`}
               />
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-cyan-500">
@@ -1092,93 +1604,504 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
           </div>
 
-          {/* Vehicles Table */}
+          {/* BULK QR ACTION TOOLBAR */}
+          {selectedVehicleIdsForQR.size > 0 && (
+            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex flex-wrap items-center justify-between gap-3 text-xs animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <CheckSquare className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="font-bold text-emerald-400">
+                  {selectedVehicleIdsForQR.size} unit{selectedVehicleIdsForQR.size > 1 ? 's' : ''} selected
+                </span>
+                <span className={`text-[11px] ${themeMode === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                  (for bulk QR generation & labels)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isBulkDownloadingQR}
+                  onClick={handleBulkDownloadQR}
+                  className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                  title="Download all selected QR codes as individual PNG images"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{isBulkDownloadingQR ? 'Downloading...' : `Download QR Codes (${selectedVehicleIdsForQR.size})`}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkPrintQRSheet}
+                  className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                  title="Print all selected QR codes in an A4 label grid sheet"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print QR Sheet ({selectedVehicleIdsForQR.size})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedVehicleIdsForQR(new Set())}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-600 hover:bg-slate-700/60 text-slate-300 font-semibold flex items-center gap-1 transition cursor-pointer"
+                  title="Clear all selections"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Clear</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Vehicles Table (With A-Z / Z-A Sorting on ALL Columns) */}
           <div className={`overflow-x-auto rounded-xl border ${t.divider}`}>
             <table className="w-full text-left text-xs whitespace-nowrap">
               <thead className={`${t.cardSubtleBg} uppercase font-semibold border-b ${t.divider} ${t.textMuted}`}>
                 <tr>
-                  <th className="px-3.5 py-3">Serial Number</th>
-                  <th className="px-3.5 py-3">Type</th>
-                  <th className="px-3.5 py-3">Model</th>
-                  <th className="px-3.5 py-3">Status</th>
+                  <th className="w-10 px-3.5 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all visible vehicles"
+                      checked={allFilteredSelected}
+                      onChange={toggleSelectAllFilteredVehiclesForQR}
+                      className="w-4 h-4 rounded border-gray-400 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                  </th>
+                  <th 
+                    onClick={() => handleInvSort('serialNumber')} 
+                    className={`px-3.5 py-3 cursor-pointer select-none transition ${themeMode === 'dark' ? 'hover:text-white' : 'hover:text-gray-900'}`}
+                    title="Sort by Serial Number (A-Z / Z-A)"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Serial Number</span>
+                      {invSortField === 'serialNumber' ? (
+                        invSortDir === 'asc' ? (
+                          <div className="flex items-center text-emerald-400 font-bold gap-0.5">
+                            <ArrowDownAZ className="w-3.5 h-3.5" />
+                            <span className="text-[9px] font-mono">A-Z</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center text-emerald-400 font-bold gap-0.5">
+                            <ArrowDownZA className="w-3.5 h-3.5" />
+                            <span className="text-[9px] font-mono">Z-A</span>
+                          </div>
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleInvSort('type')} 
+                    className={`px-3.5 py-3 cursor-pointer select-none transition ${themeMode === 'dark' ? 'hover:text-white' : 'hover:text-gray-900'}`}
+                    title="Sort by Type (A-Z / Z-A)"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Type</span>
+                      {invSortField === 'type' ? (
+                        invSortDir === 'asc' ? (
+                          <div className="flex items-center text-emerald-400 font-bold gap-0.5">
+                            <ArrowDownAZ className="w-3.5 h-3.5" />
+                            <span className="text-[9px] font-mono">A-Z</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center text-emerald-400 font-bold gap-0.5">
+                            <ArrowDownZA className="w-3.5 h-3.5" />
+                            <span className="text-[9px] font-mono">Z-A</span>
+                          </div>
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleInvSort('model')} 
+                    className={`px-3.5 py-3 cursor-pointer select-none transition ${themeMode === 'dark' ? 'hover:text-white' : 'hover:text-gray-900'}`}
+                    title="Sort by Model (A-Z / Z-A)"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Model</span>
+                      {invSortField === 'model' ? (
+                        invSortDir === 'asc' ? (
+                          <div className="flex items-center text-emerald-400 font-bold gap-0.5">
+                            <ArrowDownAZ className="w-3.5 h-3.5" />
+                            <span className="text-[9px] font-mono">A-Z</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center text-emerald-400 font-bold gap-0.5">
+                            <ArrowDownZA className="w-3.5 h-3.5" />
+                            <span className="text-[9px] font-mono">Z-A</span>
+                          </div>
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleInvSort('costPrice')} 
+                    className={`px-3.5 py-3 text-right cursor-pointer select-none transition ${themeMode === 'dark' ? 'hover:text-white' : 'hover:text-gray-900'}`}
+                    title="Sort by Purchase Value (Low to High / High to Low)"
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>Purchase Value</span>
+                      {invSortField === 'costPrice' ? (
+                        invSortDir === 'asc' ? (
+                          <div className="flex items-center text-emerald-400 font-bold gap-0.5">
+                            <ArrowDown01 className="w-3.5 h-3.5" />
+                            <span className="text-[9px] font-mono">Low-High</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center text-emerald-400 font-bold gap-0.5">
+                            <ArrowDown10 className="w-3.5 h-3.5" />
+                            <span className="text-[9px] font-mono">High-Low</span>
+                          </div>
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleInvSort('status')} 
+                    className={`px-3.5 py-3 text-center cursor-pointer select-none transition ${themeMode === 'dark' ? 'hover:text-white' : 'hover:text-gray-900'}`}
+                    title="Sort by Status (A-Z / Z-A)"
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span>Status</span>
+                      {invSortField === 'status' ? (
+                        invSortDir === 'asc' ? (
+                          <div className="flex items-center text-emerald-400 font-bold gap-0.5">
+                            <ArrowDownAZ className="w-3.5 h-3.5" />
+                            <span className="text-[9px] font-mono">A-Z</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center text-emerald-400 font-bold gap-0.5">
+                            <ArrowDownZA className="w-3.5 h-3.5" />
+                            <span className="text-[9px] font-mono">Z-A</span>
+                          </div>
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-60" />
+                      )}
+                    </div>
+                  </th>
                   <th className="px-3.5 py-3 text-center">QR</th>
                   <th className="px-3.5 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${t.divider}`}>
-                {filteredVehicles.map((v) => {
-                  const typeObj = vehicleTypes.find((t) => t.id === v.typeId);
-                  return (
-                    <tr key={v.id} className="hover:bg-slate-500/5 transition">
-                      <td className={`px-3.5 py-3 font-mono font-bold ${t.textHeading}`}>
-                        {v.serialNumber}
-                      </td>
-                      <td className="px-3.5 py-3">
-                        <span className={`px-2 py-0.5 rounded border text-[11px] font-semibold ${t.badge}`}>
-                          {typeObj?.name || 'Unknown'}
-                        </span>
-                      </td>
-                      <td className={`px-3.5 py-3 ${t.textMuted}`}>
-                        {v.modelName || '—'}
-                      </td>
-                      <td className="px-3.5 py-3">
-                        {v.status === 'available' && (
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/30">
-                            Available
+                {pagedVehicles.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className={`px-4 py-8 text-center italic ${themeMode === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                      No vehicles found matching "{inventorySearch}".
+                    </td>
+                  </tr>
+                ) : (
+                  pagedVehicles.map((v) => {
+                    const typeObj = vehicleTypes.find((t) => t.id === v.typeId);
+                    return (
+                      <tr key={v.id} className={`transition ${themeMode === 'dark' ? 'hover:bg-slate-700/30' : 'hover:bg-gray-50'}`}>
+                        <td className="w-10 px-3.5 py-3 text-center">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select vehicle ${v.serialNumber}`}
+                            checked={selectedVehicleIdsForQR.has(v.id)}
+                            onChange={() => toggleSelectVehicleForQR(v.id)}
+                            className="w-4 h-4 rounded border-gray-400 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                          />
+                        </td>
+                        <td className={`px-3.5 py-3 font-mono font-bold ${themeMode === 'dark' ? 'text-emerald-400' : 'text-emerald-800'}`}>
+                          {v.serialNumber}
+                        </td>
+                        <td className="px-3.5 py-3">
+                          <span className={`px-2 py-0.5 rounded border text-[11px] font-semibold ${t.badge}`}>
+                            {typeObj?.name || 'Unknown'}
                           </span>
-                        )}
-                        {v.status === 'rented' && (
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/10 text-blue-500 border border-blue-500/30">
-                            Rented
-                          </span>
-                        )}
-                        {v.status === 'maintenance' && (
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/30">
-                            Maintenance
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3.5 py-3 text-center">
-                        <button
-                          type="button"
-                          id={`btn-view-qr-${v.serialNumber}`}
-                          onClick={() => handleOpenVehicleQR(v)}
-                          className="p-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition cursor-pointer"
-                          title={`View & Print QR for ${v.serialNumber}`}
-                        >
-                          <QrCode className="w-4 h-4" />
-                        </button>
-                      </td>
-                      <td className="px-3.5 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {canEditFleet && (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleMaintenance(v.id)}
-                              className={`p-1.5 rounded-lg text-xs font-semibold cursor-pointer ${t.inactiveTab}`}
-                              title="Toggle Maintenance"
-                            >
-                              <Wrench className="w-3.5 h-3.5" />
-                            </button>
+                        </td>
+                        <td className={`px-3.5 py-3 ${themeMode === 'dark' ? 'text-gray-300' : 'text-gray-800'}`}>
+                          {v.modelName || '—'}
+                        </td>
+                        <td className={`px-3.5 py-3 text-right font-mono font-semibold text-xs ${
+                          themeMode === 'dark' ? 'text-gray-200' : 'text-gray-900 font-bold'
+                        }`}>
+                          {v.costPrice !== undefined && v.costPrice > 0 ? (
+                            formatCurrency(v.costPrice, settings.currencySymbol, settings.currencyPosition)
+                          ) : (
+                            <span className={themeMode === 'dark' ? 'text-gray-500' : 'text-gray-400 font-normal'}>—</span>
                           )}
-                          {(isAdmin || canEditFleet) && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteVehicle(v.id)}
-                              className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition cursor-pointer"
-                              title="Delete Vehicle"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                        </td>
+                        <td className="px-3.5 py-3 text-center">
+                          {v.status === 'available' && (
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/30">
+                              Available
+                            </span>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                          {v.status === 'rented' && (
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/10 text-blue-500 border border-blue-500/30">
+                              Rented
+                            </span>
+                          )}
+                          {v.status === 'maintenance' && (
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/30">
+                              Maintenance
+                            </span>
+                          )}
+                          {v.status === 'sold' && (
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-purple-500/10 text-purple-400 border border-purple-500/30">
+                              Sold
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3.5 py-3 text-center">
+                          <button
+                            type="button"
+                            id={`btn-view-qr-${v.serialNumber}`}
+                            onClick={() => handleOpenVehicleQR(v)}
+                            className="p-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition cursor-pointer"
+                            title={`View & Print QR for ${v.serialNumber}`}
+                          >
+                            <QrCode className="w-4 h-4" />
+                          </button>
+                        </td>
+                        <td className="px-3.5 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditVehicle(v)}
+                                className={`p-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                                  themeMode === 'dark'
+                                    ? 'hover:bg-slate-700/60 text-cyan-400 border-cyan-500/30 hover:border-cyan-500/60'
+                                    : 'hover:bg-cyan-50 text-cyan-700 border-cyan-300'
+                                }`}
+                                title="Edit Vehicle & Purchase Value"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleMaintenance(v.id)}
+                                className={`p-1.5 rounded-lg text-xs font-semibold cursor-pointer ${t.inactiveTab}`}
+                                title="Toggle Maintenance"
+                              >
+                                <Wrench className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteVehicle(v.id)}
+                                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition cursor-pointer"
+                                title="Delete Vehicle"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
+
+            {/* Pagination Controls (Max 20 rows per page) */}
+            {filteredVehicles.length > INV_PAGE_SIZE && (
+              <div className={`p-4 border-t flex flex-col sm:flex-row items-center justify-between gap-3 text-xs ${
+                themeMode === 'dark' ? 'border-gray-700/60 bg-gray-900/40 text-gray-400' : 'border-gray-200 bg-gray-50 text-gray-600'
+              }`}>
+                <div>
+                  Showing {(safeInvPage - 1) * INV_PAGE_SIZE + 1} to {Math.min(safeInvPage * INV_PAGE_SIZE, filteredVehicles.length)} of {filteredVehicles.length} units (20 per page)
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={safeInvPage <= 1}
+                    onClick={() => setInvCurrentPage((p) => Math.max(1, p - 1))}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition ${
+                      themeMode === 'dark' ? 'border-gray-700 hover:bg-gray-800 text-gray-200' : 'border-gray-300 hover:bg-gray-200 text-gray-700 bg-white'
+                    }`}
+                  >
+                    Previous
+                  </button>
+                  <span className={`px-2.5 py-1 rounded-md font-mono text-xs font-bold ${
+                    themeMode === 'dark' ? 'bg-gray-800 text-gray-300' : 'bg-gray-200 text-gray-800'
+                  }`}>
+                    {safeInvPage} / {totalInvPages}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={safeInvPage >= totalInvPages}
+                    onClick={() => setInvCurrentPage((p) => Math.min(totalInvPages, p + 1))}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition ${
+                      themeMode === 'dark' ? 'border-gray-700 hover:bg-gray-800 text-gray-200' : 'border-gray-300 hover:bg-gray-200 text-gray-700 bg-white'
+                    }`}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Edit Vehicle Modal */}
+          {editingVehicle && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in">
+              <div className={`w-full max-w-lg ${
+                themeMode === 'dark' ? 'bg-gray-900 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'
+              } rounded-2xl border shadow-2xl p-5 sm:p-6 space-y-4`}>
+                <div className={`flex items-center justify-between border-b pb-3 ${
+                  themeMode === 'dark' ? 'border-gray-700/60' : 'border-gray-200'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <Pencil className="w-5 h-5 text-cyan-400" />
+                    <div>
+                      <h3 className={`font-bold text-sm sm:text-base ${themeMode === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                        Edit Fleet Serial Unit
+                      </h3>
+                      <p className={`text-xs ${themeMode === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Update serial number, category, model, and purchase value
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditingVehicle(null)}
+                    className={`p-1 rounded-lg transition cursor-pointer ${
+                      themeMode === 'dark' ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-800'
+                    }`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveEditVehicle} className="space-y-3.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                        Serial Number *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editVehSerial}
+                        onChange={(e) => setEditVehSerial(e.target.value)}
+                        className={`w-full rounded-xl px-3 py-2 text-xs font-mono font-bold ${t.textInput}`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1">
+                        Vehicle Type *
+                      </label>
+                      <select
+                        value={editVehTypeId}
+                        onChange={(e) => setEditVehTypeId(e.target.value)}
+                        className={`w-full rounded-xl px-3 py-2 text-xs font-semibold ${t.dropdownInput}`}
+                      >
+                        {vehicleTypes.map((t) => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                        Model / Brand Name
+                      </label>
+                      <input
+                        type="text"
+                        value={editVehModel}
+                        onChange={(e) => setEditVehModel(e.target.value)}
+                        placeholder="e.g. Trek Marlin 7"
+                        className={`w-full rounded-xl px-3 py-2 text-xs ${t.textInput}`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                        Purchase Value ({settings.currencySymbol})
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={editVehCostPrice}
+                        onChange={(e) => setEditVehCostPrice(e.target.value)}
+                        placeholder="e.g. 45000"
+                        className={`w-full rounded-xl px-3 py-2 text-xs font-mono font-bold ${t.textInput}`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                        Inventory Status *
+                      </label>
+                      <select
+                        value={editVehStatus}
+                        onChange={(e) => setEditVehStatus(e.target.value as any)}
+                        className={`w-full rounded-xl px-3 py-2 text-xs font-semibold ${t.dropdownInput}`}
+                      >
+                        <option value="available">Available</option>
+                        <option value="rented">Rented</option>
+                        <option value="maintenance">Maintenance</option>
+                        <option value="sold">Sold</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                        Purchase Invoice / Ref #
+                      </label>
+                      <input
+                        type="text"
+                        value={editVehPurchaseRef}
+                        onChange={(e) => setEditVehPurchaseRef(e.target.value)}
+                        placeholder="e.g. PUR-000123"
+                        className={`w-full rounded-xl px-3 py-2 text-xs font-mono ${t.textInput}`}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                      Notes / Specifications
+                    </label>
+                    <input
+                      type="text"
+                      value={editVehNotes}
+                      onChange={(e) => setEditVehNotes(e.target.value)}
+                      placeholder="Vendor, frame size, warranty, etc."
+                      className={`w-full rounded-xl px-3 py-2 text-xs ${t.textInput}`}
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-3 border-t border-gray-700/60">
+                    <button
+                      type="button"
+                      onClick={() => setEditingVehicle(null)}
+                      className={`px-4 py-2 rounded-xl text-xs ${t.inactiveTab}`}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingEditVehicle}
+                      className={`px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn}`}
+                    >
+                      {isSavingEditVehicle ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{isSavingEditVehicle ? 'Updating...' : 'Save Changes'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
 
           {/* QR Code Modal for Vehicle Unit */}
           {selectedQRVehicle && qrCodeDataUrl && (

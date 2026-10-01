@@ -62,6 +62,8 @@ import { BicycleMessageTemplatesView } from './components/BicycleMessageTemplate
 import { DashboardStats } from './components/DashboardStats';
 import { IncomeExpensesPanel } from './components/IncomeExpensesPanel';
 import { FinancePanel } from './components/FinancePanel';
+import { PurchaseManagementPanel } from './components/PurchaseManagementPanel';
+import { SaleManagementPanel } from './components/SaleManagementPanel';
 import { recordAuditLog } from './utils/audit';
 import { CustomerManagementPanel } from './components/CustomerManagementPanel';
 import { CustomerMessagingTab } from './components/CustomerMessagingTab';
@@ -484,6 +486,35 @@ export default function App() {
     setPermissionsVersion((v) => v + 1);
   };
 
+  // Immediate un-cached role & permission updates across window and tabs
+  useEffect(() => {
+    const handleEvent = () => handleRefreshPermissions();
+    window.addEventListener('cycly_roles_updated', handleEvent);
+    
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'v_rental_roles' || e.key === 'v_rental_users' || e.key === 'v_rental_current_user') {
+        handleRefreshPermissions();
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('cycly_permissions_channel');
+      bc.onmessage = (msg) => {
+        if (msg.data?.type === 'ROLES_UPDATED') {
+          handleRefreshPermissions();
+        }
+      };
+    } catch {}
+
+    return () => {
+      window.removeEventListener('cycly_roles_updated', handleEvent);
+      window.removeEventListener('storage', handleStorage);
+      if (bc) bc.close();
+    };
+  }, []);
+
   // Route protection: automatically redirect if activeTab is not permitted after admin changes (Bicycle POS)
   useEffect(() => {
     if (systemMode !== 'bicycle_pos') return;
@@ -498,10 +529,12 @@ export default function App() {
       users: perms.accessUsers || isRoot,
       settings: perms.accessSettings,
       finance: perms.accessFinance ?? perms.accessIncome,
+      purchase: perms.accessPurchase ?? true,
+      sale: perms.accessSale ?? true,
     };
 
     if (activeTab in tabPermMap && tabPermMap[activeTab] === false) {
-      const allTabs: NavTabType[] = ['rentals', 'dashboard', 'customers', 'messages', 'history', 'finance', 'settings', 'users'];
+      const allTabs: NavTabType[] = ['rentals', 'dashboard', 'customers', 'messages', 'history', 'finance', 'purchase', 'sale', 'settings', 'users'];
       const allowed = allTabs.find((t) => tabPermMap[t] !== false);
       if (allowed) {
         setActiveTab(allowed);
@@ -908,7 +941,14 @@ export default function App() {
         }
         if (cloudData.vehicles && cloudData.vehicles.length > 0) {
           setVehicles((prev) => {
-            const cloudList = cloudData.vehicles || [];
+            const cloudList = (cloudData.vehicles || []).map((cv) => {
+              const local = prev.find((pv) => pv.id === cv.id || pv.serialNumber === cv.serialNumber);
+              return {
+                ...cv,
+                costPrice: cv.costPrice !== undefined ? cv.costPrice : local?.costPrice,
+                purchaseRef: cv.purchaseRef || local?.purchaseRef,
+              };
+            });
             const unsynced = prev.filter(
               (pv) =>
                 !cloudList.some(
@@ -927,12 +967,17 @@ export default function App() {
             return merged;
           });
         }
+        const settledIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_settled_ids') || '[]'));
+        const deletedRentalIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_rental_ids') || '[]'));
+        const deletedCustIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_customers') || '[]'));
+
         if (cloudData.customers && cloudData.customers.length > 0) {
+          const cleanCloudCustomers = (cloudData.customers || []).filter((c) => !deletedCustIds.has(c.id));
           setCustomers((prev) => {
-            const cloudList = cloudData.customers || [];
             const unsynced = prev.filter(
               (pc) =>
-                !cloudList.some(
+                !deletedCustIds.has(pc.id) &&
+                !cleanCloudCustomers.some(
                   (cc) =>
                     cc.id === pc.id ||
                     (cc.nicPassport &&
@@ -941,18 +986,31 @@ export default function App() {
                 )
             );
             unsynced.forEach((c) => syncCustomerToSupabase(c));
-            const merged = [...cloudList, ...unsynced];
+            const merged = [...cleanCloudCustomers, ...unsynced];
             try {
               localStorage.setItem('v_rental_customers', JSON.stringify(merged));
             } catch {}
             return merged;
           });
         }
-        // Always load rentals from Supabase to ensure history is up to date
-        if (cloudData.activeRentals !== undefined) setActiveRentals(cloudData.activeRentals.map(sanitizeRentalRecordNumber));
+        // Always load rentals from Supabase to ensure history is up to date, respecting settled and deleted tombstones
+        if (cloudData.activeRentals !== undefined) {
+          const filteredActive = cloudData.activeRentals
+            .filter((r) => !settledIds.has(r.id) && !deletedRentalIds.has(r.id))
+            .map(sanitizeRentalRecordNumber);
+          setActiveRentals(filteredActive);
+          try {
+            localStorage.setItem('v_rental_active', JSON.stringify(filteredActive));
+          } catch {}
+        }
         if (cloudData.completedRentals !== undefined) {
-          const sanitized = cloudData.completedRentals.map(sanitizeRentalRecordNumber);
-          setCompletedRentals(sanitized);
+          const filteredCompleted = cloudData.completedRentals
+            .filter((r) => !deletedRentalIds.has(r.id))
+            .map(sanitizeRentalRecordNumber);
+          setCompletedRentals(filteredCompleted);
+          try {
+            localStorage.setItem('v_rental_history', JSON.stringify(filteredCompleted));
+          } catch {}
         }
         if (cloudData.settings) {
           setSettings(cloudData.settings);
@@ -1239,12 +1297,38 @@ export default function App() {
       }
       for (const v of deleted) {
         await deleteVehicleFromSupabase(v.id);
+        if (v.serialNumber) {
+          await deleteVehicleFromSupabase(v.serialNumber);
+        }
       }
       try {
         const fresh = await fetchSupabaseData();
         if (fresh?.vehicles && fresh.vehicles.length > 0) {
-          setVehicles(fresh.vehicles);
-          localStorage.setItem('v_rental_vehicles', JSON.stringify(fresh.vehicles));
+          // Strictly exclude explicitly deleted vehicle IDs and serials
+          const deletedIds = new Set(deleted.map(d => d.id));
+          const deletedSerials = new Set(deleted.map(d => d.serialNumber?.toUpperCase()).filter(Boolean));
+
+          const cleanCloudVehicles = fresh.vehicles.filter(
+            (fv) => !deletedIds.has(fv.id) && !deletedSerials.has(fv.serialNumber?.toUpperCase() || '')
+          );
+
+          // Keep local user edits with absolute priority over stale cloud reads
+          const merged = newVehicles.map((lv) => {
+            const fv = cleanCloudVehicles.find((c) => c.id === lv.id || (c.serialNumber && c.serialNumber.toUpperCase() === lv.serialNumber.toUpperCase()));
+            if (!fv) return lv;
+            return {
+              ...fv,
+              ...lv, // User's latest edits take precedence!
+              costPrice: lv.costPrice !== undefined ? lv.costPrice : fv.costPrice,
+              purchaseRef: lv.purchaseRef || fv.purchaseRef,
+            };
+          });
+          const localIds = new Set(newVehicles.map((v) => v.id));
+          const extraFromCloud = cleanCloudVehicles.filter((fv) => !localIds.has(fv.id));
+          const finalVehicles = [...merged, ...extraFromCloud];
+
+          setVehicles(finalVehicles);
+          localStorage.setItem('v_rental_vehicles', JSON.stringify(finalVehicles));
         }
       } catch (err) {
         console.error('[Vehicles] Error reloading from Supabase:', err);
@@ -1263,13 +1347,16 @@ export default function App() {
     vehicleSerialNumber: string;
     customerName?: string;
     customerPhone?: string;
+    customerWhatsapp?: string;
     customerNicPassport?: string;
     customerNotes?: string;
     depositAmount?: number;
+    appliedAdvanceBalance?: number;
     depositPaymentRef?: string;
     customStartTime?: number;
     sendWelcomeWhatsApp?: boolean;
     sendEndWhatsApp?: boolean;
+    startKm?: number;
   }) => {
     const typeObj = vehicleTypes.find((t) => t.id === params.vehicleTypeId) || vehicleTypes[0];
     
@@ -1304,17 +1391,24 @@ export default function App() {
 
         if (existingIdx >= 0) {
           const next = [...prev];
+          const curAdv = next[existingIdx].advanceBalance || 0;
+          const applied = params.appliedAdvanceBalance || 0;
+          const newBal = Math.max(0, curAdv - applied);
           next[existingIdx] = {
             ...next[existingIdx],
             name: params.customerName || next[existingIdx].name,
             fullName: params.customerName || next[existingIdx].fullName || next[existingIdx].name,
             phone: params.customerPhone || next[existingIdx].phone,
-            whatsappNumber: params.customerPhone || next[existingIdx].whatsappNumber || next[existingIdx].phone,
+            whatsappNumber: params.customerWhatsapp || params.customerPhone || next[existingIdx].whatsappNumber || next[existingIdx].phone,
             nicPassport: params.customerNicPassport || next[existingIdx].nicPassport,
             notes: params.customerNotes || next[existingIdx].notes,
+            advanceBalance: newBal,
             lastRentalDate: Date.now(),
             totalRentalsCount: (next[existingIdx].totalRentalsCount || 1) + 1,
           };
+          if (isSupabaseConfigured()) {
+            syncCustomerToSupabase(next[existingIdx]);
+          }
           return next;
         } else if (nicKey || params.customerName) {
           const newCust: Customer = {
@@ -1323,12 +1417,16 @@ export default function App() {
             name: params.customerName?.trim() || 'Guest Customer',
             fullName: params.customerName?.trim() || 'Guest Customer',
             phone: params.customerPhone?.trim() || '',
-            whatsappNumber: params.customerPhone?.trim() || '',
+            whatsappNumber: (params.customerWhatsapp || params.customerPhone || '').trim(),
             notes: params.customerNotes?.trim() || '',
+            advanceBalance: 0,
             createdAt: Date.now(),
             lastRentalDate: Date.now(),
             totalRentalsCount: 1,
           };
+          if (isSupabaseConfigured()) {
+            syncCustomerToSupabase(newCust);
+          }
           return [newCust, ...prev];
         }
         return prev;
@@ -1346,13 +1444,17 @@ export default function App() {
       vehicleIcon: typeObj.icon,
       customerName: params.customerName,
       customerPhone: params.customerPhone,
+      customerWhatsapp: params.customerWhatsapp || params.customerPhone,
       customerNicPassport: params.customerNicPassport,
       customerNotes: params.customerNotes,
       depositAmount: params.depositAmount,
+      appliedAdvanceBalance: params.appliedAdvanceBalance,
       depositPaymentRef: params.depositPaymentRef,
       startTime: params.customStartTime || Date.now(),
       status: 'active',
       rateSnapshot: { ...typeObj.rates },
+      breakdown: params.startKm !== undefined ? ({ startKm: params.startKm } as any) : undefined,
+      startKm: params.startKm,
       totalAmount: typeObj.rates.firstHour,
       cashierName: currentUser?.name || settings.cashierName || 'Cashier',
       sendWelcomeWhatsApp: params.sendWelcomeWhatsApp ?? true,
@@ -1385,12 +1487,24 @@ export default function App() {
       try {
         const fresh = await fetchSupabaseData();
         if (fresh?.activeRentals) {
-          setActiveRentals(fresh.activeRentals);
-          localStorage.setItem('v_rental_active', JSON.stringify(fresh.activeRentals));
+          const settledIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_settled_ids') || '[]'));
+          const filtered = fresh.activeRentals.filter((r) => !settledIds.has(r.id)).map(sanitizeRentalRecordNumber);
+          setActiveRentals(filtered);
+          localStorage.setItem('v_rental_active', JSON.stringify(filtered));
         }
         if (fresh?.vehicles) {
-          setVehicles(fresh.vehicles);
-          localStorage.setItem('v_rental_vehicles', JSON.stringify(fresh.vehicles));
+          setVehicles((prev) => {
+            const merged = fresh.vehicles.map((fv) => {
+              const local = prev.find((pv) => pv.id === fv.id || (pv.serialNumber && fv.serialNumber && pv.serialNumber.toUpperCase() === fv.serialNumber.toUpperCase()));
+              return {
+                ...fv,
+                costPrice: fv.costPrice !== undefined ? fv.costPrice : local?.costPrice,
+                purchaseRef: fv.purchaseRef || local?.purchaseRef,
+              };
+            });
+            localStorage.setItem('v_rental_vehicles', JSON.stringify(merged));
+            return merged;
+          });
         }
       } catch (err) {
         console.error('[StartRental] Error reloading after rental start:', err);
@@ -1400,20 +1514,58 @@ export default function App() {
 
   // Handler: Stop & Settle Rental
   const handleConfirmStopAndSettle = async (completedRecord: RentalRecord) => {
-    // 1. Remove from active rentals
-    setActiveRentals((prev) => prev.filter((r) => r.id !== completedRecord.id));
+    // 0. Close modal immediately so UI is responsive without any lag or freeze
+    setSettlingRental(null);
 
-    // 2. Add to completed rentals history
-    setCompletedRentals((prev) => [completedRecord, ...prev]);
+    // 1. Remove from active rentals and persist to localStorage
+    setActiveRentals((prev) => {
+      const updated = prev.filter((r) => r.id !== completedRecord.id);
+      try {
+        localStorage.setItem('v_rental_active', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
 
-    // 3. Mark vehicle as available in inventory
-    setVehicles((prev) =>
-      prev.map((v) =>
+    // 2. Add to completed rentals history and persist to localStorage
+    setCompletedRentals((prev) => {
+      const updated = [completedRecord, ...prev.filter((r) => r.id !== completedRecord.id)];
+      try {
+        localStorage.setItem('v_rental_history', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // 3. Mark vehicle as available in inventory and persist to localStorage
+    setVehicles((prev) => {
+      const updated = prev.map((v) =>
         v.serialNumber.toUpperCase() === completedRecord.vehicleSerialNumber.toUpperCase()
           ? { ...v, status: 'available' as const, lastRentedAt: Date.now() }
           : v
-      )
-    );
+      );
+      try {
+        localStorage.setItem('v_rental_vehicles', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // 3.5. Update customer advance balance if refund was retained as store credit
+    if (completedRecord.refundRetainedAsAdvance && (completedRecord.creditedAdvanceBalance || 0) > 0) {
+      const creditAmount = completedRecord.creditedAdvanceBalance || 0;
+      setCustomers((prev) => {
+        const updated = prev.map((c) => {
+          const isMatch = (completedRecord.customerNicPassport && c.nicPassport.trim().toUpperCase() === completedRecord.customerNicPassport.trim().toUpperCase())
+            || (completedRecord.customerName && (c.name.trim().toLowerCase() === completedRecord.customerName.trim().toLowerCase() || (c.fullName && c.fullName.trim().toLowerCase() === completedRecord.customerName.trim().toLowerCase())));
+          if (isMatch) {
+            return { ...c, advanceBalance: (c.advanceBalance || 0) + creditAmount };
+          }
+          return c;
+        });
+        try {
+          localStorage.setItem('v_rental_customers', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+    }
 
     // 4. Automatically add rental revenue to Income & Expenses / Finance Ledger with unique de-duplicated reference
     const rentRef = `RENT-${completedRecord.rentalNumber}`;
@@ -1439,7 +1591,11 @@ export default function App() {
           createdAt: Date.now(),
         };
 
-        return [rentalIncomeEntry, ...prev];
+        const updated = [rentalIncomeEntry, ...prev];
+        try {
+          localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
+        } catch {}
+        return updated;
       });
     }
 
@@ -1447,93 +1603,119 @@ export default function App() {
     recordAuditLog({
       user: activeCashier,
       userEmail: activeUser.email,
-      action: 'Rental Stopped by QR',
+      action: 'Rental Stopped',
       reference: rentRef,
       details: `Settled rental #${completedRecord.rentalNumber} for ${completedRecord.vehicleSerialNumber} (${completedRecord.vehicleTypeName}) with amount ${completedRecord.totalAmount || 0}`,
     });
 
-    // 5. Live sync to Supabase
-    if (isSupabaseConfigured()) {
-      if (rentalIncomeEntry) {
-        await syncIncomeEntryToSupabase(rentalIncomeEntry);
+    // 5. Track settled rental ID so cloud re-fetch NEVER resurrects it as active
+    try {
+      const settledIds: string[] = JSON.parse(localStorage.getItem('v_rental_settled_ids') || '[]');
+      if (!settledIds.includes(completedRecord.id)) {
+        settledIds.push(completedRecord.id);
+        localStorage.setItem('v_rental_settled_ids', JSON.stringify(settledIds));
       }
-      await syncRentalToSupabase(completedRecord);
-      const matchedVeh = vehicles.find((v) => v.serialNumber.toUpperCase() === completedRecord.vehicleSerialNumber.toUpperCase());
-      if (matchedVeh) {
-        await syncVehicleToSupabase({ ...matchedVeh, status: 'available', lastRentedAt: Date.now() });
-      }
-      try {
-        const fresh = await fetchSupabaseData();
-        if (fresh?.activeRentals) {
-          setActiveRentals(fresh.activeRentals);
-          localStorage.setItem('v_rental_active', JSON.stringify(fresh.activeRentals));
-        }
-        if (fresh?.completedRentals) {
-          setCompletedRentals(fresh.completedRentals);
-          localStorage.setItem('v_rental_history', JSON.stringify(fresh.completedRentals));
-        }
-        if (fresh?.vehicles) {
-          setVehicles(fresh.vehicles);
-          localStorage.setItem('v_rental_vehicles', JSON.stringify(fresh.vehicles));
-        }
-        if (fresh?.incomeEntries) {
-          setIncomeEntries(fresh.incomeEntries);
-          localStorage.setItem('v_rental_income_entries', JSON.stringify(fresh.incomeEntries));
-        }
-      } catch (err) {
-        console.error('[Settlement] Error reloading from Supabase:', err);
-      }
-    }
+    } catch {}
 
-    // 6. Close modal
-    setSettlingRental(null);
+    // 6. Live sync to Supabase in the background without blocking UI
+    if (isSupabaseConfigured()) {
+      (async () => {
+        try {
+          if (rentalIncomeEntry) {
+            await syncIncomeEntryToSupabase(rentalIncomeEntry);
+          }
+          await syncRentalToSupabase(completedRecord);
+          const matchedVeh = vehicles.find((v) => v.serialNumber.toUpperCase() === completedRecord.vehicleSerialNumber.toUpperCase());
+          if (matchedVeh) {
+            await syncVehicleToSupabase({ ...matchedVeh, status: 'available', lastRentedAt: Date.now() });
+          }
+          if (completedRecord.refundRetainedAsAdvance && (completedRecord.creditedAdvanceBalance || 0) > 0) {
+            const matchedCust = customers.find(c => 
+              (completedRecord.customerNicPassport && c.nicPassport.trim().toUpperCase() === completedRecord.customerNicPassport.trim().toUpperCase())
+              || (completedRecord.customerName && c.name.trim().toLowerCase() === completedRecord.customerName.trim().toLowerCase())
+            );
+            if (matchedCust) {
+              await syncCustomerToSupabase({
+                ...matchedCust,
+                advanceBalance: (matchedCust.advanceBalance || 0) + (completedRecord.creditedAdvanceBalance || 0)
+              });
+            }
+          }
+        } catch (err) {
+          console.error('[Settlement] Background sync to Supabase error:', err);
+        }
+      })();
+    }
   };
 
   // Handlers for Customer Management
   const handleAddCustomer = async (newCustomer: Customer) => {
-    setCustomers((prev) => [newCustomer, ...prev]);
-    if (isSupabaseConfigured()) {
-      await syncCustomerToSupabase(newCustomer);
+    setCustomers((prev) => {
+      const updated = [newCustomer, ...prev.filter((c) => c.id !== newCustomer.id)];
       try {
-        const fresh = await fetchSupabaseData();
-        if (fresh?.customers && fresh.customers.length > 0) {
-          setCustomers(fresh.customers);
-          localStorage.setItem('v_rental_customers', JSON.stringify(fresh.customers));
-        }
+        localStorage.setItem('v_rental_customers', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // Remove from deleted tombstones if it was previously deleted
+    try {
+      const deletedSet: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_customers') || '[]');
+      const filtered = deletedSet.filter((id) => id !== newCustomer.id);
+      localStorage.setItem('v_rental_deleted_customers', JSON.stringify(filtered));
+    } catch {}
+
+    if (isSupabaseConfigured()) {
+      try {
+        await syncCustomerToSupabase(newCustomer);
       } catch (err) {
-        console.error('[Customers] Error reloading from Supabase:', err);
+        console.error('[Customers] Error syncing added customer to Supabase:', err);
       }
     }
   };
 
   const handleUpdateCustomer = async (updatedCustomer: Customer) => {
-    setCustomers((prev) => prev.map((c) => (c.id === updatedCustomer.id ? updatedCustomer : c)));
-    if (isSupabaseConfigured()) {
-      await syncCustomerToSupabase(updatedCustomer);
+    setCustomers((prev) => {
+      const updated = prev.map((c) => (c.id === updatedCustomer.id ? updatedCustomer : c));
       try {
-        const fresh = await fetchSupabaseData();
-        if (fresh?.customers && fresh.customers.length > 0) {
-          setCustomers(fresh.customers);
-          localStorage.setItem('v_rental_customers', JSON.stringify(fresh.customers));
-        }
+        localStorage.setItem('v_rental_customers', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    if (isSupabaseConfigured()) {
+      try {
+        await syncCustomerToSupabase(updatedCustomer);
       } catch (err) {
-        console.error('[Customers] Error reloading from Supabase:', err);
+        console.error('[Customers] Error syncing updated customer to Supabase:', err);
       }
     }
   };
 
-  const handleDeleteCustomer = async (customerId: string, nicPassport?: string) => {
-    setCustomers((prev) => prev.filter((c) => c.id !== customerId && (!nicPassport || c.nicPassport !== nicPassport)));
-    if (isSupabaseConfigured()) {
-      await deleteCustomerFromSupabase(customerId, nicPassport);
+  const handleDeleteCustomer = async (customerId: string, _nicPassport?: string) => {
+    // Delete ONLY this specific customer record by customerId (vital for removing duplicates without deleting both!)
+    setCustomers((prev) => {
+      const updated = prev.filter((c) => c.id !== customerId);
       try {
-        const fresh = await fetchSupabaseData();
-        if (fresh?.customers) {
-          setCustomers(fresh.customers);
-          localStorage.setItem('v_rental_customers', JSON.stringify(fresh.customers));
-        }
+        localStorage.setItem('v_rental_customers', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // Record customerId in local deleted tombstone list so cloud fetch will NEVER resurrect it
+    try {
+      const deletedSet: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_customers') || '[]');
+      if (!deletedSet.includes(customerId)) {
+        deletedSet.push(customerId);
+        localStorage.setItem('v_rental_deleted_customers', JSON.stringify(deletedSet));
+      }
+    } catch {}
+
+    if (isSupabaseConfigured()) {
+      try {
+        await deleteCustomerFromSupabase(customerId);
       } catch (err) {
-        console.error('[Customers] Error reloading from Supabase:', err);
+        console.error('[Customers] Error deleting customer from Supabase:', err);
       }
     }
   };
@@ -1553,12 +1735,15 @@ export default function App() {
           updated.unshift(imported);
         }
       }
+      try {
+        localStorage.setItem('v_rental_customers', JSON.stringify(updated));
+      } catch {}
       return updated;
     });
 
     if (isSupabaseConfigured()) {
       importedCustomers.forEach((c) => {
-        syncCustomerToSupabase(c);
+        syncCustomerToSupabase(c).catch(console.error);
       });
     }
   };
@@ -1577,33 +1762,40 @@ export default function App() {
     const target = completedRentals.find((r) => r.id === rentalId);
     if (!target) return;
 
-    setCompletedRentals((prev) => prev.filter((r) => r.id !== rentalId));
+    // 1. Immediately remove from completed rentals and localStorage
+    setCompletedRentals((prev) => {
+      const updated = prev.filter((r) => r.id !== rentalId);
+      try {
+        localStorage.setItem('v_rental_history', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
 
-    // Also remove associated rental revenue entry from incomeEntries to keep history & ledger in sync
-    setIncomeEntries((prev) =>
-      prev.filter(
+    // 2. Also remove associated rental revenue entry from incomeEntries and localStorage
+    setIncomeEntries((prev) => {
+      const updated = prev.filter(
         (entry) =>
           entry.id !== `inc-rent-${target.id}` &&
           !entry.description.includes(`Rental #${target.rentalNumber}`)
-      )
-    );
+      );
+      try {
+        localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // 3. Record in deleted rentals tombstone storage
+    try {
+      const deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_rental_ids') || '[]');
+      if (!deletedIds.includes(rentalId)) {
+        deletedIds.push(rentalId);
+        localStorage.setItem('v_rental_deleted_rental_ids', JSON.stringify(deletedIds));
+      }
+    } catch {}
 
     if (isSupabaseConfigured()) {
-      await deleteRentalFromSupabase(target.id, target.rentalNumber);
-      await deleteIncomeEntryFromSupabase(`inc-rent-${target.id}`);
-      try {
-        const fresh = await fetchSupabaseData();
-        if (fresh?.completedRentals) {
-          setCompletedRentals(fresh.completedRentals);
-          localStorage.setItem('v_rental_history', JSON.stringify(fresh.completedRentals));
-        }
-        if (fresh?.incomeEntries) {
-          setIncomeEntries(fresh.incomeEntries);
-          localStorage.setItem('v_rental_income_entries', JSON.stringify(fresh.incomeEntries));
-        }
-      } catch (err) {
-        console.error('[RentalHistory] Error reloading after delete:', err);
-      }
+      deleteRentalFromSupabase(target.id, target.rentalNumber).catch(console.error);
+      deleteIncomeEntryFromSupabase(`inc-rent-${target.id}`).catch(console.error);
     }
   };
 
@@ -2227,8 +2419,8 @@ export default function App() {
                 }
               }}
               onUpdateEntry={async (updated) => {
-                const userPerms = getUserPermissions(activeUser);
-                const canEdit = (hasPermission(activeUser, 'canEditFinanceTransaction') && activeUser.role !== 'manager') || activeUser.role === 'admin';
+                const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || activeUser.email.toLowerCase() === 'absiraiva@gmail.com';
+                const canEdit = activeUser.role === 'admin' || isRoot;
                 if (!canEdit) {
                   console.warn('[Finance] Action rejected: Active role does not have permission to update finance records.');
                   return;
@@ -2254,8 +2446,8 @@ export default function App() {
                 }
               }}
               onDeleteEntry={async (id) => {
-                const userPerms = getUserPermissions(activeUser);
-                const canDelete = (hasPermission(activeUser, 'canDeleteFinanceTransaction') && activeUser.role !== 'manager') || activeUser.role === 'admin';
+                const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || activeUser.email.toLowerCase() === 'absiraiva@gmail.com';
+                const canDelete = activeUser.role === 'admin' || isRoot;
                 if (!canDelete) {
                   console.warn('[Finance] Action rejected: Active role does not have permission to delete finance records.');
                   return;
@@ -2283,6 +2475,134 @@ export default function App() {
             />
           )}
 
+          {/* Tab: Purchase Management */}
+          {activeTab === 'purchase' && (
+            <PurchaseManagementPanel
+              entries={incomeEntries}
+              settings={settings}
+              themeMode={themeMode}
+              accent={accent}
+              currentUser={activeUser}
+              vehicleTypes={vehicleTypes}
+              vehicles={vehicles}
+              onAddVehicles={async (newUnits) => {
+                await handleUpdateVehicles([...newUnits, ...vehicles]);
+              }}
+              onAddEntry={async (entry) => {
+                setIncomeEntries((prev) => {
+                  const updated = [entry, ...prev];
+                  try {
+                    localStorage.setItem('v_rental_income', JSON.stringify(updated));
+                  } catch {}
+                  return updated;
+                });
+                if (isSupabaseConfigured()) {
+                  await syncIncomeEntryToSupabase(entry);
+                  try {
+                    const freshIncomes = await fetchIncomeEntries();
+                    if (freshIncomes && freshIncomes.length > 0) {
+                      setIncomeEntries(freshIncomes);
+                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                    }
+                  } catch (err) {
+                    console.error('[Purchase] Error reloading income entries:', err);
+                  }
+                }
+              }}
+              onDeleteEntry={async (id) => {
+                const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || activeUser.email.toLowerCase() === 'absiraiva@gmail.com';
+                const canDelete = activeUser.role === 'admin' || isRoot;
+                if (!canDelete) {
+                  console.warn('[Purchase] Action rejected: Active role does not have permission to delete finance records.');
+                  return;
+                }
+                setIncomeEntries((prev) => {
+                  const list = prev.filter((e) => e.id !== id);
+                  try {
+                    localStorage.setItem('v_rental_income', JSON.stringify(list));
+                  } catch {}
+                  return list;
+                });
+                if (isSupabaseConfigured()) {
+                  await deleteIncomeEntryFromSupabase(id);
+                  try {
+                    const freshIncomes = await fetchIncomeEntries();
+                    if (freshIncomes) {
+                      setIncomeEntries(freshIncomes);
+                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                    }
+                  } catch (err) {
+                    console.error('[Purchase] Error reloading income entries:', err);
+                  }
+                }
+              }}
+            />
+          )}
+
+          {/* Tab: Direct Sale Management */}
+          {activeTab === 'sale' && (
+            <SaleManagementPanel
+              entries={incomeEntries}
+              settings={settings}
+              themeMode={themeMode}
+              accent={accent}
+              currentUser={activeUser}
+              customers={customers}
+              vehicleTypes={vehicleTypes}
+              vehicles={vehicles}
+              onNavigateTab={(tab) => setActiveTab(tab)}
+              onUpdateVehicles={handleUpdateVehicles}
+              onAddEntry={async (entry) => {
+                setIncomeEntries((prev) => {
+                  const updated = [entry, ...prev];
+                  try {
+                    localStorage.setItem('v_rental_income', JSON.stringify(updated));
+                  } catch {}
+                  return updated;
+                });
+                if (isSupabaseConfigured()) {
+                  await syncIncomeEntryToSupabase(entry);
+                  try {
+                    const freshIncomes = await fetchIncomeEntries();
+                    if (freshIncomes && freshIncomes.length > 0) {
+                      setIncomeEntries(freshIncomes);
+                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                    }
+                  } catch (err) {
+                    console.error('[Sale] Error reloading income entries:', err);
+                  }
+                }
+              }}
+              onDeleteEntry={async (id) => {
+                const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || activeUser.email.toLowerCase() === 'absiraiva@gmail.com';
+                const canDelete = activeUser.role === 'admin' || isRoot;
+                if (!canDelete) {
+                  console.warn('[Sale] Action rejected: Active role does not have permission to delete finance records.');
+                  return;
+                }
+                setIncomeEntries((prev) => {
+                  const list = prev.filter((e) => e.id !== id);
+                  try {
+                    localStorage.setItem('v_rental_income', JSON.stringify(list));
+                  } catch {}
+                  return list;
+                });
+                if (isSupabaseConfigured()) {
+                  await deleteIncomeEntryFromSupabase(id);
+                  try {
+                    const freshIncomes = await fetchIncomeEntries();
+                    if (freshIncomes) {
+                      setIncomeEntries(freshIncomes);
+                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                    }
+                  } catch (err) {
+                    console.error('[Sale] Error reloading income entries:', err);
+                  }
+                }
+              }}
+            />
+          )}
+
           {/* Tab 7: Dashboard */}
           {activeTab === 'dashboard' && (
             <DashboardStats
@@ -2294,6 +2614,7 @@ export default function App() {
               currentUser={activeUser}
               themeMode={themeMode}
               accent={accent}
+              onNavigateToHistory={() => setActiveTab('history')}
             />
           )}
             </>

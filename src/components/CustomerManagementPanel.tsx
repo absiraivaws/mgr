@@ -39,7 +39,8 @@ import {
   CheckCircle,
   Clock,
   FileSpreadsheet,
-  Upload
+  Upload,
+  Wallet,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { AppSettings, Customer, MessageTemplate, CustomerGroup, CustomerStatus, MessageHistoryEntry } from '../types';
@@ -62,6 +63,7 @@ import {
 } from '../utils/customer';
 import { CustomerGroupsModal } from './CustomerGroupsModal';
 import { BulkCustomerUploadModal, downloadCustomerTemplateFile } from './BulkCustomerUploadModal';
+import { formatCurrency } from '../utils/pricing';
 
 interface CustomerManagementPanelProps {
   customers: Customer[];
@@ -82,7 +84,7 @@ interface CustomerManagementPanelProps {
   onAddMessageHistory?: (entry: MessageHistoryEntry) => void;
 }
 
-type SortField = 'fullName' | 'nicPassport' | 'phone' | 'whatsappNumber' | 'address' | 'dob' | 'totalRentalsCount';
+type SortField = 'fullName' | 'nicPassport' | 'phone' | 'whatsappNumber' | 'address' | 'dob' | 'totalRentalsCount' | 'createdAt' | 'advanceBalance';
 type SortDirection = 'asc' | 'desc';
 
 const PAGE_SIZE = 20;
@@ -114,12 +116,12 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
   const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
   const [isGroupsModalOpen, setIsGroupsModalOpen] = useState(false);
 
-  // Search & Filter State
+  // Search & Filter State — Default descending order showing newest/latest records first (Requirement 1)
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<SortField>('fullName');
-  const [sortDir, setSortDir] = useState<SortDirection>('asc');
+  const [sortField, setSortField] = useState<SortField>('createdAt');
+  const [sortDir, setSortDir] = useState<SortDirection>('desc');
   const [currentPage, setCurrentPage] = useState(1);
-  const [directoryStatusFilter, setDirectoryStatusFilter] = useState<'all' | CustomerStatus>('all');
+  const [directoryStatusFilter, setDirectoryStatusFilter] = useState<'all' | CustomerStatus | 'duplicates'>('all');
   const [directoryGroupFilter, setDirectoryGroupFilter] = useState<string>('all');
 
   // Modal States
@@ -173,6 +175,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
     status: 'active' as CustomerStatus,
     statusRemark: '',
     groups: [] as string[],
+    advanceBalance: 0,
   });
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -273,6 +276,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
       status: 'active' as CustomerStatus,
       statusRemark: '',
       groups: [],
+      advanceBalance: 0,
     });
     setFormError(null);
     setIsAddingNewGroup(false);
@@ -297,6 +301,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
       status: customer.status || 'active',
       statusRemark: customer.statusRemark || '',
       groups: customer.groups || [],
+      advanceBalance: customer.advanceBalance || 0,
     });
     setFormError(null);
     setEditingCustomer(customer);
@@ -341,6 +346,8 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
     const cleanPhone = formData.phone.trim().replace(/^@+/, '');
     const cleanWa = (formData.whatsappNumber.trim() || formData.phone.trim()).replace(/^@+/, '');
 
+    const cleanAdvance = Math.max(0, parseFloat(String(formData.advanceBalance)) || 0);
+
     if (editingCustomer) {
       // Update existing
       const updated: Customer = {
@@ -357,6 +364,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
         statusRemark: (formData.status === 'suspended' || formData.status === 'blocked') ? formData.statusRemark.trim() : undefined,
         statusUpdatedAt: Date.now(),
         groups: formData.groups,
+        advanceBalance: cleanAdvance,
       };
       onUpdateCustomer(updated);
       setEditingCustomer(null);
@@ -378,6 +386,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
         groups: formData.groups,
         createdAt: Date.now(),
         totalRentalsCount: 0,
+        advanceBalance: cleanAdvance,
       };
       onAddCustomer(newCust);
       setIsAddModalOpen(false);
@@ -400,12 +409,41 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
     setCurrentPage(1);
   };
 
+  // Identify duplicate customer records (shared NIC, shared phone, or shared name)
+  const duplicateCustomerIds = useMemo(() => {
+    const nicCounts = new Map<string, number>();
+    const phoneCounts = new Map<string, number>();
+    const nameCounts = new Map<string, number>();
+
+    customers.forEach((c) => {
+      const nic = (c.nicPassport || '').trim().toUpperCase();
+      if (nic) nicCounts.set(nic, (nicCounts.get(nic) || 0) + 1);
+      const ph = (c.phone || '').trim().replace(/\D/g, '');
+      if (ph) phoneCounts.set(ph, (phoneCounts.get(ph) || 0) + 1);
+      const nm = (c.name || c.fullName || '').trim().toLowerCase();
+      if (nm) nameCounts.set(nm, (nameCounts.get(nm) || 0) + 1);
+    });
+
+    const dupIds = new Set<string>();
+    customers.forEach((c) => {
+      const nic = (c.nicPassport || '').trim().toUpperCase();
+      const ph = (c.phone || '').trim().replace(/\D/g, '');
+      const nm = (c.name || c.fullName || '').trim().toLowerCase();
+      if ((nic && (nicCounts.get(nic) || 0) > 1) || (ph && (phoneCounts.get(ph) || 0) > 1) || (nm && (nameCounts.get(nm) || 0) > 1)) {
+        dupIds.add(c.id);
+      }
+    });
+    return dupIds;
+  }, [customers]);
+
   // Filtered & Sorted Customer Data
   const filteredCustomers = useMemo(() => {
     let result = [...customers];
 
-    // Filter by Status
-    if (directoryStatusFilter !== 'all') {
+    // Filter by Status or Duplicates
+    if (directoryStatusFilter === 'duplicates') {
+      result = result.filter((c) => duplicateCustomerIds.has(c.id));
+    } else if (directoryStatusFilter !== 'all') {
       result = result.filter((c) => (c.status || 'active') === directoryStatusFilter);
     }
 
@@ -473,20 +511,30 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
           aVal = a.totalRentalsCount || 0;
           bVal = b.totalRentalsCount || 0;
           break;
+        case 'createdAt':
+          aVal = a.createdAt || (a.id ? parseInt(a.id.replace(/\D/g, '')) || 0 : 0);
+          bVal = b.createdAt || (b.id ? parseInt(b.id.replace(/\D/g, '')) || 0 : 0);
+          break;
+        case 'advanceBalance':
+          aVal = a.advanceBalance || 0;
+          bVal = b.advanceBalance || 0;
+          break;
       }
 
       if (typeof aVal === 'string' && typeof bVal === 'string') {
         const comp = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' });
-        return sortDir === 'asc' ? comp : -comp;
+        if (comp !== 0) return sortDir === 'asc' ? comp : -comp;
       } else {
         if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
-        return 0;
       }
+
+      // Tie-breaker: Latest created customer first (descending)
+      return (b.createdAt || 0) - (a.createdAt || 0);
     });
 
     return result;
-  }, [customers, searchTerm, sortField, sortDir, directoryStatusFilter, directoryGroupFilter]);
+  }, [customers, searchTerm, sortField, sortDir, directoryStatusFilter, directoryGroupFilter, duplicateCustomerIds]);
 
   // Pagination calculations (Max 20 rows per page)
   const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / PAGE_SIZE));
@@ -755,6 +803,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                       className={`w-full rounded-xl px-3 py-2.5 text-xs ${t.dropdownInput} cursor-pointer`}
                     >
                       <option value="all">Filter: All Account Statuses</option>
+                      <option value="duplicates">⚠️ Duplicate Customers {duplicateCustomerIds.size > 0 ? `(${duplicateCustomerIds.size})` : ''}</option>
                       <option value="active">Active Accounts</option>
                       <option value="suspended">Suspended Accounts ⚠</option>
                       <option value="blocked">Blocked Accounts ⛔</option>
@@ -781,6 +830,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                     <SortableTh label="Date of Birth" field="dob" />
                     <SortableTh label="Address" field="address" />
                     <SortableTh label="Trips" field="totalRentalsCount" align="center" />
+                    <SortableTh label="Advance Balance" field="advanceBalance" align="right" />
                     <th className="px-3.5 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -788,7 +838,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
             <tbody className={`divide-y ${t.divider}`}>
               {paginatedCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center">
+                  <td colSpan={12} className="py-12 text-center">
                     <div className="w-12 h-12 rounded-full bg-slate-500/10 flex items-center justify-center mx-auto mb-3 text-slate-400">
                       <Users className="w-6 h-6" />
                     </div>
@@ -827,9 +877,16 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                             {(customer.fullName || customer.name || 'C').charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <span className={`font-bold block ${t.textHeading}`}>
-                              {customer.fullName || customer.name}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={`font-bold ${t.textHeading}`}>
+                                {customer.fullName || customer.name}
+                              </span>
+                              {duplicateCustomerIds.has(customer.id) && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                                  Duplicate
+                                </span>
+                              )}
+                            </div>
                             {customer.notes && (
                               <span className={`text-[10px] ${t.textMuted} truncate block max-w-[130px]`}>
                                 {customer.notes}
@@ -952,6 +1009,18 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                       </span>
                     </td>
 
+                    {/* Advance Balance */}
+                    <td className="px-4 py-3 text-right font-mono">
+                      {(customer.advanceBalance && customer.advanceBalance > 0) ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                          <Wallet className="w-3 h-3 text-emerald-400" />
+                          {formatCurrency(customer.advanceBalance, settings.currencySymbol, settings.currencyPosition)}
+                        </span>
+                      ) : (
+                        <span className={`italic ${t.textMuted}`}>—</span>
+                      )}
+                    </td>
+
                     {/* Actions (WhatsApp, Birthday, View, Edit, Delete) */}
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <div className="inline-flex items-center justify-end gap-1.5">
@@ -1001,16 +1070,18 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                           <Eye className="w-3.5 h-3.5 text-cyan-400" />
                         </button>
 
-                        {/* Edit Profile */}
-                        <button
-                          id={`btn-edit-customer-${customer.id}`}
-                          type="button"
-                          onClick={() => openEditModal(customer)}
-                          className={`p-1.5 rounded-lg border transition cursor-pointer ${t.inactiveTab}`}
-                          title="Edit Customer"
-                        >
-                          <Edit2 className="w-3.5 h-3.5 text-blue-400" />
-                        </button>
+                        {/* Edit Profile (Admin-Only) */}
+                        {isAdmin && (
+                          <button
+                            id={`btn-edit-customer-${customer.id}`}
+                            type="button"
+                            onClick={() => openEditModal(customer)}
+                            className={`p-1.5 rounded-lg border transition cursor-pointer ${t.inactiveTab}`}
+                            title="Edit Customer"
+                          >
+                            <Edit2 className="w-3.5 h-3.5 text-blue-400" />
+                          </button>
+                        )}
 
                         {/* Delete Profile (Admin-Only) */}
                         {isAdmin && (
@@ -1188,16 +1259,38 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                       type="tel"
                       placeholder="e.g. 0773606494"
                       value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      onChange={(e) => {
+                        const newPhone = e.target.value;
+                        const prevPhone = formData.phone;
+                        setFormData((prev) => {
+                          const shouldAutoSync = !prev.whatsappNumber || prev.whatsappNumber === prevPhone;
+                          return {
+                            ...prev,
+                            phone: newPhone,
+                            whatsappNumber: shouldAutoSync ? newPhone : prev.whatsappNumber,
+                          };
+                        });
+                      }}
                       className={`w-full pl-9 pr-3 py-2 text-xs sm:text-sm font-mono rounded-xl ${t.textInput}`}
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
-                    WhatsApp Number
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className={`block text-xs font-semibold ${t.textHeading}`}>
+                      WhatsApp Number
+                    </label>
+                    {formData.phone && formData.whatsappNumber !== formData.phone && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, whatsappNumber: prev.phone }))}
+                        className="text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 transition underline cursor-pointer"
+                      >
+                        Same as Mobile
+                      </button>
+                    )}
+                  </div>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-emerald-500">
                       <MessageSquare className="w-4 h-4" />
@@ -1210,6 +1303,31 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                       className={`w-full pl-9 pr-3 py-2 text-xs sm:text-sm font-mono rounded-xl ${t.textInput}`}
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* Advance Balance (Store Credit) */}
+              <div className={`p-3 rounded-xl border ${t.border} ${t.cardSubtleBg}`}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className={`block text-xs font-semibold flex items-center gap-1.5 ${t.textHeading}`}>
+                    <Wallet className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Advance Balance ({settings.currencySymbol})</span>
+                  </label>
+                  <span className={`text-[11px] ${t.textMuted}`}>Retained store credit for rentals</span>
+                </div>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-emerald-400 font-bold text-xs">
+                    {settings.currencySymbol}
+                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="0.00"
+                    value={formData.advanceBalance || ''}
+                    onChange={(e) => setFormData({ ...formData, advanceBalance: Math.max(0, parseFloat(e.target.value) || 0) })}
+                    className={`w-full pl-10 pr-3 py-2 text-xs sm:text-sm font-mono font-bold text-emerald-400 rounded-xl ${t.textInput}`}
+                  />
                 </div>
               </div>
 
@@ -1286,7 +1404,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                         title="Add a new customer group"
                       >
                         <Plus className="w-3 h-3 text-cyan-400" />
-                        <span>{isAddingNewGroup ? 'Cancel' : '+ Add Group'}</span>
+                        <span>{isAddingNewGroup ? 'Cancel' : 'Add Group'}</span>
                       </button>
                     )}
                   </div>
@@ -1658,7 +1776,7 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                         title="Add a new customer group"
                       >
                         <Plus className="w-3 h-3 text-cyan-400" />
-                        <span>{isAddingNewGroup ? 'Cancel' : '+ Add Group'}</span>
+                        <span>{isAddingNewGroup ? 'Cancel' : 'Add Group'}</span>
                       </button>
                     )}
                   </div>
@@ -1783,23 +1901,36 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
                   {viewingCustomer.totalRentalsCount || 0} Trips
                 </span>
               </div>
+
+              {/* Customer Advance Balance */}
+              <div className={`p-2.5 rounded-xl border flex items-center justify-between ${t.cardSubtleBg}`}>
+                <span className={`flex items-center gap-1.5 font-semibold ${t.textMuted}`}>
+                  <Wallet className="w-3.5 h-3.5 text-emerald-400" />
+                  Customer Advance Balance
+                </span>
+                <span className="font-mono font-bold text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+                  {formatCurrency(viewingCustomer.advanceBalance || 0, settings.currencySymbol, settings.currencyPosition)}
+                </span>
+              </div>
             </div>
 
             {/* Modal Actions */}
             <div className="flex items-center justify-between pt-2">
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const target = viewingCustomer;
-                    setViewingCustomer(null);
-                    openEditModal(target);
-                  }}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn} cursor-pointer`}
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                  <span>Edit Profile</span>
-                </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = viewingCustomer;
+                      setViewingCustomer(null);
+                      openEditModal(target);
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${t.primaryBtn} cursor-pointer`}
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>Edit Profile</span>
+                  </button>
+                )}
 
                 {(viewingCustomer.whatsappNumber || viewingCustomer.phone) && (
                   <button
@@ -1855,8 +1986,13 @@ export const CustomerManagementPanel: React.FC<CustomerManagementPanelProps> = (
               <strong className="text-rose-400">
                 {deletingCustomer.fullName || deletingCustomer.name}
               </strong>{' '}
-              (NIC: {deletingCustomer.nicPassport})?
+              (NIC: <span className="font-mono text-cyan-400">{deletingCustomer.nicPassport}</span>)?
             </p>
+            {duplicateCustomerIds.has(deletingCustomer.id) && (
+              <p className="text-[11px] p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 font-medium">
+                ⚠️ Notice: Only this specific duplicate profile will be removed. Any other duplicate records with this NIC/name will be preserved safely.
+              </p>
+            )}
 
             <div className="flex items-center justify-end gap-2 pt-2">
               <button

@@ -61,17 +61,19 @@ export const ActiveRentalsList: React.FC<ActiveRentalsListProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  const filteredRentals = activeRentals.filter((r) => {
-    const term = searchTerm.toLowerCase();
-    return (
-      r.vehicleSerialNumber.toLowerCase().includes(term) ||
-      r.vehicleTypeName.toLowerCase().includes(term) ||
-      r.rentalNumber.toLowerCase().includes(term) ||
-      (r.customerName && r.customerName.toLowerCase().includes(term)) ||
-      (r.customerPhone && r.customerPhone.includes(term)) ||
-      (r.customerNicPassport && r.customerNicPassport.toLowerCase().includes(term))
-    );
-  });
+  const filteredRentals = activeRentals
+    .filter((r) => {
+      const term = searchTerm.toLowerCase();
+      return (
+        r.vehicleSerialNumber.toLowerCase().includes(term) ||
+        r.vehicleTypeName.toLowerCase().includes(term) ||
+        r.rentalNumber.toLowerCase().includes(term) ||
+        (r.customerName && r.customerName.toLowerCase().includes(term)) ||
+        (r.customerPhone && r.customerPhone.includes(term)) ||
+        (r.customerNicPassport && r.customerNicPassport.toLowerCase().includes(term))
+      );
+    })
+    .sort((a, b) => b.startTime - a.startTime);
 
   const totalCurrentActiveAmount = activeRentals.reduce((sum, r) => {
     const calc = calculateRentalBreakdown(r.startTime, now, r.rateSnapshot);
@@ -192,6 +194,11 @@ export const ActiveRentalsList: React.FC<ActiveRentalsListProps> = ({
                         <span className={`text-[11px] font-mono ${t.textMuted}`}>
                           #{rental.rentalNumber}
                         </span>
+                        {(rental.startKm !== undefined || rental.breakdown?.startKm !== undefined) && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 whitespace-nowrap">
+                            Start: {rental.startKm ?? rental.breakdown?.startKm} KM
+                          </span>
+                        )}
                       </div>
 
                       <div className={`flex items-center gap-2 text-xs mt-1 ${t.textMuted}`}>

@@ -51,6 +51,10 @@ business_unit
 
 to prevent data mixing between businesses.
 
+### 1.1 Technical Stack Standards & Guidelines
+- **Core Stack**: All PRH features, calculators, components, and server endpoints must be built exclusively using **Node.js, JavaScript, and TypeScript** within the unified React 19 + Vite + Express + Supabase architecture.
+- **Python Prohibition**: **Python is strictly NOT used in this project and MUST NOT be introduced for present or future development**. All business unit logic, calculations, background tasks, exports, and integrations must continue in Node.js / TypeScript.
+
 ---
 
 # 2. PRH Business Purpose

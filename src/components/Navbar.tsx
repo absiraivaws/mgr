@@ -34,6 +34,8 @@ import {
   Boxes,
   RotateCcw,
   Wrench,
+  ShoppingBag,
+  TrendingUp,
 } from 'lucide-react';
 import { AppSettings, RentalRecord, Vehicle } from '../types';
 import { DEFAULT_USER, UserAccount, getUserPermissions, getMGRPersona, canAccessBusiness } from '../utils/auth';
@@ -41,7 +43,7 @@ import { ACCENT_COLORS, AccentColor, ThemeMode, getThemeClasses } from '../utils
 import { MGRTabType } from '../types/mgrBooking';
 import { PRHTabType } from '../types/prhTypes';
 
-export type NavTabType = 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers' | 'messages' | 'finance';
+export type NavTabType = 'rentals' | 'history' | 'users' | 'settings' | 'income' | 'dashboard' | 'customers' | 'messages' | 'finance' | 'purchase' | 'sale';
 
 interface NavbarProps {
   activeTab: NavTabType;
@@ -227,6 +229,22 @@ export const Navbar: React.FC<NavbarProps> = ({
       show: isAdmin ? true : Boolean(userPerms.accessFinance ?? userPerms.accessIncome),
       badge: null as number | null,
       activeClass: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
+    },
+    {
+      id: 'purchase' as const,
+      label: 'Purchase',
+      icon: <ShoppingBag className="w-4 h-4 shrink-0" />,
+      show: isAdmin ? true : Boolean(userPerms.accessPurchase ?? true),
+      badge: null as number | null,
+      activeClass: 'bg-rose-500/20 text-rose-400 border border-rose-500/40',
+    },
+    {
+      id: 'sale' as const,
+      label: 'Sale',
+      icon: <TrendingUp className="w-4 h-4 shrink-0" />,
+      show: isAdmin ? true : Boolean(userPerms.accessSale ?? true),
+      badge: null as number | null,
+      activeClass: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
     },
   ];
 

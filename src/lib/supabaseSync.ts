@@ -22,6 +22,7 @@ export async function fetchSupabaseData(): Promise<{
   userAccounts?: UserAccount[];
   roles?: RoleDefinition[];
   customerGroups?: CustomerGroup[];
+  incomeEntries?: import('../types').IncomeEntry[];
   messageTemplates?: MessageTemplate[];
 } | null> {
   const supabase = getSupabase();
@@ -68,40 +69,78 @@ export async function fetchSupabaseData(): Promise<{
         color: row.color,
         rates: row.rates,
         rentalStartMethod: row.rental_start_method || row.rates?.rentalStartMethod || 'both',
+        purpose: row.purpose || row.rates?.purpose || 'rental',
       }));
     }
 
     if (vehiclesRes.data && vehiclesRes.data.length > 0) {
-      result.vehicles = vehiclesRes.data.map((row) => ({
-        id: row.id,
-        serialNumber: row.serial_number,
-        typeId: row.type_id,
-        modelName: row.model_name,
-        status: row.status,
-        notes: row.notes,
-        lastRentedAt: row.last_rented_at ? Number(row.last_rented_at) : undefined,
-        totalRentalsCount: row.total_rentals_count || 0,
-      }));
+      result.vehicles = vehiclesRes.data.map((row) => {
+        let cleanNotes = row.notes || '';
+        let costPrice = row.cost_price !== undefined ? Number(row.cost_price) : undefined;
+        let purchaseRef = row.purchase_ref || undefined;
+
+        if (cleanNotes && cleanNotes.includes('__VEH_META__')) {
+          const match = cleanNotes.match(/__VEH_META__(\{.*?\})/);
+          if (match && match[1]) {
+            try {
+              const meta = JSON.parse(match[1]);
+              if (costPrice === undefined && meta.costPrice !== undefined) costPrice = Number(meta.costPrice);
+              if (!purchaseRef && meta.purchaseRef) purchaseRef = meta.purchaseRef;
+            } catch {}
+          }
+          cleanNotes = cleanNotes.replace(/\s*__VEH_META__\{.*?\}\s*/g, '').trim();
+        }
+
+        return {
+          id: row.id,
+          serialNumber: row.serial_number,
+          typeId: row.type_id,
+          modelName: row.model_name,
+          status: row.status,
+          notes: cleanNotes || undefined,
+          lastRentedAt: row.last_rented_at ? Number(row.last_rented_at) : undefined,
+          totalRentalsCount: row.total_rentals_count || 0,
+          costPrice,
+          purchaseRef,
+        };
+      });
     }
 
     if (customersRes.data) {
-      result.customers = customersRes.data.map((row) => ({
-        id: row.id,
-        nicPassport: row.nic_passport,
-        name: row.name,
-        fullName: row.full_name || row.name,
-        phone: row.phone || '',
-        whatsappNumber: row.whatsapp_number || row.phone || '',
-        address: row.address || '',
-        dob: row.dob || '',
-        status: (row.status as CustomerStatus) || 'active',
-        statusRemark: row.status_remark || undefined,
-        groups: Array.isArray(row.groups) ? row.groups : [],
-        notes: row.notes || '',
-        totalRentalsCount: row.total_rentals_count ?? 0,
-        lastRentalDate: row.last_rental_date ? Number(row.last_rental_date) : undefined,
-        createdAt: row.created_at ? Number(row.created_at) : undefined,
-      }));
+      result.customers = customersRes.data.map((row) => {
+        let cleanNotes = row.notes || '';
+        let advBalance = row.advance_balance !== undefined && row.advance_balance !== null ? Number(row.advance_balance) : 0;
+        if (cleanNotes && cleanNotes.includes('__CUST_META__')) {
+          const match = cleanNotes.match(/__CUST_META__(\{.*?\})/);
+          if (match && match[1]) {
+            try {
+              const meta = JSON.parse(match[1]);
+              if (meta.advanceBalance !== undefined) {
+                advBalance = Number(meta.advanceBalance);
+              }
+            } catch {}
+          }
+          cleanNotes = cleanNotes.replace(/\s*__CUST_META__\{.*?\}\s*/g, '').trim();
+        }
+        return {
+          id: row.id,
+          nicPassport: row.nic_passport,
+          name: row.name,
+          fullName: row.full_name || row.name,
+          phone: row.phone || '',
+          whatsappNumber: row.whatsapp_number || row.phone || '',
+          address: row.address || '',
+          dob: row.dob || '',
+          status: (row.status as CustomerStatus) || 'active',
+          statusRemark: row.status_remark || undefined,
+          groups: Array.isArray(row.groups) ? row.groups : [],
+          notes: cleanNotes,
+          advanceBalance: advBalance,
+          totalRentalsCount: row.total_rentals_count ?? 0,
+          lastRentalDate: row.last_rental_date ? Number(row.last_rental_date) : undefined,
+          createdAt: row.created_at ? Number(row.created_at) : undefined,
+        };
+      });
     }
 
     if (rentalsRes.data) {
@@ -109,6 +148,7 @@ export async function fetchSupabaseData(): Promise<{
       const completed: RentalRecord[] = [];
 
       rentalsRes.data.forEach((row) => {
+        const breakdownData = row.breakdown || {};
         const item: RentalRecord = {
           id: row.id,
           rentalNumber: row.rental_number,
@@ -121,18 +161,33 @@ export async function fetchSupabaseData(): Promise<{
           customerPhone: row.customer_phone,
           customerNicPassport: row.customer_nic_passport,
           customerNotes: row.customer_notes,
+          customerWhatsapp: row.customer_whatsapp || breakdownData.customerWhatsapp || undefined,
           depositAmount: row.deposit_amount ? Number(row.deposit_amount) : 0,
+          appliedAdvanceBalance: row.applied_advance_balance !== undefined && row.applied_advance_balance !== null ? Number(row.applied_advance_balance) : (breakdownData.appliedAdvanceBalance || 0),
+          refundAmount: row.refund_amount !== undefined && row.refund_amount !== null ? Number(row.refund_amount) : (breakdownData.refundAmount || 0),
+          creditedAdvanceBalance: row.credited_advance_balance !== undefined && row.credited_advance_balance !== null ? Number(row.credited_advance_balance) : (breakdownData.creditedAdvanceBalance || 0),
+          refundRetainedAsAdvance: Boolean((row.credited_advance_balance && Number(row.credited_advance_balance) > 0) || breakdownData.refundRetainedAsAdvance),
           startTime: Number(row.start_time),
           endTime: row.end_time ? Number(row.end_time) : undefined,
           status: row.status,
           rateSnapshot: row.rate_snapshot,
           breakdown: row.breakdown,
+          startKm: breakdownData.startKm ?? (row.start_km !== undefined && row.start_km !== null ? Number(row.start_km) : undefined),
+          endKm: breakdownData.endKm ?? (row.end_km !== undefined && row.end_km !== null ? Number(row.end_km) : undefined),
+          distanceKm: breakdownData.distanceKm,
           totalAmount: Number(row.total_amount || 0),
           cashierName: row.cashier_name,
           paymentMethod: row.payment_method,
           amountReceived: row.amount_received ? Number(row.amount_received) : undefined,
           changeAmount: row.change_amount ? Number(row.change_amount) : undefined,
+          paymentRef: row.payment_ref || null,
+          depositPaymentRef: row.deposit_payment_ref || null,
           completedAt: row.completed_at ? Number(row.completed_at) : undefined,
+          damageAmount: row.damage_amount !== undefined && row.damage_amount !== null ? Number(row.damage_amount) : breakdownData.damageAmount,
+          discountAmount: row.discount_amount !== undefined && row.discount_amount !== null ? Number(row.discount_amount) : breakdownData.discountAmount,
+          rentalAmount: row.rental_amount !== undefined && row.rental_amount !== null ? Number(row.rental_amount) : breakdownData.rentalAmount,
+          grossRentalAmount: row.gross_rental_amount !== undefined && row.gross_rental_amount !== null ? Number(row.gross_rental_amount) : breakdownData.grossRentalAmount,
+          balanceAmount: row.balance_amount !== undefined && row.balance_amount !== null ? Number(row.balance_amount) : breakdownData.balanceAmount,
         };
 
         if (item.status === 'active') {
@@ -245,7 +300,24 @@ export async function syncRentalToSupabase(rental: RentalRecord) {
   if (!supabase) return;
 
   try {
-    const payload = {
+    const safeBreakdown = {
+      ...(rental.breakdown || {}),
+      appliedAdvanceBalance: rental.appliedAdvanceBalance || 0,
+      refundAmount: rental.refundAmount || 0,
+      creditedAdvanceBalance: rental.creditedAdvanceBalance || 0,
+      refundRetainedAsAdvance: rental.refundRetainedAsAdvance || false,
+      rentalAmount: rental.rentalAmount,
+      damageAmount: rental.damageAmount,
+      grossRentalAmount: rental.grossRentalAmount,
+      discountAmount: rental.discountAmount,
+      balanceAmount: rental.balanceAmount,
+      customerWhatsapp: rental.customerWhatsapp || rental.breakdown?.customerWhatsapp,
+      startKm: rental.startKm ?? rental.breakdown?.startKm,
+      endKm: rental.endKm ?? rental.breakdown?.endKm,
+      distanceKm: rental.distanceKm ?? rental.breakdown?.distanceKm,
+    };
+
+    const payload: any = {
       rental_number: rental.rentalNumber,
       vehicle_id: rental.vehicleId,
       vehicle_serial_number: rental.vehicleSerialNumber,
@@ -261,7 +333,7 @@ export async function syncRentalToSupabase(rental: RentalRecord) {
       end_time: rental.endTime || null,
       status: rental.status,
       rate_snapshot: rental.rateSnapshot,
-      breakdown: rental.breakdown || null,
+      breakdown: safeBreakdown,
       total_amount: rental.totalAmount || 0,
       cashier_name: rental.cashierName || 'Counter',
       payment_method: rental.paymentMethod || null,
@@ -274,9 +346,11 @@ export async function syncRentalToSupabase(rental: RentalRecord) {
 
     const { data: existing } = await supabase.from('rentals').select('id').eq('rental_number', rental.rentalNumber).maybeSingle();
     if (existing) {
-      await supabase.from('rentals').update(payload).eq('rental_number', rental.rentalNumber);
+      const { error: updateErr } = await supabase.from('rentals').update(payload).eq('rental_number', rental.rentalNumber);
+      if (updateErr) console.error('Failed to update rental in Supabase:', updateErr);
     } else {
-      await supabase.from('rentals').insert({ id: rental.id, ...payload });
+      const { error: insertErr } = await supabase.from('rentals').insert({ id: rental.id, ...payload });
+      if (insertErr) console.error('Failed to insert rental in Supabase:', insertErr);
     }
   } catch (err) {
     console.error('Failed to sync rental to Supabase:', err);
@@ -293,7 +367,7 @@ export async function deleteRentalFromSupabase(id: string, rentalNumber?: string
   try {
     if (rentalNumber) {
       await supabase.from('rentals').delete().eq('rental_number', rentalNumber);
-    } else {
+    } else if (id) {
       await supabase.from('rentals').delete().eq('id', id);
     }
   } catch (err) {
@@ -310,7 +384,14 @@ export async function syncCustomerToSupabase(customer: Customer) {
 
   try {
     const trimmedNic = (customer.nicPassport || '').trim();
-    const payload = {
+    // Pack advanceBalance into notes cleanly using __CUST_META__
+    let cleanNotes = (customer.notes || '').replace(/\s*__CUST_META__\{.*?\}\s*/g, '').trim();
+    if (customer.advanceBalance !== undefined && customer.advanceBalance !== null && customer.advanceBalance !== 0) {
+      const meta = JSON.stringify({ advanceBalance: customer.advanceBalance });
+      cleanNotes = cleanNotes ? `${cleanNotes} __CUST_META__${meta}` : `__CUST_META__${meta}`;
+    }
+
+    const payload: any = {
       nic_passport: trimmedNic,
       name: (customer.name || customer.fullName || 'Customer').trim(),
       full_name: (customer.fullName || customer.name || 'Customer').trim(),
@@ -321,7 +402,7 @@ export async function syncCustomerToSupabase(customer: Customer) {
       status: customer.status || 'active',
       status_remark: customer.statusRemark ? customer.statusRemark.trim() : null,
       groups: customer.groups || [],
-      notes: customer.notes ? customer.notes.trim() : null,
+      notes: cleanNotes || null,
       total_rentals_count: customer.totalRentalsCount ?? 0,
       last_rental_date: customer.lastRentalDate || null,
       created_at: customer.createdAt || Date.now(),
@@ -341,7 +422,7 @@ export async function syncCustomerToSupabase(customer: Customer) {
     if (trimmedNic) {
       const { data: byNic } = await supabase.from('customers').select('id').eq('nic_passport', trimmedNic).maybeSingle();
       if (byNic) {
-        const { error } = await supabase.from('customers').update(payload).eq('nic_passport', trimmedNic);
+        const { error } = await supabase.from('customers').update(payload).eq('id', byNic.id);
         if (error) console.error('Error updating customer by NIC:', error);
         return;
       }
@@ -363,9 +444,11 @@ export async function deleteCustomerFromSupabase(customerId: string, nicPassport
   if (!supabase) return;
 
   try {
+    // If specific customerId is provided, delete strictly this record (vital for removing duplicates!)
     if (customerId) {
       const { error: errId } = await supabase.from('customers').delete().eq('id', customerId);
       if (errId) console.error('Error deleting customer by id:', errId);
+      return;
     }
     const trimmedNic = (nicPassport || '').trim();
     if (trimmedNic) {
@@ -385,21 +468,51 @@ export async function syncVehicleToSupabase(vehicle: Vehicle) {
   if (!supabase) return;
 
   try {
-    const payload = {
+    // Pack costPrice and purchaseRef into notes so it survives even if columns don't exist
+    let packedNotes = vehicle.notes || '';
+    packedNotes = packedNotes.replace(/\s*__VEH_META__\{.*?\}\s*/g, '').trim();
+    if (vehicle.costPrice !== undefined || vehicle.purchaseRef) {
+      const meta = JSON.stringify({ costPrice: vehicle.costPrice, purchaseRef: vehicle.purchaseRef });
+      packedNotes = packedNotes ? `${packedNotes} __VEH_META__${meta}` : `__VEH_META__${meta}`;
+    }
+
+    const payload: any = {
       serial_number: vehicle.serialNumber,
       type_id: vehicle.typeId,
       model_name: vehicle.modelName || '',
       status: vehicle.status || 'available',
-      notes: vehicle.notes || null,
+      notes: packedNotes || null,
       last_rented_at: vehicle.lastRentedAt || null,
       total_rentals_count: vehicle.totalRentalsCount || 0,
     };
 
-    const { data: existing } = await supabase.from('vehicles').select('id').eq('serial_number', vehicle.serialNumber).maybeSingle();
-    if (existing) {
-      await supabase.from('vehicles').update(payload).eq('serial_number', vehicle.serialNumber);
+    if (vehicle.costPrice !== undefined) payload.cost_price = vehicle.costPrice;
+    if (vehicle.purchaseRef) payload.purchase_ref = vehicle.purchaseRef;
+
+    // Check existing by ID first, then fallback to serial number
+    let existingId: string | null = null;
+    const { data: byId } = await supabase.from('vehicles').select('id').eq('id', vehicle.id).maybeSingle();
+    if (byId) {
+      existingId = byId.id;
     } else {
-      await supabase.from('vehicles').insert({ id: vehicle.id, ...payload });
+      const { data: bySerial } = await supabase.from('vehicles').select('id').eq('serial_number', vehicle.serialNumber).maybeSingle();
+      if (bySerial) existingId = bySerial.id;
+    }
+
+    if (existingId) {
+      const { error } = await supabase.from('vehicles').update(payload).eq('id', existingId);
+      if (error && error.message?.includes('column')) {
+        delete payload.cost_price;
+        delete payload.purchase_ref;
+        await supabase.from('vehicles').update(payload).eq('id', existingId);
+      }
+    } else {
+      const { error } = await supabase.from('vehicles').insert({ id: vehicle.id, ...payload });
+      if (error && error.message?.includes('column')) {
+        delete payload.cost_price;
+        delete payload.purchase_ref;
+        await supabase.from('vehicles').insert({ id: vehicle.id, ...payload });
+      }
     }
   } catch (err) {
     console.error('Failed to sync vehicle to Supabase:', err);
@@ -417,6 +530,7 @@ export async function syncVehicleTypeToSupabase(type: VehicleType): Promise<{ su
     const ratesWithMethod = {
       ...type.rates,
       rentalStartMethod: type.rentalStartMethod || 'both',
+      purpose: type.purpose || 'rental',
     };
     const payload = {
       id: type.id,
@@ -463,14 +577,24 @@ export async function deleteVehicleTypeFromSupabase(id: string): Promise<{ succe
 /**
  * Delete a vehicle from Supabase
  */
-export async function deleteVehicleFromSupabase(id: string) {
+export async function deleteVehicleFromSupabase(id: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return { success: false, error: 'Supabase not configured' };
 
   try {
-    await supabase.from('vehicles').delete().eq('id', id);
-  } catch (err) {
+    const { error: errById } = await supabase.from('vehicles').delete().eq('id', id);
+    if (errById) {
+      console.warn(`[SupabaseSync] Could not delete vehicle by id "${id}":`, errById.message);
+      // Attempt delete by serial_number in case id was different in cloud
+      const { error: errBySerial } = await supabase.from('vehicles').delete().eq('serial_number', id);
+      if (errBySerial) {
+        return { success: false, error: errById.message || errBySerial.message };
+      }
+    }
+    return { success: true };
+  } catch (err: any) {
     console.error('Failed to delete vehicle from Supabase:', err);
+    return { success: false, error: err?.message || 'Delete vehicle failed' };
   }
 }
 

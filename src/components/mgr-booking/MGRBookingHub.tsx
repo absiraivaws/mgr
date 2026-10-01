@@ -317,7 +317,7 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
   useEffect(() => {
     const intervalMs = settings.dataSyncInterval || 30000;
     const timer = setInterval(() => {
-      fetchTransportDataFromSupabase().then(remote => {
+      fetchMGRTransportData().then(remote => {
         if (!remote) return;
         if (remote.vehicles && remote.vehicles.length > 0) {
           setVehicles(remote.vehicles);

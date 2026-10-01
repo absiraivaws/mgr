@@ -29,6 +29,8 @@ export interface RolePermissionSet {
   accessSettings: boolean;   // "Rates & Inventory"
   accessIncome?: boolean;    // Legacy "Income & Expenses" fallback
   accessFinance?: boolean;   // "Finance"
+  accessPurchase?: boolean;  // "Purchase"
+  accessSale?: boolean;      // "Sale"
 
   // Top/Main menu access per business
   accessBicyclePOS?: boolean;
@@ -487,7 +489,7 @@ export function getStoredRoles(): RoleDefinition[] {
     const systemIds = DEFAULT_ROLES.map(r => r.id);
     const existingIds = parsed.map((r: any) => r.id);
     const missingSystemRoles = DEFAULT_ROLES.filter(r => !existingIds.includes(r.id));
-    
+
     // Normalize permissions to make sure tab access flags are present
     const normalized: RoleDefinition[] = [...parsed, ...missingSystemRoles].map((role) => {
       const defaultMatch = DEFAULT_ROLES.find(d => d.id === role.id);
@@ -616,13 +618,21 @@ export function getStoredRoles(): RoleDefinition[] {
 export function saveStoredRoles(roles: RoleDefinition[]): void {
   try {
     localStorage.setItem(STORAGE_ROLES_KEY, JSON.stringify(roles));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('cycly_roles_updated', { detail: roles }));
+      try {
+        const bc = new BroadcastChannel('cycly_permissions_channel');
+        bc.postMessage({ type: 'ROLES_UPDATED', roles, timestamp: Date.now() });
+        bc.close();
+      } catch { }
+    }
   } catch (err) {
     console.error('Failed to save roles to localStorage', err);
   }
 }
 
 export function updateRolePermissions(
-  roleId: string, 
+  roleId: string,
   newPermissions: Partial<RolePermissionSet>
 ): { success: boolean; error?: string } {
   const roles = getStoredRoles();
@@ -704,9 +714,9 @@ export function canAccessBusiness(
   business: BusinessScope
 ): boolean {
   if (!user) return false;
-  const isRoot = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || 
-                 user.email.toLowerCase() === 'absiraiva@gmail.com' ||
-                 user.email.toLowerCase() === 'admin@mannargreenride.lk';
+  const isRoot = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+    user.email.toLowerCase() === 'absiraiva@gmail.com' ||
+    user.email.toLowerCase() === 'admin@mannargreenride.lk';
   if (isRoot) return true;
 
   const bStatus = getUserBusinessStatus(user, business);
@@ -745,6 +755,8 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
     accessSettings: false,
     accessIncome: false,
     accessFinance: false,
+    accessPurchase: false,
+    accessSale: false,
     accessBicyclePOS: false,
     accessMGRTransport: false,
     accessPRHRental: false,
@@ -790,8 +802,8 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
   }
 
   const isRootAdmin = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
-                      user.email.toLowerCase() === 'absiraiva@gmail.com' ||
-                      user.email.toLowerCase() === 'admin@mannargreenride.lk';
+    user.email.toLowerCase() === 'absiraiva@gmail.com' ||
+    user.email.toLowerCase() === 'admin@mannargreenride.lk';
 
   let rawPerms: RolePermissionSet;
   if (user.role === 'admin' || isRootAdmin) {
@@ -805,6 +817,8 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
       accessSettings: true,
       accessIncome: true,
       accessFinance: true,
+      accessPurchase: true,
+      accessSale: true,
       accessBicyclePOS: true,
       accessMGRTransport: true,
       accessPRHRental: true,
@@ -874,6 +888,12 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
       }
       if (rawPerms.accessHistory) {
         if (rawPerms.canExportReports === undefined || rawPerms.canExportReports === null) rawPerms.canExportReports = true;
+      }
+      if (rawPerms.accessPurchase === undefined || rawPerms.accessPurchase === null) {
+        rawPerms.accessPurchase = Boolean(rawPerms.accessFinance ?? rawPerms.accessIncome ?? true);
+      }
+      if (rawPerms.accessSale === undefined || rawPerms.accessSale === null) {
+        rawPerms.accessSale = Boolean(rawPerms.accessFinance ?? rawPerms.accessIncome ?? true);
       }
     } else {
       rawPerms = { ...EMPTY_PERMS };
@@ -946,9 +966,9 @@ export function hasPermission(
   permission: keyof RolePermissionSet
 ): boolean {
   if (!user || user.status === 'deactivated' || user.status === 'suspended') return false;
-  const isRootAdmin = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || 
-                      user.email.toLowerCase() === 'absiraiva@gmail.com' ||
-                      user.email.toLowerCase() === 'admin@mannargreenride.lk';
+  const isRootAdmin = user.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+    user.email.toLowerCase() === 'absiraiva@gmail.com' ||
+    user.email.toLowerCase() === 'admin@mannargreenride.lk';
   if (isRootAdmin) {
     return true;
   }
@@ -1199,7 +1219,7 @@ export function getDeletedUserEmails(): string[] {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed.map((e: string) => String(e).trim().toLowerCase());
     }
-  } catch {}
+  } catch { }
   return [];
 }
 
@@ -1212,7 +1232,7 @@ export function markUserAsDeleted(email: string): void {
       existing.push(norm);
       localStorage.setItem(STORAGE_DELETED_USERS_KEY, JSON.stringify(existing));
     }
-  } catch {}
+  } catch { }
 }
 
 export function getStoredUsers(): UserAccount[] {
@@ -1234,7 +1254,7 @@ export function getStoredUsers(): UserAccount[] {
               return { ...rest, status: statusVal };
             });
         }
-      } catch {}
+      } catch { }
     }
 
     let updatedUsers = [...validUsers];
@@ -1353,7 +1373,7 @@ export async function storeLocalPasswordHash(email: string, plainText: string): 
     const key = `v_pwd_hash_${email.trim().toLowerCase()}`;
     const hash = await computeSha256(plainText);
     localStorage.setItem(key, hash);
-  } catch {}
+  } catch { }
 }
 
 export async function verifyLocalPassword(email: string, plainText: string): Promise<boolean> {
@@ -1421,7 +1441,7 @@ export async function authenticateUser(
       (u) =>
         u &&
         ((u.email && u.email.toLowerCase() === normalizedEmail) ||
-         (u.name && u.name.toLowerCase() === normalizedEmail))
+          (u.name && u.name.toLowerCase() === normalizedEmail))
     );
     if (!found) {
       return {
@@ -1473,10 +1493,10 @@ export async function authenticateUser(
           (u) =>
             u &&
             ((u.email && u.email.toLowerCase() === normalizedEmail) ||
-             (u.name && u.name.toLowerCase() === normalizedEmail) ||
-             (normalizedEmail === 'admin' && (u.role === 'admin' || u.email.toLowerCase() === DEFAULT_USER.email.toLowerCase())) ||
-             (normalizedEmail === 'owner' && (u.role === 'owner' || u.email.includes('owner'))) ||
-             (normalizedEmail === 'passenger' && (u.role === 'passenger' || u.email.includes('passenger'))))
+              (u.name && u.name.toLowerCase() === normalizedEmail) ||
+              (normalizedEmail === 'admin' && (u.role === 'admin' || u.email.toLowerCase() === DEFAULT_USER.email.toLowerCase())) ||
+              (normalizedEmail === 'owner' && (u.role === 'owner' || u.email.includes('owner'))) ||
+              (normalizedEmail === 'passenger' && (u.role === 'passenger' || u.email.includes('passenger'))))
         );
         if (!localFound) {
           return {
@@ -1564,7 +1584,7 @@ export async function authenticateUser(
     } else if (supa && profileRow && !profileRow.auth_user_id) {
       try {
         await supa.from('user_accounts').update({ auth_user_id: authData.user.id }).eq('id', profileRow.id);
-      } catch {}
+      } catch { }
     }
 
     // Cache profile in localStorage WITHOUT password
@@ -1672,7 +1692,7 @@ export async function changePassword(
           .from('user_accounts')
           .update({ must_change_password: false })
           .ilike('email', effectiveEmail)
-          .then(() => {});
+          .then(() => { });
       }
     }
 
@@ -1714,7 +1734,7 @@ export async function logoutUser(): Promise<void> {
   setCurrentUserSession(null);
   try {
     localStorage.removeItem('mgr_system_mode');
-  } catch {}
+  } catch { }
 }
 
 export async function registerNewUser(params: {
@@ -1849,7 +1869,7 @@ export async function registerNewUser(params: {
  * Admin action: Send Supabase password recovery email to a user
  */
 export async function sendStaffPasswordResetEmail(
-  email: string, 
+  email: string,
   adminUser?: UserAccount
 ): Promise<{ success: boolean; error?: string }> {
   const normalizedEmail = (email || '').trim().toLowerCase();
@@ -1924,8 +1944,8 @@ export async function sendStaffPasswordResetEmail(
               </div>
             `,
           }),
-        }).catch(() => {});
-      } catch {}
+        }).catch(() => { });
+      } catch { }
 
       // Record in audit log
       recordAuditLog({
@@ -1956,7 +1976,7 @@ export async function resetUserPassword(email: string): Promise<{ success: boole
  * Admin action: Update a user's role and details (NO passwords stored in user_accounts)
  */
 export function updateUserRoleAndDetails(
-  userId: string, 
+  userId: string,
   newRole: UserRole,
   updatedData?: Partial<Pick<UserAccount, 'name' | 'phone' | 'status' | 'statusUpdatedAt' | 'statusUpdatedBy' | 'businessStatus' | 'businessStatusUpdatedAt' | 'businessStatusUpdatedBy'>>,
   targetBusiness?: BusinessScope
@@ -1998,11 +2018,11 @@ export function updateUserRoleAndDetails(
     name: updatedData?.name?.trim() || users[idx].name,
     phone: updatedData?.phone !== undefined ? updatedData.phone.trim() : users[idx].phone,
     status: newStatus,
-    statusUpdatedAt: statusChanged 
-      ? (updatedData?.statusUpdatedAt || new Date().toISOString()) 
+    statusUpdatedAt: statusChanged
+      ? (updatedData?.statusUpdatedAt || new Date().toISOString())
       : (updatedData?.statusUpdatedAt || users[idx].statusUpdatedAt),
-    statusUpdatedBy: statusChanged 
-      ? (updatedData?.statusUpdatedBy || 'Administrator') 
+    statusUpdatedBy: statusChanged
+      ? (updatedData?.statusUpdatedBy || 'Administrator')
       : (updatedData?.statusUpdatedBy || users[idx].statusUpdatedBy),
     businessStatus: currentBusinessStatus,
     businessStatusUpdatedAt: currentBusinessStatusUpdatedAt,
@@ -2024,7 +2044,7 @@ export function updateUserRoleAndDetails(
         status: users[idx].status || 'active',
         status_updated_at: users[idx].statusUpdatedAt || null,
         status_updated_by: users[idx].statusUpdatedBy || null,
-      }, { onConflict: 'id' }).then(() => {});
+      }, { onConflict: 'id' }).then(() => { });
     }
   }
 
@@ -2087,7 +2107,7 @@ export function deleteUserAccount(
     if (typeof window !== 'undefined') {
       localStorage.removeItem(`v_pwd_hash_${target.email.toLowerCase()}`);
     }
-  } catch (e) {}
+  } catch (e) { }
 
   // 3. Remove from users and save
   const filtered = users.filter((u) => u.id !== userId);
@@ -2100,7 +2120,7 @@ export function deleteUserAccount(
       if (typeof window !== 'undefined') {
         localStorage.removeItem(STORAGE_CURRENT_USER_KEY);
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 5. Broadcast real-time deletion revocation to all open tabs
@@ -2116,13 +2136,13 @@ export function deleteUserAccount(
       });
       channel.close();
     }
-  } catch (e) {}
+  } catch (e) { }
 
   // 6. Sync delete to Supabase user_accounts table
   if (isSupabaseConfigured()) {
     const supa = getSupabase();
     if (supa) {
-      supa.from('user_accounts').delete().eq('id', userId).then(() => {});
+      supa.from('user_accounts').delete().eq('id', userId).then(() => { });
     }
   }
 

@@ -885,7 +885,7 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
               className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition ${styles.secondaryBtn}`}
             >
               <Plus className="w-3.5 h-3.5 text-emerald-600" />
-              <span>+ Custom Role</span>
+              <span>Custom Role</span>
             </button>
           </div>
         </div>
@@ -1075,7 +1075,7 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
               className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition ${styles.secondaryBtn}`}
             >
               <Plus className="w-3.5 h-3.5 text-emerald-600" />
-              <span>+ Add Staff User</span>
+              <span>Add Staff User</span>
             </button>
           </div>
         </div>

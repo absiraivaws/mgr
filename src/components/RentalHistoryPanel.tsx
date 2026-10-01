@@ -32,6 +32,11 @@ import {
   Lock,
   AlertTriangle,
   ShieldCheck,
+  Plus,
+  Minus,
+  Wallet,
+  Tag,
+  Coins,
 } from 'lucide-react';
 import { AppSettings, RentalRecord } from '../types';
 import { VehicleIcon } from './VehicleIcon';
@@ -39,7 +44,9 @@ import {
   formatCurrency, 
   formatDate, 
   formatDateTime, 
-  formatTime 
+  formatTime,
+  computeRentalFinance,
+  RentalFinanceStructure,
 } from '../utils/pricing';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { DEFAULT_USER, UserAccount } from '../utils/auth';
@@ -61,6 +68,12 @@ type SortKey =
   | 'startTime'
   | 'endTime'
   | 'breakdown.totalMinutes'
+  | 'rentalAmount'
+  | 'damageAmount'
+  | 'grossRentalAmount'
+  | 'depositAmount'
+  | 'discountAmount'
+  | 'balanceAmount'
   | 'totalAmount'
   | 'paymentMethod';
 
@@ -68,17 +81,28 @@ type SortDir = 'asc' | 'desc';
 
 const PAGE_SIZE = 20;
 
+export function getRentalCollectedAmount(rental: RentalRecord): number {
+  return computeRentalFinance(rental).totalRevenueReceived;
+}
+
 function getSortValue(rental: RentalRecord, key: SortKey): string | number {
+  const fin = computeRentalFinance(rental);
   switch (key) {
-    case 'rentalNumber':      return rental.rentalNumber || '';
-    case 'vehicleTypeName':   return (rental.vehicleTypeName || '').toLowerCase();
-    case 'vehicleSerialNumber': return (rental.vehicleSerialNumber || '').toLowerCase();
-    case 'customerName':      return (rental.customerName || 'Walk-in').toLowerCase();
-    case 'startTime':         return rental.startTime || 0;
-    case 'endTime':           return rental.endTime || 0;
+    case 'rentalNumber':          return rental.rentalNumber || '';
+    case 'vehicleTypeName':       return (rental.vehicleTypeName || '').toLowerCase();
+    case 'vehicleSerialNumber':   return (rental.vehicleSerialNumber || '').toLowerCase();
+    case 'customerName':          return (rental.customerName || 'Walk-in').toLowerCase();
+    case 'startTime':             return rental.startTime || 0;
+    case 'endTime':               return rental.endTime || 0;
     case 'breakdown.totalMinutes': return rental.breakdown?.totalMinutes || 0;
-    case 'totalAmount':       return rental.totalAmount || 0;
-    case 'paymentMethod':     return (rental.paymentMethod || 'cash').toLowerCase();
+    case 'rentalAmount':          return fin.rentalValue;
+    case 'damageAmount':          return fin.damageCharge;
+    case 'grossRentalAmount':     return fin.grossRentalAmount;
+    case 'depositAmount':         return fin.advancePaid;
+    case 'discountAmount':        return fin.discountAmount;
+    case 'balanceAmount':         return fin.balanceToCollect;
+    case 'totalAmount':           return fin.totalRevenueReceived;
+    case 'paymentMethod':         return (rental.paymentMethod || 'cash').toLowerCase();
     default: return '';
   }
 }
@@ -115,9 +139,9 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   // Delete modal confirmation state (Admin only)
   const [rentalToDelete, setRentalToDelete] = useState<RentalRecord | null>(null);
 
-  // Sorting state — default: vehicleTypeName A→Z with vehicleSerialNumber A→Z secondary
-  const [sortKey, setSortKey] = useState<SortKey>('vehicleTypeName');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  // Sorting state — default: descending order showing newest/latest records first (Requirement 1)
+  const [sortKey, setSortKey] = useState<SortKey>('endTime');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   // Pagination state (Max 20 rows per page)
   const [currentPage, setCurrentPage] = useState(1);
@@ -128,6 +152,34 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
     const today = getTodayISO();
     setFromDate(today);
     setToDate(today);
+    setCurrentPage(1);
+  };
+
+  const handleSetYesterday = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const yStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    setFromDate(yStr);
+    setToDate(yStr);
+    setCurrentPage(1);
+  };
+
+  const handleSetThisWeek = () => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Monday
+    const monday = new Date(now.setDate(diff));
+    const monStr = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+    setFromDate(monStr);
+    setToDate(getTodayISO());
+    setCurrentPage(1);
+  };
+
+  const handleSetThisMonth = () => {
+    const now = new Date();
+    const firstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    setFromDate(firstDay);
+    setToDate(getTodayISO());
     setCurrentPage(1);
   };
 
@@ -218,10 +270,11 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
         if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
       }
 
-      // Tie-breaker: Vehicle Category A-Z, then Vehicle Serial Number A-Z
-      const catCompare = (a.vehicleTypeName || '').localeCompare(b.vehicleTypeName || '', undefined, { sensitivity: 'base' });
-      if (catCompare !== 0) return catCompare;
-      return (a.vehicleSerialNumber || '').localeCompare(b.vehicleSerialNumber || '', undefined, { numeric: true, sensitivity: 'base' });
+      // Tie-breaker: Latest rental timestamp first (Requirement 1: descending order default)
+      const timeA = a.endTime || a.startTime || 0;
+      const timeB = b.endTime || b.startTime || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return (b.rentalNumber || '').localeCompare(a.rentalNumber || '');
     });
   }, [filteredRentals, sortKey, sortDir]);
 
@@ -232,19 +285,31 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   const pageEnd = pageStart + PAGE_SIZE;
   const pageRentals = sortedRentals.slice(pageStart, pageEnd);
 
-  // Aggregated Total Values for Filtered View
-  const filteredTotalValue = filteredRentals.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+  // Aggregated Total Values for Filtered View (7-part Rental Finance Structure)
+  const filteredRentalValueTotal = filteredRentals.reduce((sum, r) => sum + computeRentalFinance(r).rentalValue, 0);
+  const filteredDamageTotal = filteredRentals.reduce((sum, r) => sum + computeRentalFinance(r).damageCharge, 0);
+  const filteredGrossTotal = filteredRentals.reduce((sum, r) => sum + computeRentalFinance(r).grossRentalAmount, 0);
+  const filteredAdvanceTotal = filteredRentals.reduce((sum, r) => sum + computeRentalFinance(r).advancePaid, 0);
+  const filteredDiscountTotal = filteredRentals.reduce((sum, r) => sum + computeRentalFinance(r).discountAmount, 0);
+  const filteredBalanceTotal = filteredRentals.reduce((sum, r) => sum + computeRentalFinance(r).balanceToCollect, 0);
+  const filteredRevenueTotal = filteredRentals.reduce((sum, r) => sum + computeRentalFinance(r).totalRevenueReceived, 0);
   const filteredTotalMinutes = filteredRentals.reduce((sum, r) => sum + (r.breakdown?.totalMinutes || 0), 0);
-  const filteredCashValue = filteredRentals.filter(r => (r.paymentMethod || 'cash') === 'cash').reduce((sum, r) => sum + (r.totalAmount || 0), 0);
-  const filteredDigitalValue = filteredTotalValue - filteredCashValue;
+  const filteredCashValue = filteredRentals.filter(r => (r.paymentMethod || 'cash') === 'cash').reduce((sum, r) => sum + computeRentalFinance(r).totalRevenueReceived, 0);
+  const filteredDigitalValue = filteredRevenueTotal - filteredCashValue;
 
   // All-Time Overall History Details
-  const totalAllTimeValue = completedRentals.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+  const totalAllTimeRentalValue = completedRentals.reduce((sum, r) => sum + computeRentalFinance(r).rentalValue, 0);
+  const totalAllTimeDamage = completedRentals.reduce((sum, r) => sum + computeRentalFinance(r).damageCharge, 0);
+  const totalAllTimeGross = completedRentals.reduce((sum, r) => sum + computeRentalFinance(r).grossRentalAmount, 0);
+  const totalAllTimeAdvance = completedRentals.reduce((sum, r) => sum + computeRentalFinance(r).advancePaid, 0);
+  const totalAllTimeDiscount = completedRentals.reduce((sum, r) => sum + computeRentalFinance(r).discountAmount, 0);
+  const totalAllTimeBalance = completedRentals.reduce((sum, r) => sum + computeRentalFinance(r).balanceToCollect, 0);
+  const totalAllTimeRevenue = completedRentals.reduce((sum, r) => sum + computeRentalFinance(r).totalRevenueReceived, 0);
   const totalAllTimeMinutes = completedRentals.reduce((sum, r) => sum + (r.breakdown?.totalMinutes || 0), 0);
-  const totalAllTimeCash = completedRentals.filter(r => (r.paymentMethod || 'cash') === 'cash').reduce((sum, r) => sum + (r.totalAmount || 0), 0);
-  const totalAllTimeDigital = totalAllTimeValue - totalAllTimeCash;
-  const avgTripValue = completedRentals.length > 0 ? (totalAllTimeValue / completedRentals.length) : 0;
+  const totalAllTimeCash = completedRentals.filter(r => (r.paymentMethod || 'cash') === 'cash').reduce((sum, r) => sum + computeRentalFinance(r).totalRevenueReceived, 0);
+  const totalAllTimeDigital = totalAllTimeRevenue - totalAllTimeCash;
   const isDateFiltered = Boolean(fromDate || toDate);
+  const isHistoryFiltered = Boolean(fromDate || toDate || searchTerm.trim() || filterType !== 'all' || filterPayment !== 'all');
 
   const exportToCSV = () => {
     if (filteredRentals.length === 0) {
@@ -262,25 +327,40 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
       'Start Time',
       'End Time',
       'Duration (Minutes)',
-      'Total Amount',
+      'Rental Value',
+      'Damage Charge',
+      'Gross Rental Amount',
+      'Advance Paid',
+      'Discount',
+      'Balance Collected',
+      'Total Rental Revenue Received',
       'Payment Method',
       'Cashier',
     ];
 
-    const rows = filteredRentals.map((r) => [
-      r.rentalNumber,
-      r.vehicleSerialNumber,
-      r.vehicleTypeName,
-      r.customerName || '',
-      r.customerPhone || '',
-      r.customerNicPassport || '',
-      new Date(r.startTime).toISOString(),
-      r.endTime ? new Date(r.endTime).toISOString() : '',
-      r.breakdown?.totalMinutes || 0,
-      r.totalAmount,
-      r.paymentMethod || 'cash',
-      r.cashierName,
-    ]);
+    const rows = filteredRentals.map((r) => {
+      const fin = computeRentalFinance(r);
+      return [
+        r.rentalNumber,
+        r.vehicleSerialNumber,
+        r.vehicleTypeName,
+        r.customerName || '',
+        r.customerPhone || '',
+        r.customerNicPassport || '',
+        new Date(r.startTime).toISOString(),
+        r.endTime ? new Date(r.endTime).toISOString() : '',
+        r.breakdown?.totalMinutes || 0,
+        fin.rentalValue,
+        fin.damageCharge,
+        fin.grossRentalAmount,
+        fin.advancePaid,
+        fin.discountAmount,
+        fin.balanceToCollect,
+        fin.totalRevenueReceived,
+        r.paymentMethod || 'cash',
+        r.cashierName,
+      ];
+    });
 
     const csvContent =
       'data:text/csv;charset=utf-8,' +
@@ -296,7 +376,7 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
     document.body.removeChild(link);
   };
 
-  // Sortable column header component with Up / Down symbol buttons
+  // Sortable column header component with compact Up / Down symbol buttons
   const SortTh: React.FC<{
     label: string;
     colKey: SortKey;
@@ -305,21 +385,21 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   }> = ({ label, colKey, className = '', align = 'left' }) => {
     const isActive = sortKey === colKey;
     return (
-      <th className={`px-3 py-2.5 select-none ${className}`}>
-        <div className={`flex items-center justify-between gap-1.5 ${align === 'right' ? 'flex-row-reverse' : ''}`}>
+      <th className={`px-2.5 py-2.5 select-none ${className}`}>
+        <div className={`flex items-center justify-between gap-1 ${align === 'right' ? 'flex-row-reverse' : ''}`}>
           <button
             type="button"
             onClick={() => handleSort(colKey)}
-            className={`font-semibold text-xs tracking-wider cursor-pointer hover:underline flex items-center gap-1 ${
-              isActive ? `${t.textHeading} font-bold` : t.textMuted
+            className={`font-bold text-[11px] tracking-wide cursor-pointer hover:underline inline-flex items-center gap-1 ${
+              isActive ? `${t.textHeading} text-emerald-600 dark:text-emerald-400 font-extrabold` : t.textMuted
             }`}
             title={`Click to sort by ${label}`}
           >
             <span>{label}</span>
           </button>
           
-          {/* Up and Down Sorting Symbol Buttons */}
-          <div className="inline-flex items-center rounded border border-slate-500/30 overflow-hidden bg-slate-500/10 shrink-0">
+          {/* Compact Sorting Symbol Buttons */}
+          <div className="inline-flex items-center rounded border border-slate-500/25 overflow-hidden bg-slate-500/10 shrink-0">
             <button
               type="button"
               onClick={(e) => {
@@ -327,15 +407,15 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                 handleSort(colKey, 'asc');
               }}
               title={`Sort ${label} ascending (▲)`}
-              className={`p-1 transition cursor-pointer flex items-center justify-center ${
+              className={`p-0.5 transition cursor-pointer flex items-center justify-center ${
                 isActive && sortDir === 'asc'
                   ? 'bg-emerald-500 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-500/20'
               }`}
             >
-              <ArrowUp className="w-3 h-3" />
+              <ArrowUp className="w-2.5 h-2.5" />
             </button>
-            <div className="w-[1px] h-3 bg-slate-500/30" />
+            <div className="w-[1px] h-2.5 bg-slate-500/30" />
             <button
               type="button"
               onClick={(e) => {
@@ -343,13 +423,13 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                 handleSort(colKey, 'desc');
               }}
               title={`Sort ${label} descending (▼)`}
-              className={`p-1 transition cursor-pointer flex items-center justify-center ${
+              className={`p-0.5 transition cursor-pointer flex items-center justify-center ${
                 isActive && sortDir === 'desc'
                   ? 'bg-emerald-500 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-500/20'
               }`}
             >
-              <ArrowDown className="w-3 h-3" />
+              <ArrowDown className="w-2.5 h-2.5" />
             </button>
           </div>
         </div>
@@ -372,109 +452,183 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   return (
     <div className="space-y-5 sm:space-y-6">
       
-      {/* 1. ALWAYS DISPLAY ALL TOTAL HISTORY DETAILS IN THE FIRST ROW */}
-      <div className={`p-4 sm:p-5 rounded-2xl border shadow-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent ${t.cardBg} ${t.divider}`}>
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          
-          {/* Main Total Value Display */}
-          <div className="space-y-1">
+      {/* 1. HISTORY DETAILS FINANCIAL SUMMARY (Requirement 4) */}
+      <div className={`p-4 sm:p-5 rounded-2xl border shadow-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent ${t.cardBg} ${t.divider} space-y-4`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-700/30">
+          <div>
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-500">
-                {isDateFiltered 
-                  ? `Filtered Period Revenue (${fromDate || 'Start'} to ${toDate || 'Present'})` 
-                  : 'Total Rental History Revenue (All-Time)'}
-              </span>
+              <h3 className={`text-sm sm:text-base font-bold uppercase tracking-wider ${t.textHeading}`}>
+                {isHistoryFiltered 
+                  ? `Filtered Period History Details (${fromDate || 'Start'} to ${toDate || 'Present'})` 
+                  : 'Settled Rental History Details (All-Time)'}
+              </h3>
             </div>
-            
-            <div className="flex items-baseline gap-3 flex-wrap">
-              <span className="font-mono text-2xl sm:text-4xl font-black text-emerald-500 tracking-tight">
-                {formatCurrency(isDateFiltered ? filteredTotalValue : totalAllTimeValue, settings.currencySymbol, settings.currencyPosition)}
-              </span>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${t.badge}`}>
-                {isDateFiltered ? `${filteredRentals.length} of ${completedRentals.length} Trips` : `${completedRentals.length} Trips Settled`}
-              </span>
-              {isDateFiltered && (
-                <span className={`text-xs font-mono font-medium ${t.textMuted}`}>
-                  (All-Time Total: {formatCurrency(totalAllTimeValue, settings.currencySymbol, settings.currencyPosition)})
-                </span>
-              )}
-            </div>
-            
-            <p className={`text-xs ${t.textMuted}`}>
-              All-Time Cash: <strong className={t.textMain}>{formatCurrency(totalAllTimeCash, settings.currencySymbol, settings.currencyPosition)}</strong>
-              {totalAllTimeDigital > 0 && (
-                <> • Card/Digital: <strong className={t.textMain}>{formatCurrency(totalAllTimeDigital, settings.currencySymbol, settings.currencyPosition)}</strong></>
-              )}
-              {completedRentals.length > 0 && (
-                <> • Avg: <strong className={t.textMain}>{formatCurrency(avgTripValue, settings.currencySymbol, settings.currencyPosition)}/trip</strong></>
-              )}
+            <p className={`text-xs ${t.textMuted} mt-0.5`}>
+              {isHistoryFiltered ? `${filteredRentals.length} of ${completedRentals.length} Trips Matched` : `${completedRentals.length} Total Settled Trips`}
+              {' · '}Total Ride Time: <strong className={t.textMain}>{Math.floor((isHistoryFiltered ? filteredTotalMinutes : totalAllTimeMinutes) / 60)}h {(isHistoryFiltered ? filteredTotalMinutes : totalAllTimeMinutes) % 60}m</strong>
             </p>
           </div>
 
-          {/* Quick Metrics Breakdown */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 shrink-0">
-            <div className={`p-3 rounded-xl border ${t.cardSubtleBg}`}>
-              <span className={`text-[10px] uppercase font-bold block ${t.textMuted}`}>Total All Trips</span>
-              <span className={`font-mono text-lg font-black block mt-0.5 ${t.textHeading}`}>
-                {completedRentals.length}
-              </span>
-            </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-mono font-bold px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-xs">
+              Total Revenue: {formatCurrency(isHistoryFiltered ? filteredRevenueTotal : totalAllTimeRevenue, settings.currencySymbol, settings.currencyPosition)}
+            </span>
+          </div>
+        </div>
 
-            <div className={`p-3 rounded-xl border ${t.cardSubtleBg}`}>
-              <span className={`text-[10px] uppercase font-bold block ${t.textMuted}`}>Total Ride Time</span>
-              <span className="font-mono text-lg font-black block mt-0.5 text-blue-500">
-                {Math.floor(totalAllTimeMinutes / 60)}h {totalAllTimeMinutes % 60}m
-              </span>
+        {/* 7-PART HISTORY DETAILS FINANCIAL STRUCTURE METRICS */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 sm:gap-3">
+          {/* 1. Rental Value */}
+          <div className={`p-3 rounded-xl border border-l-4 border-l-indigo-500 ${t.cardSubtleBg} space-y-1`}>
+            <div className="flex items-center justify-between text-indigo-400 text-[11px] font-bold uppercase tracking-wider">
+              <span>Rental Value</span>
+              <DollarSign className="w-3.5 h-3.5" />
             </div>
+            <div className="font-mono text-base sm:text-lg font-black text-slate-800 dark:text-slate-100 truncate">
+              {formatCurrency(isHistoryFiltered ? filteredRentalValueTotal : totalAllTimeRentalValue, settings.currencySymbol, settings.currencyPosition)}
+            </div>
+            <div className={`text-[10px] ${t.textMuted} truncate`}>
+              Base Ride Value
+            </div>
+          </div>
 
-            <div className={`p-3 rounded-xl border ${t.cardSubtleBg} col-span-2 sm:col-span-1`}>
-              <span className={`text-[10px] uppercase font-bold block ${t.textMuted}`}>All-Time Revenue</span>
-              <span className={`font-mono text-lg font-black block mt-0.5 text-emerald-500`}>
-                {formatCurrency(totalAllTimeValue, settings.currencySymbol, settings.currencyPosition)}
-              </span>
+          {/* 2. Damage Charge */}
+          <div className={`p-3 rounded-xl border border-l-4 border-l-amber-500 ${t.cardSubtleBg} space-y-1`}>
+            <div className="flex items-center justify-between text-amber-400 text-[11px] font-bold uppercase tracking-wider">
+              <span>Damage Charge</span>
+              <AlertTriangle className="w-3.5 h-3.5" />
+            </div>
+            <div className="font-mono text-base sm:text-lg font-black text-amber-400 truncate">
+              {formatCurrency(isHistoryFiltered ? filteredDamageTotal : totalAllTimeDamage, settings.currencySymbol, settings.currencyPosition)}
+            </div>
+            <div className={`text-[10px] ${t.textMuted} truncate`}>
+              Penalties & Repairs
+            </div>
+          </div>
+
+          {/* 3. Gross Rental Amount */}
+          <div className={`p-3 rounded-xl border border-l-4 border-l-purple-500 ${t.cardSubtleBg} space-y-1`}>
+            <div className="flex items-center justify-between text-purple-400 text-[11px] font-bold uppercase tracking-wider">
+              <span>Gross Rental</span>
+              <Banknote className="w-3.5 h-3.5" />
+            </div>
+            <div className="font-mono text-base sm:text-lg font-black text-purple-400 truncate">
+              {formatCurrency(isHistoryFiltered ? filteredGrossTotal : totalAllTimeGross, settings.currencySymbol, settings.currencyPosition)}
+            </div>
+            <div className={`text-[10px] ${t.textMuted} truncate`}>
+              Rental + Damage
+            </div>
+          </div>
+
+          {/* 4. Advance Paid */}
+          <div className={`p-3 rounded-xl border border-l-4 border-l-sky-500 ${t.cardSubtleBg} space-y-1`}>
+            <div className="flex items-center justify-between text-sky-400 text-[11px] font-bold uppercase tracking-wider">
+              <span>Advance Paid</span>
+              <ShieldCheck className="w-3.5 h-3.5" />
+            </div>
+            <div className="font-mono text-base sm:text-lg font-black text-sky-400 truncate">
+              {formatCurrency(isHistoryFiltered ? filteredAdvanceTotal : totalAllTimeAdvance, settings.currencySymbol, settings.currencyPosition)}
+            </div>
+            <div className={`text-[10px] ${t.textMuted} truncate`}>
+              Upfront Deposit
+            </div>
+          </div>
+
+          {/* 5. Discount */}
+          <div className={`p-3 rounded-xl border border-l-4 border-l-teal-500 ${t.cardSubtleBg} space-y-1`}>
+            <div className="flex items-center justify-between text-teal-400 text-[11px] font-bold uppercase tracking-wider">
+              <span>Discount</span>
+              <Tag className="w-3.5 h-3.5" />
+            </div>
+            <div className="font-mono text-base sm:text-lg font-black text-teal-400 truncate">
+              {formatCurrency(isHistoryFiltered ? filteredDiscountTotal : totalAllTimeDiscount, settings.currencySymbol, settings.currencyPosition)}
+            </div>
+            <div className={`text-[10px] ${t.textMuted} truncate`}>
+              Promotions & Waivers
+            </div>
+          </div>
+
+          {/* 6. Balance Collected */}
+          <div className={`p-3 rounded-xl border border-l-4 border-l-blue-500 ${t.cardSubtleBg} space-y-1`}>
+            <div className="flex items-center justify-between text-blue-400 text-[11px] font-bold uppercase tracking-wider">
+              <span>Balance Collect</span>
+              <Coins className="w-3.5 h-3.5" />
+            </div>
+            <div className="font-mono text-base sm:text-lg font-black text-blue-400 truncate">
+              {formatCurrency(isHistoryFiltered ? filteredBalanceTotal : totalAllTimeBalance, settings.currencySymbol, settings.currencyPosition)}
+            </div>
+            <div className={`text-[10px] ${t.textMuted} truncate`}>
+              Collected on Return
+            </div>
+          </div>
+
+          {/* 7. Total Rental Revenue Received */}
+          <div className={`p-3 rounded-xl border border-l-4 border-l-emerald-500 ${t.cardSubtleBg} space-y-1 col-span-2 sm:col-span-1`}>
+            <div className="flex items-center justify-between text-emerald-400 text-[11px] font-bold uppercase tracking-wider">
+              <span>Total Revenue</span>
+              <Wallet className="w-3.5 h-3.5" />
+            </div>
+            <div className="font-mono text-base sm:text-lg font-black text-emerald-400 truncate">
+              {formatCurrency(isHistoryFiltered ? filteredRevenueTotal : totalAllTimeRevenue, settings.currencySymbol, settings.currencyPosition)}
+            </div>
+            <div className={`text-[10px] ${t.textMuted} truncate`}>
+              Advance + Balance
             </div>
           </div>
         </div>
       </div>
 
-      {/* 2. DATE FILTER CONTROL BAR */}
-      <div className={`${t.cardBg} rounded-2xl p-4 sm:p-5 border shadow-xl space-y-4`}>
-        
-        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b ${t.divider}`}>
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-emerald-500" />
-            <h3 className={`font-bold text-sm ${t.textHeading}`}>
-              Daily & Historical Date Range Filters
-            </h3>
-            {isDateFiltered && (
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                Filtered: {fromDate || 'Start'} → {toDate || 'Present'}
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              id="btn-export-csv"
-              type="button"
-              onClick={exportToCSV}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition cursor-pointer ${t.inactiveTab}`}
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export CSV</span>
-            </button>
-          </div>
-        </div>
-
-        {/* From & To Date Pickers */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
-          {/* From Date */}
-          <div>
-            <label className={`block text-xs font-semibold mb-1 ${t.textHeading} flex items-center gap-1.5`}>
-              <Calendar className="w-3.5 h-3.5 text-emerald-500" />
-              <span>From Date</span>
+      {/* 2. SEARCH & DATE FILTER BAR - Single Row Layout across device viewports */}
+      <div className={`${t.cardBg} rounded-2xl p-3.5 sm:p-4 border shadow-md`}>
+        <div className="flex flex-col md:flex-row gap-3 items-end">
+          {/* Search In Records (Reduced size, dynamic responsive width) */}
+          <div className="w-full md:flex-1 min-w-[200px]">
+            <label className="block text-xs font-bold uppercase tracking-wider text-cyan-500 mb-1.5 flex items-center gap-1.5">
+              <Search className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+              <span>Search in Records</span>
             </label>
+            <div className="relative">
+              <input
+                id="input-history-search"
+                type="text"
+                placeholder="Search receipt #, serial, NIC/Passport, customer..."
+                value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                className={`w-full h-10 sm:h-10.5 rounded-xl pl-9 pr-9 text-xs sm:text-sm font-medium ${t.searchInput}`}
+              />
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-cyan-500">
+                <Search className="w-4 h-4" />
+              </div>
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-cyan-500 hover:text-cyan-400 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* From Date (Right to the search option) */}
+          <div className="w-full md:w-44 lg:w-48 shrink-0">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className={`text-xs font-bold ${t.textHeading} flex items-center gap-1.5`}>
+                <Calendar className="w-3.5 h-3.5 text-emerald-500" />
+                <span>From Date</span>
+              </label>
+              {fromDate && (
+                <button
+                  type="button"
+                  onClick={() => { setFromDate(''); setCurrentPage(1); }}
+                  className="text-[10px] text-slate-400 hover:text-rose-400 cursor-pointer font-normal underline"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
             <div className="relative flex items-center">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-emerald-500">
                 <Calendar className="w-4 h-4" />
@@ -483,106 +637,45 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                 id="input-filter-from-date"
                 type="date"
                 value={fromDate}
+                max={toDate || undefined}
                 onChange={(e) => { setFromDate(e.target.value); setCurrentPage(1); }}
-                className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs font-mono font-medium ${t.textInput} cursor-pointer`}
+                className={`w-full h-10 sm:h-10.5 rounded-xl pl-9 pr-2.5 text-xs sm:text-sm font-mono font-medium ${t.textInput} cursor-pointer`}
                 onClick={(e) => { try { (e.target as HTMLInputElement).showPicker?.(); } catch (err) {} }}
               />
             </div>
           </div>
 
-          {/* To Date */}
-          <div>
-            <label className={`block text-xs font-semibold mb-1 ${t.textHeading} flex items-center gap-1.5`}>
-              <Calendar className="w-3.5 h-3.5 text-teal-400" />
-              <span>To Date</span>
-            </label>
+          {/* To Date (Right of From Date) */}
+          <div className="w-full md:w-44 lg:w-48 shrink-0">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className={`text-xs font-bold ${t.textHeading} flex items-center gap-1.5`}>
+                <Calendar className="w-3.5 h-3.5 text-emerald-500" />
+                <span>To Date</span>
+              </label>
+              {toDate && (
+                <button
+                  type="button"
+                  onClick={() => { setToDate(''); setCurrentPage(1); }}
+                  className="text-[10px] text-slate-400 hover:text-rose-400 cursor-pointer font-normal underline"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
             <div className="relative flex items-center">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-teal-400">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-emerald-500">
                 <Calendar className="w-4 h-4" />
               </div>
               <input
                 id="input-filter-to-date"
                 type="date"
                 value={toDate}
+                min={fromDate || undefined}
                 onChange={(e) => { setToDate(e.target.value); setCurrentPage(1); }}
-                className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs font-mono font-medium ${t.textInput} cursor-pointer`}
+                className={`w-full h-10 sm:h-10.5 rounded-xl pl-9 pr-2.5 text-xs sm:text-sm font-mono font-medium ${t.textInput} cursor-pointer`}
                 onClick={(e) => { try { (e.target as HTMLInputElement).showPicker?.(); } catch (err) {} }}
               />
             </div>
-          </div>
-
-          {/* Payment Method Filter */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1">
-              Payment Method (Dropdown)
-            </label>
-            <select
-              value={filterPayment}
-              onChange={(e) => { setFilterPayment(e.target.value); setCurrentPage(1); }}
-              className={`w-full rounded-xl px-3 py-2 text-xs font-semibold ${t.dropdownInput}`}
-            >
-              <option value="all">All Payment Methods</option>
-              <option value="cash">Cash Only</option>
-              <option value="card">Card / POS</option>
-              <option value="qr_transfer">QR / LankaQR</option>
-            </select>
-          </div>
-
-          {/* Quick Filter Actions */}
-          <div className="flex items-end gap-2">
-            <button
-              type="button"
-              onClick={handleSetToday}
-              className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 border transition cursor-pointer ${t.inactiveTab}`}
-              title="Filter by Today's Date"
-            >
-              <Clock className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Today</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleClearDates}
-              className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 border transition cursor-pointer ${t.inactiveTab}`}
-              title="Show All Dates"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-blue-400" />
-              <span>Show All</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Search Input */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-bold uppercase tracking-wider text-cyan-500 flex items-center gap-1.5">
-              <Search className="w-3.5 h-3.5" />
-              <span>Search in Records (Receipt #, Serial, NIC/Passport, Customer Name)</span>
-            </label>
-            <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${t.searchBadge}`}>
-              Search Bar
-            </span>
-          </div>
-          <div className="relative">
-            <input
-              id="input-history-search"
-              type="text"
-              placeholder="Search receipt #, serial, NIC/Passport, customer, or vehicle type..."
-              value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-              className={`w-full rounded-xl pl-9 pr-4 py-2.5 text-xs sm:text-sm font-medium ${t.searchInput}`}
-            />
-            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-cyan-500">
-              <Search className="w-4 h-4" />
-            </div>
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-cyan-500 hover:text-cyan-400 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -599,12 +692,32 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               {filteredRentals.length} {filteredRentals.length === 1 ? 'Record' : 'Records'}
             </span>
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <select
+              value={filterPayment}
+              onChange={(e) => { setFilterPayment(e.target.value); setCurrentPage(1); }}
+              className={`rounded-xl px-2.5 py-1.5 text-xs font-semibold ${t.dropdownInput} cursor-pointer`}
+              title="Filter by Payment Method"
+            >
+              <option value="all">All Payments</option>
+              <option value="cash">Cash Only</option>
+              <option value="card">Card / POS</option>
+              <option value="qr_transfer">QR / LankaQR</option>
+            </select>
+
+            <button
+              id="btn-export-csv"
+              type="button"
+              onClick={exportToCSV}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition cursor-pointer ${t.inactiveTab}`}
+              title="Export filtered records to CSV"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export CSV</span>
+            </button>
+
             <span className={`text-xs font-mono font-bold text-emerald-500`}>
-              Total: {formatCurrency(filteredTotalValue, settings.currencySymbol, settings.currencyPosition)}
-            </span>
-            <span className={`text-[10px] ${t.textMuted}`}>
-              Default: Vehicle Category (A-Z) → Serial No. (A-Z)
+              Total Revenue: {formatCurrency(filteredRevenueTotal, settings.currencySymbol, settings.currencyPosition)}
             </span>
           </div>
         </div>
@@ -621,49 +734,57 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               <table className="w-full text-left text-xs whitespace-nowrap sm:whitespace-normal">
                 <thead className={`${t.cardSubtleBg} uppercase font-semibold border-b ${t.divider} ${t.textMuted}`}>
                   <tr>
-                    <SortTh label="Receipt #"    colKey="rentalNumber" />
-                    <SortTh label="Category"     colKey="vehicleTypeName" />
-                    <SortTh label="Serial No."   colKey="vehicleSerialNumber" />
-                    <SortTh label="Customer"     colKey="customerName" />
-                    <SortTh label="Start Time"   colKey="startTime" />
-                    <SortTh label="Return Time"  colKey="endTime" />
-                    <SortTh label="Duration"     colKey="breakdown.totalMinutes" />
-                    <SortTh label="Total Amount"  colKey="totalAmount" />
-                    <SortTh label="Payment"      colKey="paymentMethod" />
-                    <th className="px-3.5 py-3 text-right">Actions</th>
+                    <SortTh label="Receipt #" colKey="rentalNumber" className="sticky left-0 z-20 bg-slate-100 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-xs min-w-[110px]" />
+                    <SortTh label="Category" colKey="vehicleTypeName" className="min-w-[115px]" />
+                    <SortTh label="Serial No." colKey="vehicleSerialNumber" className="min-w-[90px]" />
+                    <SortTh label="Customer" colKey="customerName" className="min-w-[130px]" />
+                    <SortTh label="Timing & Duration" colKey="startTime" className="min-w-[120px]" />
+                    <SortTh label="Rental Value" colKey="rentalAmount" align="right" className="min-w-[95px]" />
+                    <SortTh label="Damage" colKey="damageAmount" align="right" className="min-w-[75px]" />
+                    <SortTh label="Gross Rental" colKey="grossRentalAmount" align="right" className="min-w-[95px]" />
+                    <SortTh label="Advance Paid" colKey="depositAmount" align="right" className="min-w-[95px]" />
+                    <SortTh label="Discount" colKey="discountAmount" align="right" className="min-w-[75px]" />
+                    <SortTh label="Balance" colKey="balanceAmount" align="right" className="min-w-[85px]" />
+                    <SortTh label="Total Revenue" colKey="totalCollected" align="right" className="min-w-[105px]" />
+                    <SortTh label="Payment" colKey="paymentMethod" className="min-w-[80px]" />
+                    <th className="px-2.5 py-2.5 text-right font-bold text-[11px] tracking-wide min-w-[85px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${t.divider}`}>
-                  {pageRentals.map((rental) => (
+                  {pageRentals.map((rental) => {
+                    const fin = computeRentalFinance(rental);
+                    return (
                     <tr key={rental.id} className="hover:bg-slate-500/5 transition">
-                      {/* Receipt # */}
-                      <td className={`px-3.5 py-3 font-mono font-bold ${t.textHeading}`}>
-                        #{rental.rentalNumber}
+                      {/* Receipt # (Sticky left-0 so #REN-0000168 is ALWAYS permanently visible) */}
+                      <td className={`px-2.5 py-2.5 font-mono font-bold sticky left-0 z-10 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-xs ${t.textHeading}`}>
+                        <span className="inline-block px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-xs font-black">
+                          #{rental.rentalNumber}
+                        </span>
                       </td>
                       {/* Category */}
-                      <td className="px-3.5 py-3">
+                      <td className="px-2.5 py-2.5">
                         <div className="flex items-center gap-1.5">
                           <VehicleIcon type={rental.vehicleIcon} className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                          <span className={`font-medium ${t.textMain}`}>{rental.vehicleTypeName}</span>
+                          <span className={`font-semibold text-xs ${t.textMain}`}>{rental.vehicleTypeName}</span>
                         </div>
                       </td>
                       {/* Serial No. */}
-                      <td className="px-3.5 py-3">
-                        <span className={`font-mono font-bold ${t.textHeading}`}>
+                      <td className="px-2.5 py-2.5">
+                        <span className={`font-mono font-bold text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ${t.textHeading}`}>
                           {rental.vehicleSerialNumber}
                         </span>
                       </td>
                       {/* Customer */}
-                      <td className="px-3.5 py-3">
+                      <td className="px-2.5 py-2.5">
                         {rental.customerName || rental.customerNicPassport || rental.customerPhone ? (
                           <div className="space-y-0.5">
                             {rental.customerName && (
-                              <span className={`font-medium block ${t.textHeading}`}>
+                              <span className={`font-bold block text-xs ${t.textHeading}`}>
                                 {rental.customerName}
                               </span>
                             )}
                             {rental.customerNicPassport && (
-                              <span className="text-[10px] text-emerald-500 font-mono flex items-center gap-1 font-semibold">
+                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono flex items-center gap-1 font-bold">
                                 <IdCard className="w-3 h-3 shrink-0" />
                                 {rental.customerNicPassport}
                               </span>
@@ -676,43 +797,79 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                             )}
                           </div>
                         ) : (
-                          <span className={`italic ${t.textMuted}`}>Walk-in</span>
+                          <span className={`italic text-xs ${t.textMuted}`}>Walk-in</span>
                         )}
                       </td>
-                      {/* Start Time */}
-                      <td className="px-3.5 py-3">
-                        <div className={`font-mono text-[11px] ${t.textMain}`}>{formatTime(rental.startTime)}</div>
-                        <div className={`text-[10px] ${t.textMuted}`}>{formatDate(rental.startTime)}</div>
-                      </td>
-                      {/* Return Time */}
-                      <td className="px-3.5 py-3">
-                        <div className={`font-mono text-[11px] ${t.textMain}`}>
-                          {rental.endTime ? formatTime(rental.endTime) : '—'}
+                      {/* Timing & Duration */}
+                      <td className="px-2.5 py-2.5">
+                        <div className="space-y-0.5">
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border ${t.cardSubtleBg} text-emerald-500`}>
+                            {rental.breakdown?.durationFormatted || `${rental.breakdown?.totalMinutes} mins`}
+                          </span>
+                          <div className={`font-mono text-[11px] ${t.textMain}`}>
+                            {formatTime(rental.startTime)} → {rental.endTime ? formatTime(rental.endTime) : '—'}
+                          </div>
+                          <div className={`text-[10px] ${t.textMuted}`}>{formatDate(rental.startTime)}</div>
                         </div>
-                        {rental.endTime && (
-                          <div className={`text-[10px] ${t.textMuted}`}>{formatDate(rental.endTime)}</div>
-                        )}
                       </td>
-                      {/* Duration */}
-                      <td className="px-3.5 py-3">
-                        <span className={`px-2 py-0.5 rounded font-mono font-semibold border ${t.cardSubtleBg} text-emerald-500`}>
-                          {rental.breakdown?.durationFormatted || `${rental.breakdown?.totalMinutes} mins`}
+                      {/* 1. Rental Value */}
+                      <td className="px-2.5 py-2.5 text-right">
+                        <span className={`font-mono text-xs font-semibold ${t.textMain}`}>
+                          {formatCurrency(fin.rentalValue, settings.currencySymbol, settings.currencyPosition)}
                         </span>
                       </td>
-                      {/* Paid Amount */}
-                      <td className="px-3.5 py-3">
-                        <span className="font-mono font-bold text-emerald-500 text-sm">
-                          {formatCurrency(rental.totalAmount, settings.currencySymbol, settings.currencyPosition)}
+                      {/* 2. Damage Charge */}
+                      <td className="px-2.5 py-2.5 text-right">
+                        <span className="font-mono text-xs font-semibold text-amber-600 dark:text-amber-500">
+                          {fin.damageCharge > 0 
+                            ? `+${formatCurrency(fin.damageCharge, settings.currencySymbol, settings.currencyPosition)}` 
+                            : '—'}
+                        </span>
+                      </td>
+                      {/* 3. Gross Rental Amount */}
+                      <td className="px-2.5 py-2.5 text-right">
+                        <span className={`font-mono text-xs font-black ${t.textHeading}`}>
+                          {formatCurrency(fin.grossRentalAmount, settings.currencySymbol, settings.currencyPosition)}
+                        </span>
+                      </td>
+                      {/* 4. Advance Paid */}
+                      <td className="px-2.5 py-2.5 text-right">
+                        <span className="font-mono text-xs font-semibold text-sky-600 dark:text-sky-400">
+                          {fin.advancePaid > 0 
+                            ? formatCurrency(fin.advancePaid, settings.currencySymbol, settings.currencyPosition) 
+                            : '—'}
+                        </span>
+                      </td>
+                      {/* 5. Discount */}
+                      <td className="px-2.5 py-2.5 text-right">
+                        <span className="font-mono text-xs font-semibold text-teal-600 dark:text-teal-400">
+                          {fin.discountAmount > 0 
+                            ? `-${formatCurrency(fin.discountAmount, settings.currencySymbol, settings.currencyPosition)}` 
+                            : '—'}
+                        </span>
+                      </td>
+                      {/* 6. Balance Collected */}
+                      <td className="px-2.5 py-2.5 text-right">
+                        <span className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400">
+                          {fin.balanceToCollect > 0 
+                            ? formatCurrency(fin.balanceToCollect, settings.currencySymbol, settings.currencyPosition)
+                            : (fin.refundDue > 0 ? `Ref: ${formatCurrency(fin.refundDue, settings.currencySymbol, settings.currencyPosition)}` : '0')}
+                        </span>
+                      </td>
+                      {/* 7. Total Rental Revenue Received */}
+                      <td className="px-2.5 py-2.5 text-right">
+                        <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm">
+                          {formatCurrency(fin.totalRevenueReceived, settings.currencySymbol, settings.currencyPosition)}
                         </span>
                       </td>
                       {/* Payment Method */}
-                      <td className="px-3.5 py-3">
-                        <span className={`text-[11px] capitalize font-semibold px-2 py-0.5 rounded-full border ${t.cardSubtleBg} ${t.textMuted}`}>
+                      <td className="px-2 py-2.5 text-center">
+                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-md border ${t.cardSubtleBg} ${t.textMuted}`}>
                           {rental.paymentMethod || 'cash'}
                         </span>
                       </td>
                       {/* Actions Column: View Receipt + Admin-Only Delete */}
-                      <td className="px-3.5 py-3 text-right">
+                      <td className="px-2.5 py-2.5 text-right">
                         <div className="inline-flex items-center justify-end gap-1.5">
                           {/* View receipt button */}
                           <button
@@ -741,7 +898,8 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -921,41 +1079,105 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                   <span>Duration:</span>
                   <span>{selectedRentalForReceipt.breakdown?.durationFormatted} ({selectedRentalForReceipt.breakdown?.totalMinutes} mins)</span>
                 </div>
-              </div>
-
-              <div className="border-t border-dashed border-slate-300 pt-2 space-y-1.5 text-[11px] text-slate-800">
-                {/* Rental Amount (base calc) */}
-                <div className="flex justify-between font-medium">
-                  <span>Rental Amount:</span>
-                  <span>{formatCurrency(selectedRentalForReceipt.breakdown?.totalAmount ?? (selectedRentalForReceipt.totalAmount + (selectedRentalForReceipt.discountAmount || 0) - (selectedRentalForReceipt.damageAmount || 0)), settings.currencySymbol, settings.currencyPosition)}</span>
-                </div>
-
-                {/* + Damage if applicable */}
-                {(selectedRentalForReceipt.damageAmount || 0) > 0 && (
-                  <div className="flex justify-between text-amber-700 font-semibold">
-                    <span>+ Damage:</span>
-                    <span>+{formatCurrency(selectedRentalForReceipt.damageAmount || 0, settings.currencySymbol, settings.currencyPosition)}</span>
+                {(selectedRentalForReceipt.startKm !== undefined || selectedRentalForReceipt.endKm !== undefined || selectedRentalForReceipt.breakdown?.startKm !== undefined) && (
+                  <div className="flex justify-between font-semibold text-amber-800">
+                    <span>Odometer (KM):</span>
+                    <span>
+                      {selectedRentalForReceipt.startKm ?? selectedRentalForReceipt.breakdown?.startKm ?? '—'} km → {selectedRentalForReceipt.endKm ?? selectedRentalForReceipt.breakdown?.endKm ?? '—'} km
+                      {(selectedRentalForReceipt.endKm ?? selectedRentalForReceipt.breakdown?.endKm) !== undefined && (selectedRentalForReceipt.startKm ?? selectedRentalForReceipt.breakdown?.startKm) !== undefined && (selectedRentalForReceipt.endKm ?? selectedRentalForReceipt.breakdown?.endKm ?? 0) >= (selectedRentalForReceipt.startKm ?? selectedRentalForReceipt.breakdown?.startKm ?? 0) && (
+                        ` (${((selectedRentalForReceipt.endKm ?? selectedRentalForReceipt.breakdown?.endKm ?? 0) - (selectedRentalForReceipt.startKm ?? selectedRentalForReceipt.breakdown?.startKm ?? 0)).toFixed(1)} km)`
+                      )}
+                    </span>
                   </div>
                 )}
-
-                {/* - Discount if applicable */}
-                {(selectedRentalForReceipt.discountAmount || 0) > 0 && (
-                  <div className="flex justify-between text-emerald-700 font-semibold">
-                    <span>- Discount:</span>
-                    <span>-{formatCurrency(selectedRentalForReceipt.discountAmount || 0, settings.currencySymbol, settings.currencyPosition)}</span>
-                  </div>
-                )}
-
-                {/* Total Amount */}
-                <div className="border-t-2 border-slate-900 pt-2 flex justify-between font-black text-sm text-slate-900">
-                  <span>TOTAL AMOUNT:</span>
-                  <span>{formatCurrency(selectedRentalForReceipt.totalAmount, settings.currencySymbol, settings.currencyPosition)}</span>
-                </div>
-                <div className="flex justify-between text-[10px] text-slate-600 pt-1">
-                  <span>Payment Method:</span>
-                  <span className="uppercase font-bold">{selectedRentalForReceipt.paymentMethod || 'CASH'}</span>
-                </div>
               </div>
+
+              {(() => {
+                const fin = computeRentalFinance(selectedRentalForReceipt);
+                return (
+                  <div className="border-t border-dashed border-slate-300 pt-2.5 space-y-1.5 text-[11px] text-slate-800">
+                    {/* 1. Rental Value */}
+                    <div className="flex justify-between font-medium">
+                      <span className="text-slate-600">Rental Value:</span>
+                      <span className="font-mono font-bold">
+                        {formatCurrency(fin.rentalValue, settings.currencySymbol, settings.currencyPosition)}
+                      </span>
+                    </div>
+
+                    {/* 2. Damage Charge */}
+                    <div className="flex justify-between font-medium text-amber-700">
+                      <span>Damage Charge:</span>
+                      <span className="font-mono font-bold">
+                        {fin.damageCharge > 0 
+                          ? `+${formatCurrency(fin.damageCharge, settings.currencySymbol, settings.currencyPosition)}` 
+                          : formatCurrency(0, settings.currencySymbol, settings.currencyPosition)}
+                      </span>
+                    </div>
+
+                    {/* 3. Gross Rental Amount */}
+                    <div className="flex justify-between font-bold text-slate-900 border-t border-slate-200 pt-1">
+                      <span>Gross Rental Amount:</span>
+                      <span className="font-mono">
+                        {formatCurrency(fin.grossRentalAmount, settings.currencySymbol, settings.currencyPosition)}
+                      </span>
+                    </div>
+
+                    {/* 4. Less Advance Paid */}
+                    <div className="flex justify-between font-medium text-sky-700">
+                      <span>Less Advance Paid:</span>
+                      <span className="font-mono font-bold">
+                        {fin.advancePaid > 0 
+                          ? `-${formatCurrency(fin.advancePaid, settings.currencySymbol, settings.currencyPosition)}` 
+                          : formatCurrency(0, settings.currencySymbol, settings.currencyPosition)}
+                      </span>
+                    </div>
+
+                    {/* 5. Less Discount */}
+                    <div className="flex justify-between font-medium text-teal-700">
+                      <span>Less Discount:</span>
+                      <span className="font-mono font-bold">
+                        {fin.discountAmount > 0 
+                          ? `-${formatCurrency(fin.discountAmount, settings.currencySymbol, settings.currencyPosition)}` 
+                          : formatCurrency(0, settings.currencySymbol, settings.currencyPosition)}
+                      </span>
+                    </div>
+
+                    {/* 6. Balance to Collect / Refund */}
+                    <div className="flex justify-between font-bold text-slate-900 bg-slate-100 p-1.5 rounded">
+                      <span>Balance Collected:</span>
+                      <span className="font-mono">
+                        {formatCurrency(fin.balanceToCollect, settings.currencySymbol, settings.currencyPosition)}
+                      </span>
+                    </div>
+                    {fin.refundDue > 0 && (
+                      <div className="flex justify-between font-bold text-rose-600 bg-rose-50 p-1.5 rounded">
+                        <span>Refund Returned:</span>
+                        <span className="font-mono">
+                          {formatCurrency(fin.refundDue, settings.currencySymbol, settings.currencyPosition)}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* 7. Total Rental Revenue Received */}
+                    <div className="border-t-2 border-slate-900 pt-2 flex justify-between font-black text-xs sm:text-sm text-slate-900">
+                      <div className="flex flex-col">
+                        <span>TOTAL RENTAL REVENUE RECEIVED:</span>
+                        <span className="text-[10px] text-slate-500 font-normal">
+                          Advance ({formatCurrency(fin.advancePaid, settings.currencySymbol, settings.currencyPosition)}) + Balance ({formatCurrency(fin.balanceToCollect, settings.currencySymbol, settings.currencyPosition)})
+                        </span>
+                      </div>
+                      <span className="font-mono text-emerald-600 font-black text-sm sm:text-base">
+                        {formatCurrency(fin.totalRevenueReceived, settings.currencySymbol, settings.currencyPosition)}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between text-[10px] text-slate-600 pt-1">
+                      <span>Payment Method:</span>
+                      <span className="uppercase font-bold">{selectedRentalForReceipt.paymentMethod || 'CASH'}</span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="text-center pt-2 border-t border-dashed border-slate-300 text-[9px] text-slate-500">
                 <p>{settings.receiptFooter || 'Thank you for riding with us!'}</p>

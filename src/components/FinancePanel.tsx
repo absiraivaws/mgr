@@ -104,8 +104,8 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
   const userPerms = getUserPermissions(activeUser);
   const canAccessFinance = hasPermission(activeUser, 'accessFinance') || Boolean(userPerms.accessFinance) || Boolean(userPerms.accessIncome) || isAdmin;
   const canAdd = isAdmin || Boolean(userPerms.canAddFinanceTransaction) || (canAccessFinance && userPerms.canAddFinanceTransaction !== false);
-  const canEdit = (Boolean(userPerms.canEditFinanceTransaction) && activeUser.role !== 'manager') || isAdmin;
-  const canDelete = (Boolean(userPerms.canDeleteFinanceTransaction) && activeUser.role !== 'manager') || isAdmin;
+  const canEdit = isAdmin;
+  const canDelete = isAdmin;
   const canViewPL = Boolean(userPerms.canViewPL) || (canAccessFinance && userPerms.canViewPL !== false) || isAdmin;
   const canViewStatement = Boolean(userPerms.canViewStatement) || (canAccessFinance && userPerms.canViewStatement !== false) || isAdmin;
   const canExport = Boolean(userPerms.canExportFinanceReports) || (canAccessFinance && userPerms.canExportFinanceReports !== false) || isAdmin;
@@ -191,7 +191,7 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
   const [txnSortField, setTxnSortField] = useState<TxnSortField>('date');
   const [txnSortDir, setTxnSortDir] = useState<'asc' | 'desc'>('desc');
   const [txnPage, setTxnPage] = useState<number>(1);
-  const TXN_PAGE_SIZE = 50;
+  const TXN_PAGE_SIZE = 20;
 
   const handleTxnSort = (field: TxnSortField) => {
     if (txnSortField === field) {
@@ -600,12 +600,12 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
     };
   }, [entries, stmtFromDate, stmtToDate, stmtSearch]);
 
-  // Sorting & Pagination for Statement of Accounts (Max 50 rows per page)
+  // Sorting & Pagination for Statement of Accounts (Max 50 rows per page) — default descending order (Requirement 1)
   type StmtSortField = 'date' | 'reference' | 'description' | 'category' | 'debit' | 'credit' | 'runningBalance' | 'who';
   const [stmtSortField, setStmtSortField] = useState<StmtSortField>('date');
-  const [stmtSortDir, setStmtSortDir] = useState<'asc' | 'desc'>('asc');
+  const [stmtSortDir, setStmtSortDir] = useState<'asc' | 'desc'>('desc');
   const [stmtPage, setStmtPage] = useState<number>(1);
-  const STMT_PAGE_SIZE = 50;
+  const STMT_PAGE_SIZE = 20;
 
   const handleStmtSort = (field: StmtSortField) => {
     if (stmtSortField === field) {

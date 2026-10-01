@@ -102,6 +102,22 @@ export function getThemeClasses(mode: ThemeMode | string = 'dark', accent: Accen
     rose: 'focus:ring-2 focus:ring-rose-500 focus:border-rose-500',
   }[activeAccent];
 
+  const accentBg: string = {
+    emerald: 'bg-emerald-600',
+    blue: 'bg-blue-600',
+    violet: 'bg-violet-600',
+    amber: 'bg-amber-600',
+    rose: 'bg-rose-600',
+  }[activeAccent];
+
+  const accentText: string = {
+    emerald: 'text-emerald-500',
+    blue: 'text-blue-500',
+    violet: 'text-violet-500',
+    amber: 'text-amber-500',
+    rose: 'text-rose-500',
+  }[activeAccent];
+
   return {
     // Canvas & Containers
     appBg: isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900',
@@ -139,6 +155,10 @@ export function getThemeClasses(mode: ThemeMode | string = 'dark', accent: Accen
       ? `bg-slate-800/90 border-2 border-slate-700 text-white placeholder:text-slate-500 hover:border-slate-600 ${accentFocusRing} focus:outline-none`
       : `bg-white border-2 border-slate-300 text-slate-900 placeholder:text-slate-400 hover:border-slate-400 ${accentFocusRing} focus:outline-none`,
 
+    inputBg: isDark
+      ? 'bg-slate-800/90 border-slate-700 text-white placeholder:text-slate-500'
+      : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400',
+
     // 4. Tabs: Non-Active tab has clear distinct separating border
     inactiveTab: isDark
       ? 'border-2 border-slate-700/80 bg-slate-800/70 text-slate-300 hover:border-slate-500 hover:bg-slate-800 hover:text-white transition-all shadow-sm'
@@ -148,5 +168,7 @@ export function getThemeClasses(mode: ThemeMode | string = 'dark', accent: Accen
     primaryBtn: accentBtn,
     badge: accentBadge,
     focusRing: accentFocusRing,
+    accentBg,
+    accentText,
   };
 }

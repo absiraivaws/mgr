@@ -53,6 +53,8 @@ export const BICYCLE_TAB_TO_SLUG: Record<NavTabType, string> = {
   customers: 'customers',
   messages: 'messages',
   finance: 'finance',
+  purchase: 'purchase',
+  sale: 'sale',
 };
 
 export const SLUG_TO_BICYCLE_TAB: Record<string, NavTabType> = {
@@ -69,6 +71,10 @@ export const SLUG_TO_BICYCLE_TAB: Record<string, NavTabType> = {
   'customers': 'customers',
   'messages': 'messages',
   'finance': 'finance',
+  'purchase': 'purchase',
+  'purchases': 'purchase',
+  'sale': 'sale',
+  'sales': 'sale',
 };
 
 // PRH Rental Hub Tab <-> Slug Mappings

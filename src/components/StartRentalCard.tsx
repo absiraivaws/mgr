@@ -18,11 +18,16 @@ import {
   QrCode,
   Camera,
   StopCircle,
+  Gauge,
+  MessageSquare,
+  Wallet,
+  ShieldCheck,
 } from 'lucide-react';
 import { AppSettings, Customer, RentalRecord, Vehicle, VehicleType } from '../types';
 import { VehicleIcon } from './VehicleIcon';
 import { formatCurrency, playSoundEffect, getNextRentalNumber } from '../utils/pricing';
 import { findCustomerByNic, searchCustomers, isCustomerSuspendedOrBlocked, cleanWhatsAppPhoneNumber } from '../utils/customer';
+import { isMotorbikeVehicle, dispatchRentalNotification } from '../utils/bicyclePosUtils';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { DEFAULT_USER, UserAccount, getUserPermissions } from '../utils/auth';
 import { QRScannerModal } from './QRScannerModal';
@@ -44,13 +49,16 @@ interface StartRentalCardProps {
     vehicleSerialNumber: string;
     customerName?: string;
     customerPhone?: string;
+    customerWhatsapp?: string;
     customerNicPassport?: string;
     customerNotes?: string;
     depositAmount?: number;
+    appliedAdvanceBalance?: number;
     depositPaymentRef?: string;
     customStartTime?: number;
     sendWelcomeWhatsApp?: boolean;
     sendEndWhatsApp?: boolean;
+    startKm?: number;
   }) => void;
   onQuickAddSerial?: (typeId: string, serial: string) => void;
   onOpenStopRentalModal?: (rental: RentalRecord) => void;
@@ -83,15 +91,19 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
   const [selectedSerial, setSelectedSerial] = useState<string>('');
   const [customerName, setCustomerName] = useState<string>('');
   const [customerPhone, setCustomerPhone] = useState<string>('');
+  const [customerWhatsapp, setCustomerWhatsapp] = useState<string>('');
   const [customerNicPassport, setCustomerNicPassport] = useState<string>('');
   const [customerNotes, setCustomerNotes] = useState<string>('');
   const [depositAmount, setDepositAmount] = useState<string>('');
+  const [useAdvanceBalance, setUseAdvanceBalance] = useState<boolean>(true);
+  const [appliedAdvanceInput, setAppliedAdvanceInput] = useState<string>('');
   const [depositQrOpen, setDepositQrOpen] = useState<boolean>(false);
   const [depositQrPaidRef, setDepositQrPaidRef] = useState<string | null>(null);
   const [sendWelcomeWhatsApp, setSendWelcomeWhatsApp] = useState<boolean>(true);
   const [sendEndWhatsApp, setSendEndWhatsApp] = useState<boolean>(true);
   const [customSerialMode, setCustomSerialMode] = useState<boolean>(false);
   const [isCustomStartTime, setIsCustomStartTime] = useState<boolean>(false);
+  const [startKm, setStartKm] = useState<string>('');
 
   // QR and dual-logic state
   const [isQRScannerOpen, setIsQRScannerOpen] = useState<boolean>(false);
@@ -187,6 +199,12 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
       setMatchedCustomer(foundExact);
       setCustomerName(foundExact.fullName || foundExact.name || '');
       setCustomerPhone(foundExact.phone || foundExact.whatsappNumber || '');
+      setCustomerWhatsapp(foundExact.whatsappNumber || foundExact.phone || '');
+      if (foundExact.advanceBalance && foundExact.advanceBalance > 0) {
+        setAppliedAdvanceInput(String(foundExact.advanceBalance));
+      } else {
+        setAppliedAdvanceInput('');
+      }
       if (foundExact.notes) setCustomerNotes(foundExact.notes);
       setShowSuggestions(false);
       return;
@@ -204,6 +222,12 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     setCustomerNicPassport(customer.nicPassport);
     setCustomerName(customer.fullName || customer.name || '');
     setCustomerPhone(customer.phone || customer.whatsappNumber || '');
+    setCustomerWhatsapp(customer.whatsappNumber || customer.phone || '');
+    if (customer.advanceBalance && customer.advanceBalance > 0) {
+      setAppliedAdvanceInput(String(customer.advanceBalance));
+    } else {
+      setAppliedAdvanceInput('');
+    }
     if (customer.notes) setCustomerNotes(customer.notes);
     setMatchedCustomer(customer);
     setShowSuggestions(false);
@@ -214,12 +238,23 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     setCustomerNicPassport('');
     setCustomerName('');
     setCustomerPhone('');
+    setCustomerWhatsapp('');
+    setAppliedAdvanceInput('');
     setCustomerNotes('');
     setMatchedCustomer(null);
     setShowSuggestions(false);
   };
 
+  // Auto-suggestion: update WhatsApp when typing Mobile Number if WhatsApp is empty or in sync
+  const handlePhoneChange = (newPhone: string) => {
+    setCustomerPhone(newPhone);
+    if (!customerWhatsapp || customerWhatsapp === customerPhone) {
+      setCustomerWhatsapp(newPhone);
+    }
+  };
+
   const selectedType = vehicleTypes.find((t) => t.id === selectedTypeId);
+  const isMotorbike = isMotorbikeVehicle(selectedType);
 
   // Dual-logic QR code scan handler
   const handleQRScan = (scannedSerial: string) => {
@@ -365,36 +400,61 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
       details: `${isStartedViaQR ? 'QR Scan' : 'Manual selection'} rental started for ${cleanSerial} (${selectedType?.name || 'Vehicle'}) to customer ${customerName.trim() || matchedCustomer?.fullName || matchedCustomer?.name || 'Customer'}${customerNicPassport ? ` (NIC: ${customerNicPassport})` : ''}`,
     });
 
+    const enteredDepositNum = depositAmount ? parseFloat(depositAmount) : 0;
+    const appliedAdvanceNum = (useAdvanceBalance && matchedCustomer && (matchedCustomer.advanceBalance || 0) > 0)
+      ? Math.min(matchedCustomer.advanceBalance || 0, parseFloat(appliedAdvanceInput) || 0)
+      : 0;
+    const finalDepositToRecord = Math.max(enteredDepositNum, appliedAdvanceNum);
+
     onStartRental({
       vehicleTypeId: selectedTypeId,
       vehicleSerialNumber: cleanSerial,
       customerName: customerName.trim() || undefined,
       customerPhone: phoneToUse || undefined,
+      customerWhatsapp: customerWhatsapp.trim() || undefined,
       customerNicPassport: customerNicPassport.trim() || undefined,
       customerNotes: customerNotes.trim() || undefined,
-      depositAmount: depositAmount ? parseFloat(depositAmount) : undefined,
+      depositAmount: finalDepositToRecord > 0 ? finalDepositToRecord : undefined,
+      appliedAdvanceBalance: appliedAdvanceNum > 0 ? appliedAdvanceNum : undefined,
       depositPaymentRef: depositQrPaidRef || undefined,
       customStartTime: customStartMs,
       sendWelcomeWhatsApp,
       sendEndWhatsApp,
+      startKm: startKm ? parseFloat(startKm) : undefined,
     });
 
-    // Send automated WhatsApp Welcome Message if opted-in and phone exists
-    if (sendWelcomeWhatsApp && phoneToUse) {
-      try {
-        const cleanPhone = cleanWhatsAppPhoneNumber(phoneToUse);
-        const custName = customerName.trim() || matchedCustomer?.fullName || matchedCustomer?.name || 'Valued Customer';
-        const shop = settings.businessName || 'Cycly Rent';
-        const welcomeText = `Hello ${custName}! 🚴 Welcome to ${shop}. Your rental for ${cleanSerial} (${selectedType?.name || 'Vehicle'}) has started! Have a wonderful and safe ride. If you need any assistance, feel free to reply or call us.`;
-        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(welcomeText)}`, '_blank');
-      } catch (err) {
-        console.error('Failed to trigger WhatsApp welcome:', err);
-      }
+    // Automated Start Notification: Automatically sends to Customer + configured Additional WhatsApp Contacts + Group
+    if (sendWelcomeWhatsApp) {
+      dispatchRentalNotification({
+        type: 'start',
+        rental: {
+          id: `rental-${Date.now()}`,
+          rentalNumber: nextRentalNumber,
+          vehicleId: '',
+          vehicleSerialNumber: cleanSerial,
+          vehicleTypeId: selectedTypeId,
+          vehicleTypeName: selectedType?.name || 'Vehicle',
+          vehicleIcon: selectedType?.icon || 'bicycle',
+          startTime: customStartMs || Date.now(),
+          totalAmount: selectedType?.rates.firstHour || 0,
+          rateSnapshot: selectedType?.rates || { firstHour: 0, every30Min: 0 },
+          cashierName: activeUser.name || 'Counter',
+          customerName: customerName.trim() || matchedCustomer?.fullName || matchedCustomer?.name,
+          customerPhone: phoneToUse,
+          customerNicPassport: customerNicPassport.trim(),
+          startKm: startKm ? parseFloat(startKm) : undefined,
+          status: 'active',
+        },
+        settings,
+        overrideCustomerPhone: phoneToUse,
+        overrideCustomerName: customerName.trim() || matchedCustomer?.fullName || matchedCustomer?.name,
+      }).catch((e) => console.error('Failed to trigger start rental notification:', e));
     }
 
     // Reset vehicle selection and customer fields back to blank
     setSelectedTypeId('');
     setSelectedSerial('');
+    setStartKm('');
     setCustomSerialMode(false);
     setIsStartedViaQR(false);
     setQrScanNotice(null);
@@ -628,45 +688,46 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
 
             {/* Matched Customer Notification Banner */}
             {matchedCustomer && (
-              <div className={`mt-2 p-3 rounded-xl border space-y-2 text-xs ${
+              <div className={`mt-2 p-3 rounded-xl border space-y-2 text-xs shadow-sm ${
                 isCustomerSuspendedOrBlocked(matchedCustomer) 
-                  ? 'bg-rose-500/15 border-rose-500/50 text-rose-200' 
-                  : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                  ? 'bg-rose-50 border-rose-300 text-rose-900 dark:bg-rose-950/40 dark:border-rose-500/50 dark:text-rose-200' 
+                  : 'bg-emerald-50/90 border-emerald-300 text-slate-800 dark:bg-emerald-950/30 dark:border-emerald-500/30 dark:text-emerald-300'
               }`}>
-                <div className="flex items-center justify-between gap-2 border-b border-current/20 pb-2">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-current/20 pb-2">
                   <div className="flex items-center gap-2">
                     {isCustomerSuspendedOrBlocked(matchedCustomer) ? (
-                      <AlertCircle className="w-5 h-5 shrink-0 text-rose-400" />
+                      <AlertCircle className="w-5 h-5 shrink-0 text-rose-600 dark:text-rose-400" />
                     ) : (
-                      <Sparkles className="w-4 h-4 shrink-0 text-emerald-400" />
+                      <Sparkles className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                     )}
                     <div>
-                      <div className="font-bold flex items-center gap-1.5 text-sm text-white flex-wrap">
+                      <div className="font-extrabold flex items-center gap-1.5 text-sm text-slate-900 dark:text-white flex-wrap">
                         <span>{matchedCustomer.fullName || matchedCustomer.name}</span>
                         {matchedCustomer.status && (
-                          <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${
+                          <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded shadow-xs ${
                             isCustomerSuspendedOrBlocked(matchedCustomer)
-                              ? 'bg-rose-500 text-white animate-pulse'
-                              : 'bg-emerald-500/20 text-emerald-300'
+                              ? 'bg-rose-600 text-white animate-pulse'
+                              : 'bg-emerald-600 text-white dark:bg-emerald-500/25 dark:text-emerald-300'
                           }`}>
                             {matchedCustomer.status}
                           </span>
                         )}
                         {matchedCustomer.totalRentalsCount !== undefined && (
-                          <span className="text-[10px] font-normal bg-slate-800/80 px-2 py-0.5 rounded text-slate-300">
+                          <span className="text-[10px] font-semibold bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 px-2 py-0.5 rounded">
                             {matchedCustomer.totalRentalsCount} past rentals
                           </span>
                         )}
                       </div>
-                      <span className="text-[11px] opacity-80 font-mono">
-                        NIC: {matchedCustomer.nicPassport}
-                      </span>
+                      <div className="text-xs font-mono mt-0.5">
+                        <span className="text-slate-500 dark:text-slate-400 font-bold">NIC: </span>
+                        <span className="text-emerald-700 dark:text-emerald-400 font-extrabold">{matchedCustomer.nicPassport}</span>
+                      </div>
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={handleClearCustomer}
-                    className="px-2.5 py-1 bg-slate-800 text-slate-200 hover:bg-slate-700 rounded-lg text-[10px] font-bold shrink-0 cursor-pointer transition border border-slate-700"
+                    className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 rounded-lg text-[10px] font-bold shrink-0 cursor-pointer transition border border-slate-300 dark:border-slate-700 shadow-xs"
                   >
                     Clear
                   </button>
@@ -674,40 +735,53 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
 
                 {/* Prominent Suspended/Blocked Warning Message */}
                 {isCustomerSuspendedOrBlocked(matchedCustomer) && (
-                  <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-500/40 text-rose-200 space-y-1">
-                    <div className="flex items-center gap-1.5 font-black text-rose-400 text-xs">
+                  <div className="p-2.5 rounded-lg bg-rose-100 border border-rose-300 text-rose-900 dark:bg-rose-950/60 dark:border-rose-500/40 dark:text-rose-200 space-y-1">
+                    <div className="flex items-center gap-1.5 font-black text-rose-700 dark:text-rose-400 text-xs">
                       <span>⚠ Warning: This customer is currently {matchedCustomer.status?.toUpperCase()}.</span>
                     </div>
                     {matchedCustomer.statusRemark && (
-                      <p className="text-xs text-rose-200">
-                        <span className="font-bold text-rose-300">Reason / Remark: </span>
+                      <p className="text-xs text-rose-900 dark:text-rose-200">
+                        <span className="font-bold text-rose-800 dark:text-rose-300">Reason / Remark: </span>
                         {matchedCustomer.statusRemark}
                       </p>
                     )}
-                    <p className="text-[11px] text-rose-400 font-semibold">
+                    <p className="text-[11px] text-rose-700 dark:text-rose-400 font-semibold">
                       New rentals are blocked for this customer account.
                     </p>
                   </div>
                 )}
 
+                {/* Customer Advance Balance Badge if available */}
+                {matchedCustomer.advanceBalance !== undefined && matchedCustomer.advanceBalance > 0 && (
+                  <div className="bg-emerald-500/10 dark:bg-emerald-500/20 p-2 rounded-lg border border-emerald-500/40 flex items-center justify-between mt-1">
+                    <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                      <Wallet className="w-3.5 h-3.5" />
+                      <span>Customer Advance Balance:</span>
+                    </span>
+                    <span className="font-mono font-black text-xs sm:text-sm text-emerald-600 dark:text-emerald-400">
+                      {formatCurrency(matchedCustomer.advanceBalance, settings.currencySymbol, settings.currencyPosition)} Available
+                    </span>
+                  </div>
+                )}
+
                 {/* Additional Customer Attributes */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-slate-300 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-1">
                   {matchedCustomer.phone && (
-                    <div>
-                      <span className="text-slate-400 block text-[10px]">Mobile:</span>
-                      <span className="font-mono font-medium">{matchedCustomer.phone}</span>
+                    <div className="bg-white/70 dark:bg-slate-900/60 p-1.5 rounded-lg border border-slate-200/80 dark:border-slate-800/80">
+                      <span className="text-slate-500 dark:text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Mobile:</span>
+                      <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{matchedCustomer.phone}</span>
                     </div>
                   )}
                   {matchedCustomer.whatsappNumber && (
-                    <div>
-                      <span className="text-slate-400 block text-[10px]">WhatsApp:</span>
-                      <span className="font-mono font-medium">{matchedCustomer.whatsappNumber}</span>
+                    <div className="bg-white/70 dark:bg-slate-900/60 p-1.5 rounded-lg border border-slate-200/80 dark:border-slate-800/80">
+                      <span className="text-slate-500 dark:text-slate-400 block text-[10px] font-bold uppercase tracking-wider">WhatsApp:</span>
+                      <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{matchedCustomer.whatsappNumber}</span>
                     </div>
                   )}
                   {matchedCustomer.dob && (
-                    <div>
-                      <span className="text-slate-400 block text-[10px]">DOB:</span>
-                      <span className="font-mono font-medium">{matchedCustomer.dob}</span>
+                    <div className="bg-white/70 dark:bg-slate-900/60 p-1.5 rounded-lg border border-slate-200/80 dark:border-slate-800/80">
+                      <span className="text-slate-500 dark:text-slate-400 block text-[10px] font-bold uppercase tracking-wider">DOB:</span>
+                      <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{matchedCustomer.dob}</span>
                     </div>
                   )}
                 </div>
@@ -715,13 +789,13 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
             )}
           </div>
 
-          {/* Customer Name & Phone Key-in Textboxes */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Customer Name, Mobile & WhatsApp Inputs */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className={`text-xs font-semibold flex items-center gap-1 ${t.textHeading}`}>
                   <User className="w-3.5 h-3.5 text-slate-400" />
-                  Customer Full Name
+                  Full Name
                 </label>
               </div>
               <input
@@ -738,16 +812,43 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
               <div className="flex items-center justify-between mb-1">
                 <label className={`text-xs font-semibold flex items-center gap-1 ${t.textHeading}`}>
                   <Phone className="w-3.5 h-3.5 text-slate-400" />
-                  Phone / WhatsApp Number
+                  Mobile Number
                 </label>
               </div>
               <input
                 id="input-customer-phone"
                 type="tel"
-                placeholder="e.g. +94 77 123 4567"
+                placeholder="e.g. 077 123 4567"
                 value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                className={`w-full rounded-xl px-3 py-2.5 text-xs ${t.textInput}`}
+                onChange={(e) => handlePhoneChange(e.target.value)}
+                className={`w-full rounded-xl px-3 py-2.5 text-xs font-mono ${t.textInput}`}
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold flex items-center gap-1 text-emerald-500">
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  WhatsApp Number
+                </label>
+                {customerPhone && customerPhone !== customerWhatsapp && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomerWhatsapp(customerPhone)}
+                    className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer font-bold"
+                    title="Copy mobile number to WhatsApp"
+                  >
+                    Same as Mobile
+                  </button>
+                )}
+              </div>
+              <input
+                id="input-customer-whatsapp"
+                type="tel"
+                placeholder="e.g. 077 123 4567"
+                value={customerWhatsapp}
+                onChange={(e) => setCustomerWhatsapp(e.target.value)}
+                className={`w-full rounded-xl px-3 py-2.5 text-xs font-mono text-emerald-600 dark:text-emerald-400 ${t.textInput}`}
               />
             </div>
           </div>
@@ -929,6 +1030,98 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
             </span>
             <span>Rental Details & Start</span>
           </label>
+
+          {/* Motorbike Start KM Input (Requirement 2) */}
+          {isMotorbike && (
+            <div className="p-3.5 rounded-xl border border-amber-500/40 bg-amber-500/10 space-y-1.5 animate-in fade-in">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                  <Gauge className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Motorbike Start KM (Odometer Reading)</span>
+                </label>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                  Motorbike Required
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  id="input-start-km"
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="Enter starting odometer KM (e.g. 12450)"
+                  value={startKm}
+                  onChange={(e) => setStartKm(e.target.value)}
+                  className={`w-full rounded-xl px-4 py-2.5 text-xs sm:text-sm font-mono font-bold border ${t.inputBg} focus:border-amber-400`}
+                />
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-xs font-bold text-amber-400">
+                  KM
+                </div>
+              </div>
+              <p className="text-[11px] text-amber-300/80">
+                Record the odometer reading before the customer leaves with the motorbike.
+              </p>
+            </div>
+          )}
+
+          {/* Customer Advance Balance Option (Requirement 5) */}
+          {matchedCustomer && (matchedCustomer.advanceBalance || 0) > 0 && (
+            <div className="p-3.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Customer Advance Balance: {formatCurrency(matchedCustomer.advanceBalance || 0, settings.currencySymbol, settings.currencyPosition)} Available</span>
+                </div>
+                <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs font-bold text-emerald-500">
+                  <input
+                    type="checkbox"
+                    checked={useAdvanceBalance}
+                    onChange={(e) => setUseAdvanceBalance(e.target.checked)}
+                    className="rounded text-emerald-500 focus:ring-emerald-400"
+                  />
+                  <span>Apply to Rental</span>
+                </label>
+              </div>
+
+              {useAdvanceBalance && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs pt-1.5 border-t border-emerald-500/20">
+                  <div>
+                    <label className="text-[10px] text-slate-400 block font-semibold mb-0.5">Advance to Deduct:</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max={matchedCustomer.advanceBalance}
+                      step="any"
+                      placeholder="0"
+                      value={appliedAdvanceInput}
+                      onChange={(e) => setAppliedAdvanceInput(e.target.value)}
+                      className={`w-full rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold ${t.textInput}`}
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-semibold mb-0.5">Cash to Collect Now:</span>
+                    <span className="font-mono font-bold text-amber-500 block pt-1">
+                      {formatCurrency(
+                        Math.max(0, (parseFloat(depositAmount) || 0) - (parseFloat(appliedAdvanceInput) || 0)),
+                        settings.currencySymbol,
+                        settings.currencyPosition
+                      )}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-semibold mb-0.5">Remaining Balance:</span>
+                    <span className="font-mono font-bold text-emerald-400 block pt-1">
+                      {formatCurrency(
+                        Math.max(0, (matchedCustomer.advanceBalance || 0) - (parseFloat(appliedAdvanceInput) || 0)),
+                        settings.currencySymbol,
+                        settings.currencyPosition
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Deposit Amount & Notes */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

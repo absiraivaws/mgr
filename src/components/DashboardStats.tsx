@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { 
   Sparkles, 
   PlayCircle, 
@@ -25,7 +25,11 @@ import {
   Send,
   CheckCircle2,
   XCircle,
-  Cake
+  Cake,
+  RotateCcw,
+  Plus,
+  Minus,
+  Filter,
 } from 'lucide-react';
 import { AppSettings, MessageHistoryEntry, RentalRecord, Vehicle } from '../types';
 import { formatCurrency } from '../utils/pricing';
@@ -41,6 +45,7 @@ interface DashboardStatsProps {
   currentUser?: UserAccount;
   themeMode: ThemeMode;
   accent: AccentColor;
+  onNavigateToHistory?: () => void;
 }
 
 export const DashboardStats: React.FC<DashboardStatsProps> = ({
@@ -52,6 +57,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
   currentUser,
   themeMode,
   accent,
+  onNavigateToHistory,
 }) => {
   const t = getThemeClasses(themeMode, accent);
 
@@ -85,6 +91,23 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
   const availableVehiclesCount = allVehicles.filter(v => v.status === 'available').length;
   const totalVehiclesCount = allVehicles.length;
   const completedTodayCount = todayOnlyRentals.length;
+
+  // Overall / All-Time Summary Statistics across all completed rentals
+  const totalAllTimeRevenue = useMemo(() => {
+    return todayCompletedRentals.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+  }, [todayCompletedRentals]);
+  const totalAllTimeTrips = todayCompletedRentals.length;
+
+  // Date, Amount & Trip Analytics Filters on Dashboard
+  const [filterFromDate, setFilterFromDate] = useState<string>('');
+  const [filterToDate, setFilterToDate] = useState<string>('');
+  const [filterAmount, setFilterAmount] = useState<number | ''>('');
+  const [filterAmountCondition, setFilterAmountCondition] = useState<'above' | 'below'>('above');
+  const [filterAmountMode, setFilterAmountMode] = useState<'daily' | 'trip'>('daily');
+  const [filterTripCount, setFilterTripCount] = useState<number | ''>('');
+  const [filterTripCondition, setFilterTripCondition] = useState<'above' | 'below'>('above');
+
+  const isDashboardFiltered = Boolean(filterFromDate || filterToDate || filterAmount !== '' || filterTripCount !== '');
 
   // Today's messaging summary
   const todayMsgStats = useMemo(() => {
@@ -125,49 +148,167 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
     return `${h}h ${m}m`;
   };
 
-  // Build daily timeline dataset for Line Chart
-  const chartData = useMemo(() => {
-    const daysArray: {
-      iso: string;
-      label: string;
-      income: number;
-      count: number;
-    }[] = [];
-
-    const map = new Map<string, { income: number; count: number }>();
-
-    // Aggregate completed rentals into day buckets
+  // Group completed rentals into daily buckets (YYYY-MM-DD)
+  const dailyBuckets = useMemo(() => {
+    const buckets = new Map<string, { income: number; count: number; rentals: RentalRecord[] }>();
     todayCompletedRentals.forEach((r) => {
       const d = new Date(r.completedAt || r.endTime || r.startTime);
       const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const existing = map.get(iso) || { income: 0, count: 0 };
-      existing.income += (r.totalAmount || 0);
-      existing.count += 1;
-      map.set(iso, existing);
+      const b = buckets.get(iso) || { income: 0, count: 0, rentals: [] };
+      b.income += (r.totalAmount || 0);
+      b.count += 1;
+      b.rentals.push(r);
+      buckets.set(iso, b);
+    });
+    return buckets;
+  }, [todayCompletedRentals]);
+
+  // Evaluator for day filtering with support for Daily Total vs Per Trip Amount, and Trip Count
+  const evaluateDayFilter = useCallback((iso: string, bucket?: { income: number; count: number; rentals: RentalRecord[] }) => {
+    // 1. Date Range
+    if (filterFromDate && iso < filterFromDate) return { matches: false, income: 0, count: 0, rentals: [] };
+    if (filterToDate && iso > filterToDate) return { matches: false, income: 0, count: 0, rentals: [] };
+
+    const rawIncome = bucket ? bucket.income : 0;
+    const rawCount = bucket ? bucket.count : 0;
+    const rawRentals = bucket ? bucket.rentals : [];
+
+    let effectiveIncome = rawIncome;
+    let effectiveCount = rawCount;
+    let effectiveRentals = rawRentals;
+
+    // 2. Amount Filter
+    if (typeof filterAmount === 'number' && filterAmount > 0) {
+      if (filterAmountMode === 'daily') {
+        // Daily total income check
+        if (filterAmountCondition === 'above' && rawIncome < filterAmount) {
+          return { matches: false, income: 0, count: 0, rentals: [] };
+        }
+        if (filterAmountCondition === 'below' && rawIncome > filterAmount) {
+          return { matches: false, income: 0, count: 0, rentals: [] };
+        }
+      } else {
+        // Individual rental amount check ('trip')
+        effectiveRentals = rawRentals.filter((r) => {
+          const a = r.totalAmount || 0;
+          return filterAmountCondition === 'above' ? a >= filterAmount : a <= filterAmount;
+        });
+        effectiveIncome = effectiveRentals.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+        effectiveCount = effectiveRentals.length;
+        if (effectiveCount === 0) {
+          return { matches: false, income: 0, count: 0, rentals: [] };
+        }
+      }
+    }
+
+    // 3. Trip Count Filter (Filters days by completed trip count)
+    if (typeof filterTripCount === 'number' && filterTripCount > 0) {
+      if (filterTripCondition === 'above' && effectiveCount < filterTripCount) {
+        return { matches: false, income: 0, count: 0, rentals: [] };
+      }
+      if (filterTripCondition === 'below' && effectiveCount > filterTripCount) {
+        return { matches: false, income: 0, count: 0, rentals: [] };
+      }
+    }
+
+    return {
+      matches: true,
+      income: effectiveIncome,
+      count: effectiveCount,
+      rentals: effectiveRentals,
+    };
+  }, [filterFromDate, filterToDate, filterAmount, filterAmountCondition, filterAmountMode, filterTripCount, filterTripCondition]);
+
+  // Filtered rentals and matched days count for KPI cards and table navigation
+  const { filteredDashboardRentals, matchedDaysCount } = useMemo(() => {
+    if (!isDashboardFiltered) {
+      return { filteredDashboardRentals: todayCompletedRentals, matchedDaysCount: dailyBuckets.size };
+    }
+
+    const matchedRentals: RentalRecord[] = [];
+    let count = 0;
+
+    dailyBuckets.forEach((bucket, iso) => {
+      const res = evaluateDayFilter(iso, bucket);
+      if (res.matches && res.count > 0) {
+        matchedRentals.push(...res.rentals);
+        count += 1;
+      }
     });
 
-    // Generate last N consecutive days
-    for (let i = chartDays - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const label = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      const record = map.get(iso) || { income: 0, count: 0 };
+    return { filteredDashboardRentals: matchedRentals, matchedDaysCount: count };
+  }, [todayCompletedRentals, dailyBuckets, isDashboardFiltered, evaluateDayFilter]);
+
+  const filteredDashboardRevenue = useMemo(() => {
+    return filteredDashboardRentals.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+  }, [filteredDashboardRentals]);
+
+  // Build daily timeline dataset for Line Chart — fully responsive to Date Range, Daily/Trip Amount, and Trip Count Filters
+  const chartData = useMemo(() => {
+    const daysArray: {
+      iso: string;
+      date: string;
+      label: string;
+      income: number;
+      count: number;
+      matched: boolean;
+    }[] = [];
+
+    // Check if custom date range filter is provided
+    let startD: Date;
+    let endD: Date;
+
+    if (filterFromDate && filterToDate) {
+      startD = new Date(filterFromDate + 'T00:00:00');
+      endD = new Date(filterToDate + 'T00:00:00');
+      if (startD > endD) {
+        const tmp = startD;
+        startD = endD;
+        endD = tmp;
+      }
+    } else if (filterFromDate) {
+      startD = new Date(filterFromDate + 'T00:00:00');
+      endD = new Date();
+    } else if (filterToDate) {
+      endD = new Date(filterToDate + 'T00:00:00');
+      startD = new Date(endD);
+      startD.setDate(startD.getDate() - (chartDays - 1));
+    } else {
+      // Default: Last N consecutive days (7D, 14D, or 30D)
+      endD = new Date();
+      startD = new Date(endD);
+      startD.setDate(startD.getDate() - (chartDays - 1));
+    }
+
+    const diffMs = Math.abs(endD.getTime() - startD.getTime());
+    const numDays = Math.min(90, Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1));
+
+    for (let i = 0; i < numDays; i++) {
+      const cur = new Date(startD);
+      cur.setDate(cur.getDate() + i);
+      const iso = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+      const label = cur.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+      const bucket = dailyBuckets.get(iso);
+      const res = evaluateDayFilter(iso, bucket);
+
       daysArray.push({
         iso,
+        date: iso,
         label,
-        income: record.income,
-        count: record.count,
+        income: res.income,
+        count: res.count,
+        matched: res.matches && res.count > 0,
       });
     }
 
     return daysArray;
-  }, [todayCompletedRentals, chartDays]);
+  }, [dailyBuckets, filterFromDate, filterToDate, chartDays, evaluateDayFilter]);
 
   // Aggregate stats for the selected chart timeframe
   const chartTotalIncome = chartData.reduce((sum, d) => sum + d.income, 0);
   const chartTotalTrips = chartData.reduce((sum, d) => sum + d.count, 0);
-  const chartAvgDailyIncome = chartTotalIncome / Math.max(1, chartDays);
+  const chartAvgDailyIncome = chartTotalIncome / Math.max(1, chartData.length);
   const maxIncome = Math.max(...chartData.map((d) => d.income), 10);
   const maxCount = Math.max(...chartData.map((d) => d.count), 5);
 
@@ -220,6 +361,17 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
     }, '');
   }, [points]);
 
+  // Dynamic font sizing helper so large currency amounts never truncate or overflow cards
+  const getDynamicAmountClass = (text: string) => {
+    if (text.length > 14) return 'text-xl sm:text-2xl lg:text-3xl font-black';
+    if (text.length > 10) return 'text-2xl sm:text-3xl lg:text-3xl font-black';
+    return 'text-2xl sm:text-3xl lg:text-4xl font-black';
+  };
+
+  const formattedTotalAllTime = formatCurrency(totalAllTimeRevenue, settings.currencySymbol, settings.currencyPosition);
+  const formattedTotalToday = formatCurrency(totalTodayRevenue, settings.currencySymbol, settings.currencyPosition);
+  const formattedAvgDaily = formatCurrency(chartAvgDailyIncome, settings.currencySymbol, settings.currencyPosition);
+
   return (
     <div className={`${t.cardBg} p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-xl space-y-6`}>
       <div className="max-w-7xl mx-auto space-y-6">
@@ -250,81 +402,433 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
           </div>
         </div>
 
-        {/* Key Metrics Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Key Metrics Grid - 4 Non-Repeating Executive Cards with Dynamic Scaling */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
           
-          {/* Total Revenue Card */}
-          <div className={`p-4 rounded-xl ${t.cardSubtleBg} border ${t.divider} transition-colors`}>
+          {/* 1. Total Amount Card */}
+          <div className={`p-5 rounded-2xl ${t.cardSubtleBg} border ${t.divider} border-l-4 border-l-emerald-500 shadow-sm transition-all hover:scale-[1.01]`}>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center shrink-0">
+                  <DollarSign className="w-4 h-4 text-emerald-500" />
+                </div>
+                <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
+                  Total Amount
+                </span>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 ${
+                isDashboardFiltered
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              }`}>
+                {isDashboardFiltered ? 'Filtered Period' : 'All-Time'}
+              </span>
+            </div>
+            <p className={`${getDynamicAmountClass(isDashboardFiltered ? formatCurrency(filteredDashboardRevenue, settings.currencySymbol, settings.currencyPosition) : formattedTotalAllTime)} font-mono text-emerald-500 tracking-tight leading-tight my-1 break-normal`}>
+              {isDashboardFiltered
+                ? formatCurrency(filteredDashboardRevenue, settings.currencySymbol, settings.currencyPosition)
+                : formattedTotalAllTime}
+            </p>
+            <p className={`text-xs ${t.textMuted} mt-2 flex items-center justify-between flex-wrap gap-1 border-t border-slate-700/20 pt-1.5`}>
+              {isDashboardFiltered ? (
+                <>
+                  <span className="text-amber-400 font-semibold">{matchedDaysCount} days ({filteredDashboardRentals.length} trips) matched</span>
+                  <span className="opacity-80 font-medium">All-Time: {formattedTotalAllTime}</span>
+                </>
+              ) : (
+                <>
+                  <span>Today: <strong className="text-emerald-400 font-mono font-semibold">{formattedTotalToday}</strong></span>
+                  <span className="opacity-80 font-medium">Across {totalAllTimeTrips} trips</span>
+                </>
+              )}
+            </p>
+          </div>
+
+          {/* 2. Trip / Ride Count Card */}
+          <div className={`p-5 rounded-2xl ${t.cardSubtleBg} border ${t.divider} border-l-4 border-l-amber-500 shadow-sm transition-all hover:scale-[1.01]`}>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center shrink-0">
+                  <Bike className="w-4 h-4 text-amber-500" />
+                </div>
+                <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
+                  Trip / Ride Count
+                </span>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 ${
+                isDashboardFiltered
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+              }`}>
+                {isDashboardFiltered ? 'Filtered' : 'Total'}
+              </span>
+            </div>
+            <p className="text-2xl sm:text-3xl lg:text-4xl font-mono font-black text-amber-500 tracking-tight leading-tight my-1">
+              {isDashboardFiltered ? filteredDashboardRentals.length : totalAllTimeTrips}{' '}
+              <span className="text-base sm:text-lg font-bold text-slate-400">Trips</span>
+            </p>
+            <p className={`text-xs ${t.textMuted} mt-2 flex items-center justify-between flex-wrap gap-1 border-t border-slate-700/20 pt-1.5`}>
+              {isDashboardFiltered ? (
+                <>
+                  <span className="text-emerald-400 font-medium">Across {matchedDaysCount} matched {matchedDaysCount === 1 ? 'day' : 'days'}</span>
+                  <span className="opacity-80 font-medium">Total: {totalAllTimeTrips}</span>
+                </>
+              ) : (
+                <>
+                  <span>{completedTodayCount} completed today</span>
+                  <span className="text-cyan-400 font-semibold">{totalActiveRentals} active now</span>
+                </>
+              )}
+            </p>
+          </div>
+
+          {/* 3. Today's Revenue Card */}
+          <div className={`p-5 rounded-2xl ${t.cardSubtleBg} border ${t.divider} shadow-sm transition-all hover:scale-[1.01]`}>
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center shrink-0">
                 <DollarSign className="w-4 h-4 text-emerald-500" />
               </div>
               <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
                 Today's Revenue
               </span>
             </div>
-            <p className="text-2xl sm:text-3xl font-mono font-bold text-emerald-500">
-              {formatCurrency(totalTodayRevenue, settings.currencySymbol, settings.currencyPosition)}
+            <p className={`${getDynamicAmountClass(formattedTotalToday)} font-mono font-bold text-emerald-400 tracking-tight leading-tight my-1 break-normal`}>
+              {formattedTotalToday}
             </p>
-            <p className={`text-xs ${t.textMuted} mt-1`}>
-              {completedTodayCount} {completedTodayCount === 1 ? 'trip completed' : 'trips completed today'}
-            </p>
-          </div>
-
-          {/* Active Rentals Card */}
-          <div className={`p-4 rounded-xl ${t.cardSubtleBg} border ${t.divider} transition-colors`}>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-cyan-500/15 flex items-center justify-center">
-                <PlayCircle className="w-4 h-4 text-cyan-500" />
-              </div>
-              <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
-                Active Rentals
-              </span>
-            </div>
-            <p className="text-2xl sm:text-3xl font-mono font-bold text-cyan-500">
-              {totalActiveRentals}
-            </p>
-            <p className={`text-xs ${t.textMuted} mt-1`}>
-              Vehicles currently running
+            <p className={`text-xs ${t.textMuted} mt-2 border-t border-slate-700/20 pt-1.5`}>
+              {completedTodayCount} {completedTodayCount === 1 ? 'trip completed today' : 'trips completed today'}
             </p>
           </div>
 
-          {/* Fleet Availability Card */}
-          <div className={`p-4 rounded-xl ${t.cardSubtleBg} border ${t.divider} transition-colors`}>
+          {/* 4. Daily Avg. Income Card */}
+          <div className={`p-5 rounded-2xl ${t.cardSubtleBg} border ${t.divider} shadow-sm transition-all hover:scale-[1.01]`}>
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center">
-                <Layers className="w-4 h-4 text-blue-500" />
-              </div>
-              <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
-                Available Fleet
-              </span>
-            </div>
-            <p className={`text-2xl sm:text-3xl font-mono font-bold ${t.textHeading}`}>
-              {availableVehiclesCount} <span className="text-sm font-normal text-slate-400">/ {totalVehiclesCount}</span>
-            </p>
-            <p className={`text-xs ${t.textMuted} mt-1`}>
-              Ready for immediate rental
-            </p>
-          </div>
-
-          {/* Average Trip Card */}
-          <div className={`p-4 rounded-xl ${t.cardSubtleBg} border ${t.divider} transition-colors`}>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-purple-500/15 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/15 flex items-center justify-center shrink-0">
                 <TrendingUp className="w-4 h-4 text-purple-400" />
               </div>
               <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
                 Daily Avg. Income
               </span>
             </div>
-            <p className="text-2xl sm:text-3xl font-mono font-bold text-purple-400">
-              {formatCurrency(chartAvgDailyIncome, settings.currencySymbol, settings.currencyPosition)}
+            <p className={`${getDynamicAmountClass(formattedAvgDaily)} font-mono font-bold text-purple-400 tracking-tight leading-tight my-1 break-normal`}>
+              {formattedAvgDaily}
             </p>
-            <p className={`text-xs ${t.textMuted} mt-1`}>
-              Over past {chartDays} days
+            <p className={`text-xs ${t.textMuted} mt-2 border-t border-slate-700/20 pt-1.5`}>
+              {filterFromDate || filterToDate
+                ? `Calculated over filtered ${chartData.length} days`
+                : `Calculated over past ${chartDays} days`}
             </p>
           </div>
 
+        </div>
+
+        {/* ========================================================================= */}
+        {/* ================= DASHBOARD ANALYTICS FILTERS (DATE, AMOUNT, TRIP) ====== */}
+        {/* ========================================================================= */}
+        <div className={`p-5 rounded-2xl border shadow-lg ${t.cardSubtleBg} ${t.divider} space-y-4`}>
+          <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-700/30">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                <Filter className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Filters</span>
+              </div>
+              {isDashboardFiltered ? (
+                <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-xs">
+                  {matchedDaysCount} {matchedDaysCount === 1 ? 'Day' : 'Days'} Matched ({filteredDashboardRentals.length} Trips · {formatCurrency(filteredDashboardRevenue, settings.currencySymbol, settings.currencyPosition)})
+                </span>
+              ) : (
+                <span className="text-xs text-slate-400 font-medium hidden sm:inline">
+                  Timeline & metrics filter
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {isDashboardFiltered && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterFromDate('');
+                    setFilterToDate('');
+                    setFilterAmount('');
+                    setFilterTripCount('');
+                  }}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/20 text-rose-600 dark:text-rose-300 hover:bg-rose-500/30 border border-rose-500/40 flex items-center gap-1.5 transition cursor-pointer"
+                  title="Clear all active filters"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Filters</span>
+                </button>
+              )}
+              {onNavigateToHistory && (
+                <button
+                  type="button"
+                  onClick={onNavigateToHistory}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                  title="Navigate to detailed settled records table"
+                >
+                  <History className="w-4 h-4" />
+                  <span>Open Full Rental History Table →</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {/* 1. From Date */}
+            <div>
+              <div className="min-h-[28px] flex items-center justify-between mb-2">
+                <label className={`text-xs font-bold ${t.textHeading} flex items-center gap-1.5`}>
+                  <Calendar className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>From Date</span>
+                </label>
+                {filterFromDate && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterFromDate('')}
+                    className="text-[10px] text-slate-400 hover:text-rose-400 underline cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <input
+                type="date"
+                value={filterFromDate}
+                max={filterToDate || undefined}
+                onChange={(e) => setFilterFromDate(e.target.value)}
+                className={`w-full h-11 rounded-2xl px-3 text-xs sm:text-sm font-mono font-medium ${t.textInput} cursor-pointer`}
+                onClick={(e) => { try { (e.target as HTMLInputElement).showPicker?.(); } catch (err) {} }}
+              />
+            </div>
+
+            {/* 2. To Date */}
+            <div>
+              <div className="min-h-[28px] flex items-center justify-between mb-2">
+                <label className={`text-xs font-bold ${t.textHeading} flex items-center gap-1.5`}>
+                  <Calendar className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>To Date</span>
+                </label>
+                {filterToDate && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterToDate('')}
+                    className="text-[10px] text-slate-400 hover:text-rose-400 underline cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <input
+                type="date"
+                value={filterToDate}
+                min={filterFromDate || undefined}
+                onChange={(e) => setFilterToDate(e.target.value)}
+                className={`w-full h-11 rounded-2xl px-3 text-xs sm:text-sm font-mono font-medium ${t.textInput} cursor-pointer`}
+                onClick={(e) => { try { (e.target as HTMLInputElement).showPicker?.(); } catch (err) {} }}
+              />
+            </div>
+
+            {/* 3. Amount Filter with Daily/Trip mode, Above/Below Selector, and Up/Down Controls */}
+            <div>
+              <div className="min-h-[28px] flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <DollarSign className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  <span className={`text-xs font-bold ${t.textHeading}`}>Amount</span>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* Daily Total vs Per Trip Mode Selector */}
+                  <div className="inline-flex items-center bg-slate-200/90 dark:bg-slate-700/90 p-0.5 rounded-lg text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setFilterAmountMode('daily')}
+                      className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                        filterAmountMode === 'daily'
+                          ? 'bg-emerald-500 text-white shadow-xs font-bold'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-white'
+                      }`}
+                      title="Filter by Daily Total Income (evaluates full day's revenue)"
+                    >
+                      Daily
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterAmountMode('trip')}
+                      className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                        filterAmountMode === 'trip'
+                          ? 'bg-emerald-500 text-white shadow-xs font-bold'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-white'
+                      }`}
+                      title="Filter by Individual Rental Amount"
+                    >
+                      Trip
+                    </button>
+                  </div>
+
+                  {/* Above / Below Pill Selector */}
+                  <div className="inline-flex items-center bg-slate-200/90 dark:bg-slate-700/90 p-0.5 rounded-lg text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setFilterAmountCondition('above')}
+                      className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                        filterAmountCondition === 'above'
+                          ? 'bg-emerald-500 text-white shadow-xs font-bold'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-white'
+                      }`}
+                      title="Filter records where amount is greater than or equal to entered value"
+                    >
+                      ≥
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterAmountCondition('below')}
+                      className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                        filterAmountCondition === 'below'
+                          ? 'bg-emerald-500 text-white shadow-xs font-bold'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-white'
+                      }`}
+                      title="Filter records where amount is less than or equal to entered value"
+                    >
+                      ≤
+                    </button>
+                  </div>
+
+                  {filterAmount !== '' && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterAmount('')}
+                      className="text-[10px] text-slate-400 hover:text-rose-400 underline cursor-pointer ml-0.5"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="relative flex items-center">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-emerald-500 font-bold text-xs">
+                  {settings.currencySymbol || 'LK'} {filterAmountCondition === 'above' ? '≥' : '≤'}
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  step="100"
+                  placeholder={filterAmountMode === 'daily' ? 'e.g. 2000' : 'e.g. 1000'}
+                  value={filterAmount}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setFilterAmount(v === '' ? '' : Math.max(0, Number(v)));
+                  }}
+                  className={`w-full h-11 rounded-2xl pl-13 pr-16 text-xs sm:text-sm font-mono font-medium ${t.textInput}`}
+                />
+                <div className="absolute inset-y-0 right-1.5 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setFilterAmount(prev => (typeof prev === 'number' ? Math.max(0, prev - 100) : 0))}
+                    className="w-6 h-6 rounded-lg bg-slate-200/80 dark:bg-slate-700/80 hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center justify-center text-slate-700 dark:text-slate-200 font-bold cursor-pointer"
+                    title="Decrease 100"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterAmount(prev => (typeof prev === 'number' ? prev + 100 : 100))}
+                    className="w-6 h-6 rounded-lg bg-slate-200/80 dark:bg-slate-700/80 hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center justify-center text-slate-700 dark:text-slate-200 font-bold cursor-pointer"
+                    title="Increase 100"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Trip Count Filter with Above/Below Selector and Up/Down Controls */}
+            <div>
+              <div className="min-h-[28px] flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Bike className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <span className={`text-xs font-bold ${t.textHeading}`}>Trip Count</span>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* Above / Below Pill Selector */}
+                  <div className="inline-flex items-center bg-slate-200/90 dark:bg-slate-700/90 p-0.5 rounded-lg text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setFilterTripCondition('above')}
+                      className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                        filterTripCondition === 'above'
+                          ? 'bg-amber-500 text-white shadow-xs font-bold'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-white'
+                      }`}
+                      title="Filter days where trip count is greater than or equal (≥) to entered value"
+                    >
+                      ≥
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterTripCondition('below')}
+                      className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                        filterTripCondition === 'below'
+                          ? 'bg-amber-500 text-white shadow-xs font-bold'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-white'
+                      }`}
+                      title="Filter days where trip count is less than or equal (≤) to entered value"
+                    >
+                      ≤
+                    </button>
+                  </div>
+
+                  {filterTripCount !== '' && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterTripCount('')}
+                      className="text-[10px] text-slate-400 hover:text-rose-400 underline cursor-pointer ml-0.5"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="relative flex items-center">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-amber-500 font-bold text-xs">
+                  Trips {filterTripCondition === 'above' ? '≥' : '≤'}
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="e.g. 5"
+                  value={filterTripCount}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setFilterTripCount(v === '' ? '' : Math.max(0, Number(v)));
+                  }}
+                  className={`w-full h-11 rounded-2xl pl-16 pr-16 text-xs sm:text-sm font-mono font-medium ${t.textInput}`}
+                />
+                <div className="absolute inset-y-0 right-1.5 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setFilterTripCount(prev => (typeof prev === 'number' ? Math.max(0, prev - 1) : 0))}
+                    className="w-6 h-6 rounded-lg bg-slate-200/80 dark:bg-slate-700/80 hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center justify-center text-slate-700 dark:text-slate-200 font-bold cursor-pointer"
+                    title="Decrease 1 trip"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterTripCount(prev => (typeof prev === 'number' ? prev + 1 : 1))}
+                    className="w-6 h-6 rounded-lg bg-slate-200/80 dark:bg-slate-700/80 hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center justify-center text-slate-700 dark:text-slate-200 font-bold cursor-pointer"
+                    title="Increase 1 trip"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* ========================================================================= */}
@@ -339,11 +843,22 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
                 <LineChartIcon className="w-5 h-5" />
               </div>
               <div>
-                <h3 className={`text-base font-bold ${t.textHeading}`}>
-                  Daily Rental Income & Trip Count Trends
-                </h3>
-                <p className={`text-xs ${t.textMuted}`}>
-                  Interactive line graph tracking daily income ({settings.currencySymbol}) and completed trip volume
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className={`text-base font-bold ${t.textHeading}`}>
+                    Daily Rental Income & Trip Count Trends
+                  </h3>
+                  {(filterFromDate || filterToDate) ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold shadow-xs">
+                      📅 Range: {filterFromDate || 'Start'} → {filterToDate || 'Today'} ({chartData.length} Days)
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-xs font-mono">
+                      📅 Past {chartDays} Days ({chartData[0]?.label || ''} – {chartData[chartData.length - 1]?.label || ''})
+                    </span>
+                  )}
+                </div>
+                <p className={`text-xs ${t.textMuted} mt-0.5`}>
+                  Interactive line graph tracking daily income ({settings.currencySymbol || 'LK'}) and completed trip volume
                 </p>
               </div>
             </div>
@@ -387,28 +902,42 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
                 </button>
               </div>
 
-              {/* Timeframe Pill Toggles */}
-              <div className="inline-flex items-center rounded-xl border border-slate-700 p-0.5 bg-slate-900/60 text-xs">
-                {[7, 14, 30].map((days) => (
+              {/* Timeframe Pill Toggles or Custom Filtered Range Badge */}
+              {filterFromDate || filterToDate ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 text-xs font-bold shadow-xs">
+                  <span>Filtered Range: {chartData.length} Days</span>
                   <button
-                    key={days}
                     type="button"
-                    onClick={() => setChartDays(days as 7 | 14 | 30)}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                      chartDays === days
-                        ? `${t.badge} font-black`
-                        : 'text-slate-400 hover:text-white'
-                    }`}
+                    onClick={() => { setFilterFromDate(''); setFilterToDate(''); }}
+                    className="text-slate-400 hover:text-white underline ml-1 cursor-pointer font-normal text-[11px]"
+                    title="Reset custom date filter to default 7D"
                   >
-                    {days}D
+                    Reset
                   </button>
-                ))}
-              </div>
+                </div>
+              ) : (
+                <div className="inline-flex items-center rounded-xl border border-slate-700 p-0.5 bg-slate-900/60 text-xs">
+                  {[7, 14, 30].map((days) => (
+                    <button
+                      key={days}
+                      type="button"
+                      onClick={() => setChartDays(days as 7 | 14 | 30)}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                        chartDays === days
+                          ? `${t.badge} font-black`
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {days}D
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Chart Summary Stats Strip with Contrasting Badges */}
-          <div className="flex items-center gap-4 sm:gap-6 flex-wrap text-xs pt-1">
+          <div className="flex items-center gap-3 sm:gap-5 flex-wrap text-xs pt-1">
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block shadow-xs" />
               <span className={t.textMuted}>Period Income:</span>
@@ -429,10 +958,25 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
                 {formatCurrency(maxIncome, settings.currencySymbol, settings.currencyPosition)}
               </span>
             </div>
+            {(filterFromDate || filterToDate) && (
+              <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-teal-500/15 border border-teal-500/30 text-teal-300 font-mono font-bold text-xs">
+                <span>📅 Range: {filterFromDate || 'Start'} to {filterToDate || 'Today'}</span>
+              </div>
+            )}
+            {filterAmount !== '' && (
+              <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono font-bold text-xs">
+                <span>Amount: {filterAmountCondition === 'above' ? '≥' : '≤'} {settings.currencySymbol || 'LK'} {filterAmount} ({filterAmountMode === 'daily' ? 'Daily Total' : 'Per Trip'})</span>
+              </div>
+            )}
+            {filterTripCount !== '' && (
+              <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono font-bold text-xs">
+                <span>Trips: {filterTripCondition === 'above' ? '≥' : '≤'} {filterTripCount} Trips/Day</span>
+              </div>
+            )}
           </div>
 
           {/* SVG Line Chart Container */}
-          <div className="relative w-full overflow-hidden pt-2">
+          <div className="relative w-full overflow-visible pt-2">
             <svg
               viewBox={`0 0 ${svgWidth} ${svgHeight}`}
               className="w-full h-56 sm:h-64 select-none overflow-visible"
@@ -530,60 +1074,104 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
                 />
               )}
 
-              {/* Interactive Data Points & Hover Targets */}
-              {points.map((p, idx) => (
-                <g key={p.iso || idx}>
-                  {/* Income Point (Emerald) */}
-                  {(chartMetric === 'both' || chartMetric === 'income') && (
-                    <circle
-                      cx={p.x}
-                      cy={p.yIncome}
-                      r="4.5"
-                      fill="#10b981"
-                      stroke="#0f172a"
-                      strokeWidth="2"
-                      className="cursor-pointer hover:scale-150 transition-transform"
-                    />
-                  )}
+              {/* Interactive Data Points & Hover Targets with Smart Axis Labels */}
+              {(() => {
+                const labelStep = points.length <= 10 ? 1 : points.length <= 20 ? 2 : Math.ceil(points.length / 10);
+                return points.map((p, idx) => {
+                  const showLabel = idx % labelStep === 0 || idx === points.length - 1;
+                  return (
+                    <g key={p.iso || idx}>
+                      {/* Axis Tick Mark */}
+                      <line
+                        x1={p.x}
+                        y1={paddingTop + innerHeight}
+                        x2={p.x}
+                        y2={paddingTop + innerHeight + (showLabel ? 5 : 3)}
+                        stroke={themeMode === 'dark' ? '#475569' : '#cbd5e1'}
+                        strokeWidth="1"
+                      />
 
-                  {/* Trip Count Point (Sunset Orange) */}
-                  {(chartMetric === 'both' || chartMetric === 'count') && (
-                    <circle
-                      cx={p.x}
-                      cy={p.yCount}
-                      r="4"
-                      fill="#f97316"
-                      stroke="#0f172a"
-                      strokeWidth="2"
-                      className="cursor-pointer hover:scale-150 transition-transform"
-                    />
-                  )}
+                      {/* Income Point (Emerald) */}
+                      {(chartMetric === 'both' || chartMetric === 'income') && (
+                        <circle
+                          cx={p.x}
+                          cy={p.yIncome}
+                          r="4.5"
+                          fill="#10b981"
+                          stroke="#0f172a"
+                          strokeWidth="2"
+                          className="cursor-pointer hover:scale-150 transition-transform"
+                        />
+                      )}
 
-                  {/* X-Axis Date Label */}
+                      {/* Trip Count Point (Sunset Orange) */}
+                      {(chartMetric === 'both' || chartMetric === 'count') && (
+                        <circle
+                          cx={p.x}
+                          cy={p.yCount}
+                          r="4"
+                          fill="#f97316"
+                          stroke="#0f172a"
+                          strokeWidth="2"
+                          className="cursor-pointer hover:scale-150 transition-transform"
+                        />
+                      )}
+
+                      {/* X-Axis Date Label with Step Skipping */}
+                      {showLabel && (
+                        <text
+                          x={p.x}
+                          y={svgHeight - 12}
+                          textAnchor="middle"
+                          fill={themeMode === 'dark' ? '#94a3b8' : '#64748b'}
+                          fontSize="9.5"
+                          fontWeight="600"
+                        >
+                          {p.label}
+                        </text>
+                      )}
+
+                      {/* Transparent hover detection rect */}
+                      <rect
+                        x={p.x - 18}
+                        y={paddingTop}
+                        width="36"
+                        height={innerHeight}
+                        fill="transparent"
+                        className="cursor-pointer"
+                        onMouseEnter={() => setHoveredPoint(p)}
+                        onMouseLeave={() => setHoveredPoint(null)}
+                      />
+                    </g>
+                  );
+                });
+              })()}
+
+              {/* Informational overlay when filtered period has 0 activity */}
+              {chartTotalIncome === 0 && chartTotalTrips === 0 && (
+                <g pointerEvents="none">
+                  <rect
+                    x={svgWidth / 2 - 190}
+                    y={paddingTop + innerHeight / 2 - 22}
+                    width="380"
+                    height="44"
+                    rx="12"
+                    fill={themeMode === 'dark' ? 'rgba(15, 23, 42, 0.90)' : 'rgba(241, 245, 249, 0.92)'}
+                    stroke={themeMode === 'dark' ? 'rgba(51, 65, 85, 0.8)' : 'rgba(203, 213, 225, 0.9)'}
+                    strokeWidth="1.5"
+                  />
                   <text
-                    x={p.x}
-                    y={svgHeight - 12}
+                    x={svgWidth / 2}
+                    y={paddingTop + innerHeight / 2 + 5}
                     textAnchor="middle"
-                    fill={themeMode === 'dark' ? '#94a3b8' : '#64748b'}
-                    fontSize="9.5"
+                    fill={themeMode === 'dark' ? '#cbd5e1' : '#475569'}
+                    fontSize="11"
                     fontWeight="600"
                   >
-                    {p.label}
+                    No rental activity matching date & amount filter criteria
                   </text>
-
-                  {/* Transparent hover detection rect */}
-                  <rect
-                    x={p.x - 18}
-                    y={paddingTop}
-                    width="36"
-                    height={innerHeight}
-                    fill="transparent"
-                    className="cursor-pointer"
-                    onMouseEnter={() => setHoveredPoint(p)}
-                    onMouseLeave={() => setHoveredPoint(null)}
-                  />
                 </g>
-              ))}
+              )}
 
               {/* Hover Guideline & Highlight */}
               {hoveredPoint && (
@@ -618,29 +1206,61 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
               )}
             </svg>
 
-            {/* Hover Tooltip Overlay */}
-            {hoveredPoint && (
-              <div
-                className="absolute z-20 pointer-events-none p-3 rounded-xl border border-slate-700 bg-slate-900/95 backdrop-blur-md shadow-2xl text-xs space-y-1.5 transform -translate-x-1/2 -translate-y-full"
-                style={{
-                  left: `${(hoveredPoint.x / svgWidth) * 100}%`,
-                  top: '40px',
-                }}
-              >
-                <p className="font-bold text-slate-200 border-b border-slate-700 pb-1 flex items-center justify-between gap-3">
-                  <span>{hoveredPoint.label}</span>
-                  <span className="text-[10px] text-slate-400 font-mono">{hoveredPoint.date}</span>
-                </p>
-                <div className="flex items-center justify-between gap-3 text-emerald-400 font-mono font-bold">
-                  <span>🟢 Daily Income:</span>
-                  <span>{formatCurrency(hoveredPoint.income, settings.currencySymbol, settings.currencyPosition)}</span>
+            {/* Hover Tooltip Overlay with Dynamic Vertical & Horizontal Positioning */}
+            {hoveredPoint && (() => {
+              const minY = Math.min(hoveredPoint.yIncome, hoveredPoint.yCount);
+              const maxY = Math.max(hoveredPoint.yIncome, hoveredPoint.yCount);
+              // If data point is near the top of the chart (< 100px), flip tooltip to display BELOW the point
+              const isNearTop = minY < 100;
+              const isNearLeft = hoveredPoint.x < 130;
+              const isNearRight = hoveredPoint.x > svgWidth - 130;
+
+              const xTransform = isNearLeft ? 'translate-x-0' : isNearRight ? '-translate-x-full' : '-translate-x-1/2';
+              const yTransform = isNearTop ? 'translate-y-3' : '-translate-y-full -mt-3';
+              const targetY = isNearTop ? maxY : minY;
+
+              return (
+                <div
+                  className={`absolute z-30 pointer-events-none p-3 rounded-xl border border-slate-700 bg-slate-900/95 backdrop-blur-md shadow-2xl text-xs space-y-1.5 transition-all duration-75 transform ${xTransform} ${yTransform}`}
+                  style={{
+                    left: `${(hoveredPoint.x / svgWidth) * 100}%`,
+                    top: `${(targetY / svgHeight) * 100}%`,
+                    minWidth: '190px',
+                  }}
+                >
+                  <p className="font-bold text-slate-200 border-b border-slate-700/80 pb-1 flex items-center justify-between gap-3">
+                    <span className="text-white font-semibold">{hoveredPoint.label}</span>
+                    <span className="text-[10px] text-slate-400 font-mono">{hoveredPoint.date}</span>
+                  </p>
+                  <div className="flex items-center justify-between gap-3 text-emerald-400 font-mono font-bold">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" />
+                      Daily Income:
+                    </span>
+                    <span>{formatCurrency(hoveredPoint.income, settings.currencySymbol, settings.currencyPosition)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 text-orange-400 font-mono font-bold">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-orange-500 inline-block shrink-0" />
+                      Trip Count:
+                    </span>
+                    <span>{hoveredPoint.count} Completed</span>
+                  </div>
+                  {filterAmount !== '' && (
+                    <div className="text-[10px] text-slate-400 font-mono pt-1 border-t border-slate-700/60 flex items-center justify-between">
+                      <span>Amount:</span>
+                      <span className="text-emerald-400 font-semibold">{filterAmountCondition === 'above' ? '≥' : '≤'} {settings.currencySymbol || 'LK'} {filterAmount} ({filterAmountMode === 'daily' ? 'Daily' : 'Trip'})</span>
+                    </div>
+                  )}
+                  {filterTripCount !== '' && (
+                    <div className="text-[10px] text-slate-400 font-mono pt-0.5 flex items-center justify-between">
+                      <span>Trip Count:</span>
+                      <span className="text-amber-400 font-semibold">{filterTripCondition === 'above' ? '≥' : '≤'} {filterTripCount} Trips</span>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center justify-between gap-3 text-orange-400 font-mono font-bold">
-                  <span>🟠 Trip Count:</span>
-                  <span>{hoveredPoint.count} Completed</span>
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
 

@@ -41,6 +41,10 @@ src/
     └── mgr-booking-schema.sql        # Database schema for remote tables
 ```
 
+### 2.1 Technology Stack Standards & Language Guidelines
+- **Mandated Stack**: The entire module is built strictly on **TypeScript**, **JavaScript**, and **Node.js** (React 19, Vite, Express.js server, Vercel Serverless Functions, and Supabase Edge Functions).
+- **Prohibition on Python**: **Python is strictly NOT used in this system and must NOT be introduced for present or future development**. All business logic, algorithms, background jobs, external API integrations, and scripts must continue to use Node.js and TypeScript exclusively.
+
 ---
 
 ## 3. Side-Menu Navigation Tabs & Persona Access Control

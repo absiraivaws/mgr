@@ -8,21 +8,24 @@ import { PricingBreakdown, PricingRates } from '../types';
 export function calculateRentalBreakdown(
   startTime: number,
   endTime: number,
-  rates: PricingRates
+  rates?: PricingRates
 ): PricingBreakdown {
-  const elapsedMs = Math.max(0, endTime - startTime);
+  const safeRates = rates || { firstHour: 0, next30Min: 0, every30Min: 0 };
+  const safeStart = typeof startTime === 'number' && !isNaN(startTime) ? startTime : Date.now();
+  const safeEnd = typeof endTime === 'number' && !isNaN(endTime) ? endTime : safeStart;
+  const elapsedMs = Math.max(0, safeEnd - safeStart);
   // Rental duration in minutes (round up to nearest minute, minimum 1 min if active)
   const totalMinutes = Math.max(1, Math.ceil(elapsedMs / (1000 * 60)));
 
-  const firstDurationMinutes = rates.firstDurationMinutes && rates.firstDurationMinutes > 0
-    ? rates.firstDurationMinutes
+  const firstDurationMinutes = safeRates.firstDurationMinutes && safeRates.firstDurationMinutes > 0
+    ? safeRates.firstDurationMinutes
     : 60;
-  const continuingDurationMinutes = rates.continuingDurationMinutes && rates.continuingDurationMinutes > 0
-    ? rates.continuingDurationMinutes
+  const continuingDurationMinutes = safeRates.continuingDurationMinutes && safeRates.continuingDurationMinutes > 0
+    ? safeRates.continuingDurationMinutes
     : 30;
 
-  const firstHourAmount = rates.firstHour || 0;
-  const ratePerBlock = rates.every30Min ?? rates.next30Min ?? 0;
+  const firstHourAmount = safeRates.firstHour || 0;
+  const ratePerBlock = safeRates.every30Min ?? safeRates.next30Min ?? 0;
   
   let every30MinCount = 0;
   let every30MinAmount = 0;
@@ -215,3 +218,100 @@ export function getNextRentalNumber(
 
   return formatRentalNumber(maxNum + 1, prefix);
 }
+
+/**
+ * Standard finance structure for Rental Settlement, Finance Posting, and Rental History.
+ * 
+ * Formula:
+ * - Rental Value (base duration rate)
+ * - + Damage Charge
+ * - = Gross Rental Amount (Rental Value + Damage Charge)
+ * - - Less Advance Paid (deposit)
+ * - - Less Discount
+ * - = Balance to Collect (from customer) [or Refund Due]
+ * - Total Rental Revenue Received = Advance Paid + Balance Collected = (Gross - Discount)
+ */
+export interface RentalFinanceStructure {
+  rentalValue: number;          // Rental Value (base bill for duration)
+  damageCharge: number;         // Damage Charge
+  grossRentalAmount: number;    // Gross Rental Amount = Rental Value + Damage Charge
+  advancePaid: number;          // Less Advance Paid (upfront deposit)
+  discountAmount: number;       // Less Discount
+  netBill: number;              // Net Bill = Gross Rental Amount - Discount
+  balanceToCollect: number;     // Balance to Collect = Math.max(0, netBill - advancePaid)
+  refundDue: number;            // Refund Due if Advance Paid > Net Bill
+  totalRevenueReceived: number; // Total Rental Revenue Received = Advance + Balance Collected
+}
+
+export function computeRentalFinance(rental: {
+  rentalAmount?: number;
+  totalAmount?: number;
+  depositAmount?: number;
+  damageAmount?: number;
+  discountAmount?: number;
+  grossRentalAmount?: number;
+  balanceAmount?: number;
+  refundAmount?: number;
+  breakdown?: { totalAmount?: number; subtotal?: number };
+}): RentalFinanceStructure {
+  const advancePaid = Number(rental?.depositAmount || 0);
+  const damageCharge = Number(rental?.damageAmount || 0);
+  const discountAmount = Number(rental?.discountAmount || 0);
+
+  // Rental Value (base rental rate for time duration)
+  let rentalValue = 0;
+  if (rental?.rentalAmount !== undefined && rental?.rentalAmount !== null) {
+    rentalValue = Number(rental.rentalAmount);
+  } else if (rental?.breakdown?.totalAmount !== undefined && Number(rental.breakdown.totalAmount) > 0) {
+    rentalValue = Number(rental.breakdown.totalAmount);
+  } else if (rental?.breakdown?.subtotal !== undefined && Number(rental.breakdown.subtotal) > 0) {
+    rentalValue = Number(rental.breakdown.subtotal);
+  } else if (rental?.grossRentalAmount !== undefined) {
+    rentalValue = Math.max(0, Number(rental.grossRentalAmount) - damageCharge);
+  } else {
+    // If historical record with only totalAmount:
+    const baseEst = (Number(rental?.totalAmount || 0) - damageCharge + discountAmount);
+    rentalValue = Math.max(0, baseEst);
+  }
+
+  const grossRentalAmount = rental?.grossRentalAmount !== undefined
+    ? Number(rental.grossRentalAmount)
+    : (rentalValue + damageCharge);
+
+  const netBill = Math.max(0, grossRentalAmount - discountAmount);
+
+  let balanceToCollect = 0;
+  let refundDue = 0;
+
+  if (rental?.balanceAmount !== undefined && rental?.balanceAmount !== null) {
+    balanceToCollect = Number(rental.balanceAmount);
+    refundDue = Number(rental.refundAmount || 0);
+  } else {
+    if (advancePaid > netBill) {
+      refundDue = advancePaid - netBill;
+      balanceToCollect = 0;
+    } else {
+      balanceToCollect = Math.max(0, netBill - advancePaid);
+      refundDue = 0;
+    }
+  }
+
+  // Total Rental Revenue Received = Advance + Balance Collected
+  let totalRevenueReceived = advancePaid > netBill ? netBill : (advancePaid + balanceToCollect);
+  if (rental?.totalAmount && rental.totalAmount > 0 && Math.abs(rental.totalAmount - totalRevenueReceived) > 0.01) {
+    totalRevenueReceived = rental.totalAmount;
+  }
+
+  return {
+    rentalValue,
+    damageCharge,
+    grossRentalAmount,
+    advancePaid,
+    discountAmount,
+    netBill,
+    balanceToCollect,
+    refundDue,
+    totalRevenueReceived,
+  };
+}
+

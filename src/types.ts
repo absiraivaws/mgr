@@ -8,9 +8,11 @@ export interface PricingRates {
   continuingHour?: number;
 }
 
-export type VehicleIconType = 'bicycle' | 'motorcycle' | 'scooter' | 'electric-bike' | 'quad' | 'other';
+export type VehicleIconType = 'bicycle' | 'motorcycle' | 'scooter' | 'electric-bike' | 'quad' | 'car' | 'package' | 'tag' | 'cart' | 'gear' | 'other' | string;
 
 export type RentalStartMethod = 'manual' | 'qr' | 'both';
+
+export type VehiclePurpose = 'rental' | 'sale' | 'both';
 
 export interface VehicleType {
   id: string;
@@ -20,9 +22,10 @@ export interface VehicleType {
   rates: PricingRates;
   color?: string; // Tailwind color theme for badges
   rentalStartMethod?: RentalStartMethod; // Admin setting: manual, qr, or both
+  purpose?: VehiclePurpose; // Classification: 'rental' | 'sale' | 'both'
 }
 
-export type VehicleStatus = 'available' | 'rented' | 'maintenance';
+export type VehicleStatus = 'available' | 'rented' | 'maintenance' | 'sold';
 
 export interface Vehicle {
   id: string;
@@ -33,6 +36,8 @@ export interface Vehicle {
   notes?: string;
   lastRentedAt?: number;
   totalRentalsCount?: number;
+  costPrice?: number;
+  purchaseRef?: string;
 }
 
 export interface PricingBreakdown {
@@ -50,6 +55,9 @@ export interface PricingBreakdown {
   continuingDurationMinutes?: number; // Configured continuing interval minutes (e.g. 30)
   subtotal: number;
   totalAmount: number;
+  startKm?: number;
+  endKm?: number;
+  distanceKm?: number;
   // Backward compatibility fields
   next30MinAmount?: number;
   continuingHoursCount?: number;
@@ -68,7 +76,11 @@ export interface RentalRecord {
   customerPhone?: string;
   customerNicPassport?: string;
   customerNotes?: string;
+  customerWhatsapp?: string;
   depositAmount?: number;
+  appliedAdvanceBalance?: number; // Advance balance applied from customer account towards deposit/bill
+  refundRetainedAsAdvance?: boolean; // Whether refund was retained as advance credit on customer account
+  creditedAdvanceBalance?: number; // Refund amount credited to customer advance balance
   startTime: number; // Epoch timestamp (ms)
   endTime?: number; // Epoch timestamp (ms)
   status: 'active' | 'completed' | 'cancelled';
@@ -84,6 +96,72 @@ export interface RentalRecord {
   completedAt?: number;
   sendWelcomeWhatsApp?: boolean;
   sendEndWhatsApp?: boolean;
+  damageAmount?: number;
+  discountAmount?: number;
+  rentalAmount?: number; // Base rental duration rate / Rental Value (e.g. 1500)
+  grossRentalAmount?: number; // Rental Value + Damage Charge (e.g. 1800)
+  balanceAmount?: number; // Balance to Collect / collected from customer (e.g. 700)
+  refundAmount?: number; // Refund amount if Advance Paid > (Gross - Discount)
+  startKm?: number; // Start odometer reading for Motorbikes
+  endKm?: number; // End odometer reading for Motorbikes
+  distanceKm?: number; // Total distance traveled for Motorbikes
+}
+
+export interface NotificationContact {
+  id: string;
+  name: string;
+  phone: string;
+  active?: boolean;
+}
+
+export interface WhatsAppGroupLink {
+  id: string;
+  name: string;
+  url: string;
+  active?: boolean;
+}
+
+export interface PurchaseRecord {
+  id: string;
+  date: string;
+  reference: string;
+  itemName: string;
+  category: string;
+  typeId?: string; // Optional link to VehicleType
+  assignedSerials?: string[]; // Serial numbers created in fleet inventory
+  supplierName: string;
+  supplierPhone?: string;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+  paymentMethod: 'cash' | 'card' | 'bank_transfer' | 'qr_transfer' | 'other';
+  purchasedBy: string;
+  remarks?: string;
+  createdAt: number;
+}
+
+export interface SaleRecord {
+  id: string;
+  date: string;
+  reference: string;
+  itemName: string;
+  category: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerNicPassport?: string;
+  quantity: number;
+  unitPrice: number;
+  purchaseValue?: number; // Total purchase cost of the sold item(s)
+  markupAmount?: number; // 20% markup value
+  salePrice?: number; // Purchase Value + 20% markup
+  discountAmount?: number; // Discount entered by user
+  finalSaleAmount?: number; // Final sale amount after discount
+  totalAmount: number; // Stored final sale amount
+  soldSerials?: string[]; // Serial numbers of sold units
+  paymentMethod: 'cash' | 'card' | 'bank_transfer' | 'qr_transfer' | 'other';
+  cashierName: string;
+  remarks?: string;
+  createdAt: number;
 }
 
 export interface AppSettings {
@@ -102,6 +180,14 @@ export interface AppSettings {
   whatsappApiKey?: string; // Optional API key or auth token for WhatsApp gateway
   whatsappGatewayMode?: 'automated_api' | 'automated_direct' | 'wa_link'; // Dispatch mode
   bulkSendingConfig?: BulkSendingConfig; // Anti-spam throttling settings configured by admin
+  additionalWhatsAppContacts?: NotificationContact[]; // Contacts notified on start/end rental
+  whatsappGroupLinks?: WhatsAppGroupLink[]; // WhatsApp groups for rental updates
+  notifyCustomerOnStart?: boolean;
+  notifyCustomerOnEnd?: boolean;
+  notifyAdditionalContactsOnStart?: boolean;
+  notifyAdditionalContactsOnEnd?: boolean;
+  notifyCustomerOnBirthday?: boolean;
+  notifyRentalReminders?: boolean;
 }
 
 export type CustomerStatus = 'active' | 'suspended' | 'blocked' | 'inactive' | 'pending_verification';
@@ -129,6 +215,7 @@ export interface Customer {
   statusRemark?: string;      // Mandatory when status is 'suspended' or 'blocked'
   statusUpdatedAt?: number;
   groups?: string[];          // Assigned customer group IDs or names
+  advanceBalance?: number;    // Running Customer Advance Balance / Store Credit
   createdAt?: number;
   lastRentalDate?: number;
   totalRentalsCount?: number;

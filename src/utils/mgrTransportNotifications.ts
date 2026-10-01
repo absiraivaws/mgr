@@ -125,7 +125,7 @@ export const dispatchTransportNotification = async (
         message: fullEvent.message,
         status: fullEvent.status,
         created_at: new Date(fullEvent.timestamp).toISOString(),
-      }).then(() => {}).catch(() => {});
+      }).then(() => {}, () => {});
     }
   } catch {}
 

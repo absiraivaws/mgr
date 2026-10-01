@@ -1074,7 +1074,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-purple-500/30 text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 transition cursor-pointer`}
                 >
                   <Tag className="w-3.5 h-3.5" />
-                  <span>+ Add Role Level</span>
+                  <span>Add Role Level</span>
                 </button>
               )}
             </div>
@@ -1399,7 +1399,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
                   className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer ${t.primaryBtn}`}
                 >
                   <Plus className="w-4 h-4" />
-                  <span>+ Add User</span>
+                  <span>Add User</span>
                 </button>
               )}
             </div>
@@ -1800,7 +1800,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
               className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer ${t.primaryBtn}`}
             >
               <Plus className="w-4 h-4" />
-              <span>+ New Template</span>
+              <span>New Template</span>
             </button>
           </div>
         </div>

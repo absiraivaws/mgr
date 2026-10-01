@@ -350,7 +350,7 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-return-thanks',
     title: 'Return Completed & Thank You',
     category: 'return_reminder',
-    content: `🙏 *Thank you for riding with {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has been settled successfully.\n• Duration: {duration}\n• Amount: {amount}\n\nWe hope you enjoyed exploring the sights of Mannar! We look forward to seeing you again soon. 🌿🚲\n\nBest regards,\n*{shop_name}*`,
+    content: `🙏 *Thank you for riding with {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has been settled successfully.\n• Amount: {amount}\n\nWe hope you enjoyed exploring the sights of Mannar! We look forward to seeing you again soon. 🌿🚲\n\nBest regards,\n*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -427,6 +427,13 @@ export function getStoredMessageTemplates(): MessageTemplate[] {
       if (Array.isArray(parsed) && parsed.length > 0) {
         for (const t of parsed) {
           if (t && t.id) {
+            // Strip duration if present in return template
+            if (t.id === 'tmpl-return-thanks' && t.content && t.content.includes('{duration}')) {
+              t.content = t.content
+                .replace(/•?\s*Duration:\s*\{duration\}\s*\n?/gi, '')
+                .replace(/⏱\s*Duration:\s*\{duration\}\s*\n?/gi, '')
+                .trim();
+            }
             map.set(t.id, t);
           }
         }
@@ -442,9 +449,38 @@ export function getStoredMessageTemplates(): MessageTemplate[] {
 export function saveStoredMessageTemplates(templates: MessageTemplate[]): void {
   try {
     localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
+    // Dispatch custom event so any active component instantly updates its templates
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bicycle-message-templates-updated', { detail: templates }));
+    }
   } catch (err) {
     console.error('Error saving message templates:', err);
   }
+}
+
+/**
+ * Get active message for rental start or return, using the latest user-configured template
+ */
+export function getActiveRentalMessage(
+  templateId: 'tmpl-welcome-start' | 'tmpl-return-thanks',
+  rental: any,
+  customer?: any,
+  settings?: any,
+  extra?: Record<string, string | number>
+): string {
+  const allTemplates = getStoredMessageTemplates();
+  const tmpl = allTemplates.find((t) => t.id === templateId) || DEFAULT_MESSAGE_TEMPLATES.find((t) => t.id === templateId);
+  const content = tmpl?.content || (templateId === 'tmpl-welcome-start'
+    ? `🚴 *Welcome to {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has started at {start_time}.\n\nPlease wear your helmet and ride safely! If you need assistance or wish to extend your hire, contact us anytime.\n\nEnjoy your ride!\n*{shop_name}*`
+    : `🙏 *Thank you for riding with {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has been settled successfully.\n• Total Amount: {amount}\n\nWe hope you enjoyed exploring the sights of Mannar! We look forward to seeing you again soon. 🌿🚲\n\nBest regards,\n*{shop_name}*`);
+
+  return resolveTemplatePlaceholders(content, {
+    rental,
+    customer,
+    shopName: settings?.businessName,
+    currencySymbol: settings?.currencySymbol,
+    extra,
+  });
 }
 
 // --- CUSTOMER GROUPS UTILITIES ---

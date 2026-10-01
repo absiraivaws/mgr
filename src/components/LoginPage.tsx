@@ -125,8 +125,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           name: cleanName,
           email: cleanEmail,
           role: 'passenger',
-          username: cleanEmail.split('@')[0],
-          avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName)}`,
+          createdAt: Date.now(),
         };
         const updatedUsers = [...users, matched];
         localStorage.setItem('all_users', JSON.stringify(updatedUsers));
