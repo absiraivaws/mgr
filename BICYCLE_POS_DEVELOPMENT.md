@@ -19,7 +19,24 @@ This document maintains the complete development reference, system specification
 
 ---
 
-## 1.0 Development Tasks & Progress Tracking (Version 2.6.0)
+## 1.0 Development Tasks & Progress Tracking (Version 2.8.0 - Active Sprint)
+
+### 📌 Bicycle POS Focused Requirements (Step-by-Step Implementation & Verification)
+| Req # | Requirement Item | Status | Target Files & Implementation Scope |
+|:---:|---|:---:|---|
+| **1** | **Automatic WhatsApp Rental Notifications**<br>• Rental-related WhatsApp messages sent automatically, not manually.<br>• Dispatched to customer's saved WhatsApp number and registered WhatsApp Group Link.<br>• Correct templates: `tmpl-welcome-start` (Start) and `tmpl-return-thanks` (End).<br>• Clean line breaks: eliminated literal `\n \n` repeating text, ensuring real paragraph line breaks across customer and group messages. | **Developed & Verified** | `src/utils/bicyclePosUtils.ts`<br>`src/utils/customer.ts`<br>`src/lib/supabaseSync.ts`<br>`src/App.tsx`<br>`src/components/StartRentalCard.tsx`<br>`src/components/StopRentalModal.tsx`<br>• **Message Line Breaks & Formatting**: Upgraded `normalizeMessageText` converting all escaped backslash sequences (`\n`, `\\n`, `\r\n`), stripping trailing whitespace before newlines (` \n\n`), and eliminating blank-whitespace lines so messages render with proper paragraphs instead of single-line text.<br>• Cleaned all 12 templates in Supabase `message_templates` table.<br>• **Group Dispatch Reliability**: Executed `window.open` for customer and registered WhatsApp Group link synchronously during user click (before async `await fetch`), avoiding browser popup blockers.<br>• **Interactive Dispatch Banner**: Added persistent floating action toast in `App.tsx` with 1-click buttons for Customer Chat, WhatsApp Group (with instant clipboard copy), WhatsApp Web direct sharing, and clean message preview. |
+| **2** | **Save WhatsApp Numbers / Group Links**<br>• Admin Add/Edit of WhatsApp numbers or group links immediately persists to database.<br>• Newly saved contacts & groups receive future notifications automatically. | **Developed & Verified** | `src/lib/supabaseSync.ts`<br>`src/components/BicycleMessageTemplatesView.tsx`<br>• Implemented `syncNotificationConfigToSupabase(settings)` persisting contacts, groups, and rule toggles to Supabase `message_templates` table (`id: '__cycly_notification_config__'`).<br>• Added Edit action modals for Contacts & Group Links in Message Templates.<br>• Loaded automatically into `AppSettings` on startup and synced across devices. |
+| **3** | **Inventory Sync**<br>• Add/Edit/Delete inventory (fleet units) updates frontend & database immediately.<br>• Deleted inventory items must NEVER reappear after refresh. | **Developed & Verified** | `src/lib/supabaseSync.ts`<br>`src/App.tsx`<br>`src/components/SettingsPanel.tsx`<br>• Enhanced `deleteVehicleFromSupabase` to delete by `id` AND case-insensitive `serial_number`.<br>• Persistent tombstones (`v_rental_deleted_vehicle_ids`, `v_rental_deleted_vehicle_serials`) strictly exclude deleted vehicles during `loadData()` cloud merges and prevent unsynced local re-uploads.<br>• Immediate post-save database reload displaying only verified saved fleet. |
+| **4** | **Finance Data Integrity**<br>• Deleted records completely removed and prevented from reappearing.<br>• Only Admin users can Edit or Delete Finance records.<br>• Immediate DB update; deleted records remain deleted across refresh/login. | **Developed & Verified** | `src/lib/supabaseSync.ts`<br>`src/App.tsx`<br>`src/components/FinancePanel.tsx`<br>• Fixed root cause of reappearing records: `reconcileRentalIncomeLedger` now checks `v_rental_deleted_income_ids` so it never resurrects deleted rental revenues.<br>• Enhanced `deleteIncomeEntryFromSupabase` to delete from `income_expenses` by `id`, `reference`, and rental number in `description`.<br>• `fetchIncomeEntries` filters out all tombstoned IDs and rental references.<br>• Strict Admin RBAC checks on Edit and Delete across Finance, Purchases, and Sales. |
+| **5** | **Persistence**<br>• After any Add/Edit/Delete action, reload latest database data and display current saved state only. | **Developed & Verified** | `src/App.tsx`<br>`src/lib/supabaseSync.ts`<br>• Implemented post-action database reloads across Fleet Inventory (`handleUpdateVehicles`, `handleUpdateVehicleTypes`), Finance transactions (`onAddEntry`, `onUpdateEntry`, `onDeleteEntry`), and Rental settlements (`handleDeleteRental`), ensuring the UI always reflects the current verified database state. |
+
+---
+
+## 1.1 Development Tasks & Progress Tracking (Version 2.7.0)
+
+---
+
+## 1.1 Development Tasks & Progress Tracking (Version 2.6.0)
 
 ### 📌 Iterative Requirements Status (Pending → Developed → Manually Verified)
 | Item # | Development Requirement Description | Status | Target Files & Implementation Notes |

@@ -742,6 +742,35 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
     }
   };
 
+  const handleEditCategory = (type: 'income' | 'expense', oldCat: string) => {
+    if (oldCat === 'Rental Income') {
+      alert('"Rental Income" is a core system category and cannot be renamed.');
+      return;
+    }
+    const newName = prompt(`Enter new name for category "${oldCat}":`, oldCat);
+    if (!newName || !newName.trim() || newName.trim() === oldCat) return;
+    const clean = newName.trim();
+    if (type === 'income') {
+      if (categoriesConfig.incomeCategories.includes(clean)) {
+        alert(`Category "${clean}" already exists.`);
+        return;
+      }
+      saveCategories({
+        ...categoriesConfig,
+        incomeCategories: categoriesConfig.incomeCategories.map((c) => (c === oldCat ? clean : c)),
+      });
+    } else {
+      if (categoriesConfig.expenseCategories.includes(clean)) {
+        alert(`Category "${clean}" already exists.`);
+        return;
+      }
+      saveCategories({
+        ...categoriesConfig,
+        expenseCategories: categoriesConfig.expenseCategories.map((c) => (c === oldCat ? clean : c)),
+      });
+    }
+  };
+
   if (!canAccessFinance) {
     return (
       <div className={`p-8 rounded-2xl border text-center space-y-3 ${t.cardBg}`}>
@@ -1990,6 +2019,18 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-mono ${t.textMuted}`}>{count} entries</span>
+                      {!isProtected && isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => handleEditCategory('income', cat)}
+                          className={`p-1 rounded transition cursor-pointer ${
+                            isDark ? 'text-slate-400 hover:text-blue-400 hover:bg-blue-500/10' : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'
+                          }`}
+                          title="Rename Category"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       {!isProtected && (
                         <button
                           type="button"
@@ -1997,6 +2038,7 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
                           className={`p-1 rounded transition cursor-pointer ${
                             isDark ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-500/10' : 'text-slate-500 hover:text-rose-600 hover:bg-rose-50'
                           }`}
+                          title="Delete Category"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -2052,12 +2094,25 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-mono ${t.textMuted}`}>{count} entries</span>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => handleEditCategory('expense', cat)}
+                          className={`p-1 rounded transition cursor-pointer ${
+                            isDark ? 'text-slate-400 hover:text-blue-400 hover:bg-blue-500/10' : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'
+                          }`}
+                          title="Rename Category"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleDeleteCategory('expense', cat)}
                         className={`p-1 rounded transition cursor-pointer ${
                           isDark ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-500/10' : 'text-slate-500 hover:text-rose-600 hover:bg-rose-50'
                         }`}
+                        title="Delete Category"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

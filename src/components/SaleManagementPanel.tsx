@@ -36,7 +36,8 @@ import {
   ArrowRight,
   ShieldCheck,
   UserCheck,
-  UserPlus
+  UserPlus,
+  Edit2,
 } from 'lucide-react';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { AppSettings, Customer, IncomeEntry, SaleRecord, Vehicle, VehicleStatus, VehicleType } from '../types';
@@ -54,6 +55,7 @@ interface SaleManagementPanelProps {
   vehicleTypes?: VehicleType[];
   vehicles?: Vehicle[];
   onAddEntry: (entry: IncomeEntry) => Promise<void> | void;
+  onUpdateEntry?: (entry: IncomeEntry) => Promise<void> | void;
   onDeleteEntry?: (id: string) => Promise<void> | void;
   onUpdateVehicles?: (vehicles: Vehicle[]) => Promise<void> | void;
   onNavigateTab?: (tab: any) => void;
@@ -79,6 +81,7 @@ export const SaleManagementPanel: React.FC<SaleManagementPanelProps> = ({
   vehicleTypes = [],
   vehicles = [],
   onAddEntry,
+  onUpdateEntry,
   onDeleteEntry,
   onUpdateVehicles,
   onNavigateTab,
@@ -587,6 +590,63 @@ export const SaleManagementPanel: React.FC<SaleManagementPanelProps> = ({
         };
       });
   }, [entries]);
+
+  // Edit Sale Modal state (Admin only)
+  const [editingSale, setEditingSale] = useState<SaleRecord | null>(null);
+  const [editSaleDate, setEditSaleDate] = useState('');
+  const [editSaleCustomerName, setEditSaleCustomerName] = useState('');
+  const [editSaleCustomerPhone, setEditSaleCustomerPhone] = useState('');
+  const [editSaleItemName, setEditSaleItemName] = useState('');
+  const [editSaleCategory, setEditSaleCategory] = useState('');
+  const [editSaleAmount, setEditSaleAmount] = useState('');
+  const [editSalePaymentMethod, setEditSalePaymentMethod] = useState<'cash' | 'card' | 'bank_transfer' | 'qr_transfer' | 'other'>('cash');
+  const [editSaleRemarks, setEditSaleRemarks] = useState('');
+  const [editSaleError, setEditSaleError] = useState<string | null>(null);
+
+  const handleOpenEditSale = (sale: SaleRecord) => {
+    setEditingSale(sale);
+    setEditSaleDate(sale.date);
+    setEditSaleCustomerName(sale.customerName);
+    setEditSaleCustomerPhone(sale.customerPhone);
+    setEditSaleItemName(sale.itemName);
+    setEditSaleCategory(sale.category);
+    setEditSaleAmount(String(sale.totalAmount));
+    setEditSalePaymentMethod(sale.paymentMethod as any);
+    setEditSaleRemarks(sale.remarks);
+    setEditSaleError(null);
+  };
+
+  const handleSaveEditSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSale || !onUpdateEntry) return;
+    const numAmount = parseFloat(editSaleAmount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setEditSaleError('Please enter a valid positive sale amount.');
+      return;
+    }
+    if (!editSaleItemName.trim()) {
+      setEditSaleError('Please enter an item name.');
+      return;
+    }
+
+    const updatedIncomeEntry: IncomeEntry = {
+      id: editingSale.id,
+      date: editSaleDate,
+      type: 'income',
+      category: `Sale: ${editSaleCategory.trim() || 'General Sale'}`,
+      description: `[Sale] ${editSaleItemName.trim()}`,
+      amount: numAmount,
+      paymentMethod: editSalePaymentMethod,
+      who: editSaleCustomerName.trim() || 'Walk-in Customer',
+      cashierName: editingSale.soldBy,
+      reference: editingSale.reference,
+      remarks: `Customer: ${editSaleCustomerName.trim() || 'Walk-in'}${editSaleCustomerPhone.trim() ? ` | Phone: ${editSaleCustomerPhone.trim()}` : ''}${editingSale.soldSerials?.length ? ` | Serials: ${editingSale.soldSerials.join(', ')}` : ''}${editSaleRemarks.trim() ? ` | Notes: ${editSaleRemarks.trim()}` : ''}`,
+      createdAt: editingSale.createdAt,
+    };
+
+    await onUpdateEntry(updatedIncomeEntry);
+    setEditingSale(null);
+  };
 
   // KPI Calculations
   const totalSalesCount = saleRecords.length;
@@ -2244,6 +2304,17 @@ export const SaleManagementPanel: React.FC<SaleManagementPanelProps> = ({
                             >
                               <Receipt className="w-4 h-4" />
                             </button>
+                            {isAdmin && onUpdateEntry && (
+                              <button
+                                onClick={() => handleOpenEditSale(sale)}
+                                title="Edit Transaction (Admin Only)"
+                                className={`p-1.5 rounded-lg transition-colors ${
+                                  themeMode === 'dark' ? 'text-gray-400 hover:text-blue-400 hover:bg-blue-500/10' : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                                }`}
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            )}
                             {isAdmin && (
                               <button
                                 onClick={() => handleDelete(sale.id, sale.reference)}
@@ -2465,6 +2536,162 @@ export const SaleManagementPanel: React.FC<SaleManagementPanelProps> = ({
                 Print Receipt
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT SALE MODAL (Admin Only) */}
+      {editingSale && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className={`${t.modalBg} rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden border border-slate-700/60 flex flex-col max-h-[92vh]`}>
+            {/* Header */}
+            <div className={`p-4 sm:p-5 border-b ${t.divider} flex items-center justify-between`}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-500 flex items-center justify-center">
+                  <Edit2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className={`font-bold text-base ${t.textHeading}`}>
+                    Edit Sale Record ({editingSale.reference})
+                  </h3>
+                  <p className={`text-xs ${t.textMuted}`}>
+                    Update sale details and sync financial records immediately.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSale(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveEditSale} className="p-4 sm:p-5 space-y-4 overflow-y-auto">
+              {editSaleError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold">
+                  {editSaleError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Sale Date: <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={editSaleDate}
+                    onChange={(e) => setEditSaleDate(e.target.value)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-mono font-medium ${t.textInput}`}
+                  />
+                </div>
+
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Customer Name:
+                  </label>
+                  <input
+                    type="text"
+                    value={editSaleCustomerName}
+                    onChange={(e) => setEditSaleCustomerName(e.target.value)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-medium ${t.textInput}`}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Customer Phone / WhatsApp:
+                  </label>
+                  <input
+                    type="tel"
+                    value={editSaleCustomerPhone}
+                    onChange={(e) => setEditSaleCustomerPhone(e.target.value)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-mono font-medium ${t.textInput}`}
+                  />
+                </div>
+
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Item Name: <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editSaleItemName}
+                    onChange={(e) => setEditSaleItemName(e.target.value)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-medium ${t.textInput}`}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Final Sale Amount ({settings.currencySymbol}): <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="any"
+                    value={editSaleAmount}
+                    onChange={(e) => setEditSaleAmount(e.target.value)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-mono font-bold ${t.textInput}`}
+                  />
+                </div>
+
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Payment Method:
+                  </label>
+                  <select
+                    value={editSalePaymentMethod}
+                    onChange={(e) => setEditSalePaymentMethod(e.target.value as any)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-semibold ${t.dropdownInput}`}
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="card">Card / POS</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="qr_transfer">QR / LankaQR</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                  Notes / Remarks:
+                </label>
+                <textarea
+                  rows={2}
+                  value={editSaleRemarks}
+                  onChange={(e) => setEditSaleRemarks(e.target.value)}
+                  className={`w-full rounded-xl p-3 text-xs ${t.textInput}`}
+                />
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-700/40">
+                <button
+                  type="button"
+                  onClick={() => setEditingSale(null)}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold ${t.inactiveTab}`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md transition cursor-pointer"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

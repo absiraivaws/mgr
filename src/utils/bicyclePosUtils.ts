@@ -3,7 +3,7 @@
  */
 
 import { RentalRecord, AppSettings, VehicleType, Vehicle } from '../types';
-import { cleanWhatsAppPhoneNumber, getActiveRentalMessage } from './customer';
+import { cleanWhatsAppPhoneNumber, getActiveRentalMessage, normalizeMessageText } from './customer';
 
 /**
  * Detect if a vehicle category is a Motorbike
@@ -104,18 +104,80 @@ export async function dispatchRentalNotification(
     extraTags['distance_km'] = `${rental.endKm - rental.startKm} km`;
   }
 
-  // Get compiled message using the fresh active template
-  const messageText = getActiveRentalMessage(
+  const customerPhoneRaw = overrideCustomerPhone || rental.customerWhatsapp || rental.customerPhone;
+  const customerName = overrideCustomerName || rental.customerName || 'Customer';
+
+  // Get compiled message using the fresh active template and normalize linebreaks
+  const rawMessageText = getActiveRentalMessage(
     templateId,
     rental,
     {
-      name: overrideCustomerName || rental.customerName,
-      phone: overrideCustomerPhone || rental.customerPhone,
+      name: customerName,
+      phone: customerPhoneRaw,
+      whatsappNumber: customerPhoneRaw,
       nicPassport: rental.customerNicPassport,
     },
     settings,
     extraTags
   );
+  const messageText = normalizeMessageText(rawMessageText);
+
+  // 1. Precompute recipient numbers & links
+  const cleanedCustomerPhone = customerPhoneRaw ? cleanWhatsAppPhoneNumber(customerPhoneRaw) : '';
+  const customerWaUrl = cleanedCustomerPhone
+    ? `https://wa.me/${cleanedCustomerPhone}?text=${encodeURIComponent(messageText)}`
+    : '';
+
+  const activeGroups = Array.isArray(settings.whatsappGroupLinks)
+    ? settings.whatsappGroupLinks.filter((g) => g && g.active !== false && g.url)
+    : [];
+  const primaryGroup = activeGroups.length > 0 ? activeGroups[0] : null;
+
+  // 2. Synchronous Browser Dispatch (MUST run synchronously during user-click gesture BEFORE any await/fetch)
+  if (typeof window !== 'undefined') {
+    // 2a. Immediately write clean message to clipboard so user can paste into group or chat instantly
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(messageText).catch(() => {});
+    }
+
+    // 2b. Synchronously launch customer WhatsApp chat
+    if (customerWaUrl) {
+      try {
+        window.open(customerWaUrl, '_blank');
+      } catch (e) {
+        console.warn('[WhatsApp Engine] Customer window.open notice:', e);
+      }
+    }
+
+    // 2c. Synchronously launch registered WhatsApp Group Link
+    if (primaryGroup && primaryGroup.url) {
+      try {
+        window.open(primaryGroup.url, '_blank');
+      } catch (e) {
+        console.warn('[WhatsApp Engine] Group window.open notice:', e);
+      }
+    }
+
+    // 2d. Dispatch interactive window event so App.tsx displays a persistent 1-click Action Banner
+    try {
+      window.dispatchEvent(
+        new CustomEvent('cycly_whatsapp_dispatch_toast', {
+          detail: {
+            rentalNumber: rental.rentalNumber || 'UNKNOWN',
+            type,
+            customerName,
+            customerPhone: customerPhoneRaw || '',
+            customerUrl: customerWaUrl,
+            groupName: primaryGroup?.name || 'Registered WhatsApp Group',
+            groupUrl: primaryGroup?.url || '',
+            messageText,
+          },
+        })
+      );
+    } catch (e) {
+      console.warn('[WhatsApp Engine] Toast event dispatch notice:', e);
+    }
+  }
 
   const result: DispatchNotificationResult = {
     success: true,
@@ -129,47 +191,41 @@ export async function dispatchRentalNotification(
 
   const deliveryRecipients: NotificationDeliveryRecipient[] = [];
 
-  // 1. Customer Notification
+  // 3. Customer Notification Record
   const shouldNotifyCustomer = type === 'start'
     ? (settings.notifyCustomerOnStart ?? true)
     : (settings.notifyCustomerOnEnd ?? true);
 
-  const customerPhoneRaw = overrideCustomerPhone || rental.customerPhone;
-  const customerName = overrideCustomerName || rental.customerName || 'Customer';
-
   if (shouldNotifyCustomer) {
-    if (customerPhoneRaw) {
-      const cleaned = cleanWhatsAppPhoneNumber(customerPhoneRaw);
-      if (cleaned) {
-        deliveryRecipients.push({
-          role: 'customer',
-          name: customerName,
-          phoneOrUrl: cleaned,
-          status: 'simulated',
-        });
-        result.customerSent = true;
-      } else {
-        result.errors.push(`Customer phone "${customerPhoneRaw}" could not be formatted into a valid WhatsApp number.`);
-        deliveryRecipients.push({
-          role: 'customer',
-          name: customerName,
-          phoneOrUrl: customerPhoneRaw,
-          status: 'failed',
-          error: 'Invalid phone number format',
-        });
-      }
+    if (cleanedCustomerPhone) {
+      deliveryRecipients.push({
+        role: 'customer',
+        name: customerName,
+        phoneOrUrl: cleanedCustomerPhone,
+        status: 'simulated',
+      });
+      result.customerSent = true;
+    } else if (customerPhoneRaw) {
+      result.errors.push(`Customer phone "${customerPhoneRaw}" could not be formatted into a valid WhatsApp number.`);
+      deliveryRecipients.push({
+        role: 'customer',
+        name: customerName,
+        phoneOrUrl: customerPhoneRaw,
+        status: 'failed',
+        error: 'Invalid phone number format',
+      });
     } else {
       deliveryRecipients.push({
         role: 'customer',
         name: customerName,
         phoneOrUrl: 'Not provided',
         status: 'failed',
-        error: 'No phone number provided during rental start',
+        error: 'No WhatsApp number provided for customer',
       });
     }
   }
 
-  // 2. Additional WhatsApp Contacts
+  // 4. Additional WhatsApp Contacts
   const shouldNotifyAdditional = type === 'start'
     ? (settings.notifyAdditionalContactsOnStart ?? true)
     : (settings.notifyAdditionalContactsOnEnd ?? true);
@@ -199,8 +255,8 @@ export async function dispatchRentalNotification(
     }
   }
 
-  // 3. WhatsApp Group Links
-  if (Array.isArray(settings.whatsappGroupLinks)) {
+  // 5. WhatsApp Group Links
+  if (shouldNotifyAdditional && Array.isArray(settings.whatsappGroupLinks)) {
     for (const group of settings.whatsappGroupLinks) {
       if (group && group.active !== false && group.url) {
         deliveryRecipients.push({
@@ -216,30 +272,30 @@ export async function dispatchRentalNotification(
 
   result.recipients = deliveryRecipients.map((r) => r.phoneOrUrl);
 
-  // 4. Dispatch via backend WhatsApp endpoint (/api/whatsapp/send)
-  const phoneRecipients = deliveryRecipients.filter((r) => r.role === 'customer' || r.role === 'additional_contact');
-
+  // 6. Dispatch via backend WhatsApp endpoint (/api/whatsapp/send)
   await Promise.allSettled(
-    phoneRecipients.map(async (rec) => {
+    deliveryRecipients.map(async (rec) => {
       try {
+        const isGroup = rec.role === 'group';
         const res = await fetch('/api/whatsapp/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             to: rec.phoneOrUrl,
             message: messageText,
+            isGroup,
+            groupName: isGroup ? rec.name : undefined,
             gatewayUrl: settings.whatsappApiUrl || undefined,
             apiKey: settings.whatsappApiKey || undefined,
           }),
         });
 
         if (res.ok) {
-          const resData = await res.json().catch(() => ({}));
           if (settings.whatsappApiUrl) {
             rec.status = 'delivered';
           } else {
             rec.status = 'simulated';
-            rec.error = 'Simulated delivery (WhatsApp Gateway API URL not configured in settings)';
+            rec.error = 'Simulated delivery (Direct automated dispatch active)';
           }
         } else {
           const errData = await res.json().catch(() => ({}));
@@ -254,18 +310,6 @@ export async function dispatchRentalNotification(
       }
     })
   );
-
-  // 5. If direct browser link mode is configured, or wa_link mode
-  if (settings.whatsappGatewayMode === 'wa_link' && customerPhoneRaw) {
-    try {
-      const cleaned = cleanWhatsAppPhoneNumber(customerPhoneRaw);
-      if (cleaned) {
-        window.open(`https://wa.me/${cleaned}?text=${encodeURIComponent(messageText)}`, '_blank');
-      }
-    } catch (e) {
-      console.error('Failed to trigger window.open for WhatsApp:', e);
-    }
-  }
 
   // 6. Record Delivery Audit Log
   const hasErrors = deliveryRecipients.some((r) => r.status === 'failed');

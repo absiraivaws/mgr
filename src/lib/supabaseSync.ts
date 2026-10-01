@@ -1,5 +1,6 @@
 import { getSupabase } from './supabase';
 import { AppSettings, Customer, CustomerGroup, CustomerStatus, MessageHistoryEntry, MessageTemplate, RentalRecord, Vehicle, VehicleType } from '../types';
+import { normalizeMessageText } from '../utils/customer';
 import { RoleDefinition, UserAccount } from '../utils/auth';
 import type {
   TransportV2Request,
@@ -276,13 +277,41 @@ export async function fetchSupabaseData(): Promise<{
     }
 
     if (templatesRes && templatesRes.data && templatesRes.data.length > 0) {
-      result.messageTemplates = templatesRes.data.map((row: any) => ({
-        id: row.id,
-        title: row.title,
-        category: row.category,
-        content: row.content,
-        createdAt: row.created_at ? Number(row.created_at) : Date.now(),
-      }));
+      const configRow = templatesRes.data.find((row: any) => row.id === '__cycly_notification_config__');
+      if (configRow && configRow.content) {
+        try {
+          const cfg = JSON.parse(configRow.content);
+          if (!result.settings) {
+            result.settings = {} as any;
+          }
+          if (Array.isArray(cfg.additionalWhatsAppContacts)) {
+            result.settings.additionalWhatsAppContacts = cfg.additionalWhatsAppContacts;
+          }
+          if (Array.isArray(cfg.whatsappGroupLinks)) {
+            result.settings.whatsappGroupLinks = cfg.whatsappGroupLinks;
+          }
+          if (cfg.notifyCustomerOnStart !== undefined) result.settings.notifyCustomerOnStart = cfg.notifyCustomerOnStart;
+          if (cfg.notifyCustomerOnEnd !== undefined) result.settings.notifyCustomerOnEnd = cfg.notifyCustomerOnEnd;
+          if (cfg.notifyAdditionalContactsOnStart !== undefined) result.settings.notifyAdditionalContactsOnStart = cfg.notifyAdditionalContactsOnStart;
+          if (cfg.notifyAdditionalContactsOnEnd !== undefined) result.settings.notifyAdditionalContactsOnEnd = cfg.notifyAdditionalContactsOnEnd;
+          if (cfg.notifyCustomerOnBirthday !== undefined) result.settings.notifyCustomerOnBirthday = cfg.notifyCustomerOnBirthday;
+          if (cfg.notifyRentalReminders !== undefined) result.settings.notifyRentalReminders = cfg.notifyRentalReminders;
+          if (cfg.whatsappApiUrl !== undefined) result.settings.whatsappApiUrl = cfg.whatsappApiUrl;
+          if (cfg.whatsappApiKey !== undefined) result.settings.whatsappApiKey = cfg.whatsappApiKey;
+        } catch (e) {
+          console.warn('Failed to parse __cycly_notification_config__:', e);
+        }
+      }
+
+      result.messageTemplates = templatesRes.data
+        .filter((row: any) => row.id !== '__cycly_notification_config__')
+        .map((row: any) => ({
+          id: row.id,
+          title: row.title,
+          category: row.category,
+          content: normalizeMessageText(row.content || ''),
+          createdAt: row.created_at ? Number(row.created_at) : Date.now(),
+        }));
     }
 
     return result;
@@ -575,26 +604,84 @@ export async function deleteVehicleTypeFromSupabase(id: string): Promise<{ succe
 }
 
 /**
- * Delete a vehicle from Supabase
+ * Delete a vehicle from Supabase by id and/or serialNumber
  */
-export async function deleteVehicleFromSupabase(id: string): Promise<{ success: boolean; error?: string }> {
+export async function deleteVehicleFromSupabase(id: string, serialNumber?: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabase();
   if (!supabase) return { success: false, error: 'Supabase not configured' };
 
   try {
-    const { error: errById } = await supabase.from('vehicles').delete().eq('id', id);
-    if (errById) {
-      console.warn(`[SupabaseSync] Could not delete vehicle by id "${id}":`, errById.message);
-      // Attempt delete by serial_number in case id was different in cloud
-      const { error: errBySerial } = await supabase.from('vehicles').delete().eq('serial_number', id);
-      if (errBySerial) {
-        return { success: false, error: errById.message || errBySerial.message };
+    let hasError = false;
+    let errorMsg = '';
+
+    // 1. Delete by ID if provided
+    if (id) {
+      const { error: errById } = await supabase.from('vehicles').delete().eq('id', id);
+      if (errById) {
+        hasError = true;
+        errorMsg = errById.message;
       }
+    }
+
+    // 2. Delete by serialNumber if provided, or if id was passed as a serial number
+    const targetSerial = serialNumber || (id && !id.startsWith('veh-') ? id : undefined);
+    if (targetSerial) {
+      const { error: errBySerial } = await supabase.from('vehicles').delete().eq('serial_number', targetSerial);
+      if (errBySerial) {
+        hasError = true;
+        errorMsg = errBySerial.message;
+      }
+      // Also delete by case-insensitive serial
+      await supabase.from('vehicles').delete().ilike('serial_number', targetSerial);
+    }
+
+    if (hasError && errorMsg) {
+      console.warn(`[SupabaseSync] Warning during vehicle deletion for "${id} / ${serialNumber}":`, errorMsg);
     }
     return { success: true };
   } catch (err: any) {
     console.error('Failed to delete vehicle from Supabase:', err);
     return { success: false, error: err?.message || 'Delete vehicle failed' };
+  }
+}
+
+/**
+ * Persist WhatsApp contacts, group links, and automated notification rules to Supabase
+ */
+export async function syncNotificationConfigToSupabase(settings: Partial<AppSettings>): Promise<{ success: boolean; error?: string }> {
+  const supabase = getSupabase();
+  if (!supabase) return { success: false, error: 'Supabase client not configured' };
+
+  try {
+    const payload = {
+      id: '__cycly_notification_config__',
+      title: 'Cycly Notification System Configuration',
+      category: 'system_config',
+      content: JSON.stringify({
+        additionalWhatsAppContacts: settings.additionalWhatsAppContacts || [],
+        whatsappGroupLinks: settings.whatsappGroupLinks || [],
+        notifyCustomerOnStart: settings.notifyCustomerOnStart ?? true,
+        notifyCustomerOnEnd: settings.notifyCustomerOnEnd ?? true,
+        notifyAdditionalContactsOnStart: settings.notifyAdditionalContactsOnStart ?? true,
+        notifyAdditionalContactsOnEnd: settings.notifyAdditionalContactsOnEnd ?? true,
+        notifyCustomerOnBirthday: settings.notifyCustomerOnBirthday ?? true,
+        notifyRentalReminders: settings.notifyRentalReminders ?? true,
+        whatsappApiUrl: settings.whatsappApiUrl || '',
+        whatsappApiKey: settings.whatsappApiKey || '',
+        updatedAt: Date.now(),
+      }),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from('message_templates').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.error('[SupabaseSync] Failed to upsert __cycly_notification_config__:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.error('[SupabaseSync] Error in syncNotificationConfigToSupabase:', err);
+    return { success: false, error: err?.message || 'Failed to sync notification config' };
   }
 }
 
@@ -624,6 +711,9 @@ export async function syncSettingsToSupabase(settings: AppSettings) {
     if (error) {
       console.error('Failed to upsert app_settings to Supabase:', error);
     }
+
+    // Simultaneously sync notification contacts and group links
+    await syncNotificationConfigToSupabase(settings);
   } catch (err) {
     console.error('Failed to sync app settings to Supabase:', err);
   }
@@ -1027,21 +1117,40 @@ export async function fetchIncomeEntries(): Promise<import('../types').IncomeEnt
 
     if (error || !data) return null;
 
-    return data.map((row) => ({
-      id: row.id,
-      date: row.date,
-      description: row.description,
-      type: row.type as 'income' | 'expense',
-      amount: Number(row.amount || 0),
-      category: row.category || 'Other',
-      who: (row.who && row.who !== 'Mark') ? row.who : (row.cashier_name || 'Staff'),
-      createdAt: row.created_at ? Number(row.created_at) : Date.now(),
-      cashierName: row.cashier_name || '',
-      reference: row.reference || undefined,
-      paymentMethod: row.payment_method || undefined,
-      remarks: row.remarks || undefined,
-      enteredBy: row.who || row.cashier_name || 'Staff',
-    }));
+    let deletedIds: string[] = [];
+    try {
+      deletedIds = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
+    } catch {}
+    const deletedSet = new Set(deletedIds);
+
+    return data
+      .filter((row) => {
+        if (deletedSet.has(row.id)) return false;
+        if (row.reference && (deletedSet.has(row.reference) || deletedSet.has(`RENT-${row.reference}`))) return false;
+        if (row.description) {
+          for (const tid of deletedIds) {
+            if (tid && tid.length >= 4 && row.description.includes(tid)) {
+              return false;
+            }
+          }
+        }
+        return true;
+      })
+      .map((row) => ({
+        id: row.id,
+        date: row.date,
+        description: row.description,
+        type: row.type as 'income' | 'expense',
+        amount: Number(row.amount || 0),
+        category: row.category || 'Other',
+        who: (row.who && row.who !== 'Mark') ? row.who : (row.cashier_name || 'Staff'),
+        createdAt: row.created_at ? Number(row.created_at) : Date.now(),
+        cashierName: row.cashier_name || '',
+        reference: row.reference || undefined,
+        paymentMethod: row.payment_method || undefined,
+        remarks: row.remarks || undefined,
+        enteredBy: row.who || row.cashier_name || 'Staff',
+      }));
   } catch (err) {
     console.warn('Failed to fetch income entries:', err);
     return null;
@@ -1109,23 +1218,46 @@ export async function syncAllIncomeEntriesToSupabase(entries: import('../types')
 }
 
 /**
- * Delete an income/expense entry from Supabase
+ * Delete an income/expense entry from Supabase by ID, optional reference, and description
  */
-export async function deleteIncomeEntryFromSupabase(id: string) {
+export async function deleteIncomeEntryFromSupabase(id: string, reference?: string, description?: string) {
   const supabase = getSupabase();
   if (!supabase) return;
 
   try {
-    const { error } = await supabase.from('income_expenses').delete().eq('id', id);
-    if (error) {
-      console.error('[Supabase] Error deleting income entry:', error);
+    if (id) {
+      const { error } = await supabase.from('income_expenses').delete().eq('id', id);
+      if (error) {
+        console.error('[Supabase] Error deleting income entry by id:', error);
+      }
+    }
+
+    // Try deleting by reference if supported
+    if (reference) {
+      try {
+        await supabase.from('income_expenses').delete().eq('reference', reference);
+      } catch {}
+    }
+
+    // Delete by description pattern if it corresponds to a rental
+    const targetDesc = description || (reference ? `Rental #${reference}` : undefined);
+    if (targetDesc) {
+      const match = targetDesc.match(/Rental #([A-Za-z0-9-]+)/);
+      if (match && match[1]) {
+        const rentNum = match[1];
+        await supabase.from('income_expenses').delete().ilike('description', `%${rentNum}%`);
+      }
+    }
+    if (reference) {
+      const cleanRef = reference.replace(/^RENT-/, '');
+      if (cleanRef) {
+        await supabase.from('income_expenses').delete().ilike('description', `%${cleanRef}%`);
+      }
     }
   } catch (err) {
     console.error('Failed to delete income entry from Supabase:', err);
   }
 }
-
-
 
 /**
  * Fetch all message templates from Supabase
@@ -1146,13 +1278,15 @@ export async function fetchMessageTemplatesFromSupabase(): Promise<import('../ty
     }
 
     if (data) {
-      return data.map((row) => ({
-        id: row.id,
-        title: row.title,
-        category: row.category,
-        content: row.content,
-        createdAt: row.created_at ? Number(row.created_at) : undefined,
-      }));
+      return data
+        .filter((row) => row.id !== '__cycly_notification_config__')
+        .map((row) => ({
+          id: row.id,
+          title: row.title,
+          category: row.category,
+          content: normalizeMessageText(row.content || ''),
+          createdAt: row.created_at ? Number(row.created_at) : undefined,
+        }));
     }
     return [];
   } catch (err) {
@@ -1169,11 +1303,13 @@ export async function syncMessageTemplateToSupabase(template: import('../types')
   if (!supabase) return { success: true };
 
   try {
+    const cleanContent = normalizeMessageText(template.content || '');
+
     const payload = {
       id: template.id,
       title: template.title,
       category: template.category,
-      content: template.content,
+      content: cleanContent,
       created_at: template.createdAt || Date.now(),
     };
 
@@ -1221,7 +1357,7 @@ export async function syncAllMessageTemplatesToSupabase(templates: import('../ty
       id: t.id,
       title: t.title,
       category: t.category,
-      content: t.content,
+      content: normalizeMessageText(t.content || ''),
       created_at: t.createdAt || Date.now(),
     }));
 

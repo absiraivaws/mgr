@@ -375,7 +375,9 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
       playSoundEffect('start');
     }
 
-    const phoneToUse = customerPhone.trim() || matchedCustomer?.whatsappNumber || matchedCustomer?.phone;
+    const finalCustomerName = customerName.trim() || matchedCustomer?.fullName || matchedCustomer?.name || 'Customer';
+    const phoneToUse = customerPhone.trim() || matchedCustomer?.phone || matchedCustomer?.whatsappNumber;
+    const whatsappToUse = customerWhatsapp.trim() || matchedCustomer?.whatsappNumber || phoneToUse;
 
     let customStartMs: number | undefined = undefined;
     if (isCustomStartTime && customStartTimeInput) {
@@ -397,7 +399,7 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
       userEmail: activeUser.email,
       action: isStartedViaQR ? 'Rental Started by QR' : 'Manual Rental Started',
       reference: nextRentalNumber,
-      details: `${isStartedViaQR ? 'QR Scan' : 'Manual selection'} rental started for ${cleanSerial} (${selectedType?.name || 'Vehicle'}) to customer ${customerName.trim() || matchedCustomer?.fullName || matchedCustomer?.name || 'Customer'}${customerNicPassport ? ` (NIC: ${customerNicPassport})` : ''}`,
+      details: `${isStartedViaQR ? 'QR Scan' : 'Manual selection'} rental started for ${cleanSerial} (${selectedType?.name || 'Vehicle'}) to customer ${finalCustomerName}${customerNicPassport ? ` (NIC: ${customerNicPassport})` : ''}`,
     });
 
     const enteredDepositNum = depositAmount ? parseFloat(depositAmount) : 0;
@@ -409,9 +411,9 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
     onStartRental({
       vehicleTypeId: selectedTypeId,
       vehicleSerialNumber: cleanSerial,
-      customerName: customerName.trim() || undefined,
+      customerName: finalCustomerName,
       customerPhone: phoneToUse || undefined,
-      customerWhatsapp: customerWhatsapp.trim() || undefined,
+      customerWhatsapp: whatsappToUse || undefined,
       customerNicPassport: customerNicPassport.trim() || undefined,
       customerNotes: customerNotes.trim() || undefined,
       depositAmount: finalDepositToRecord > 0 ? finalDepositToRecord : undefined,
@@ -439,15 +441,16 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
           totalAmount: selectedType?.rates.firstHour || 0,
           rateSnapshot: selectedType?.rates || { firstHour: 0, every30Min: 0 },
           cashierName: activeUser.name || 'Counter',
-          customerName: customerName.trim() || matchedCustomer?.fullName || matchedCustomer?.name,
+          customerName: finalCustomerName,
           customerPhone: phoneToUse,
+          customerWhatsapp: whatsappToUse,
           customerNicPassport: customerNicPassport.trim(),
           startKm: startKm ? parseFloat(startKm) : undefined,
           status: 'active',
         },
         settings,
-        overrideCustomerPhone: phoneToUse,
-        overrideCustomerName: customerName.trim() || matchedCustomer?.fullName || matchedCustomer?.name,
+        overrideCustomerPhone: whatsappToUse,
+        overrideCustomerName: finalCustomerName,
       }).catch((e) => console.error('Failed to trigger start rental notification:', e));
     }
 
@@ -789,69 +792,71 @@ export const StartRentalCard: React.FC<StartRentalCardProps> = ({
             )}
           </div>
 
-          {/* Customer Name, Mobile & WhatsApp Inputs */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className={`text-xs font-semibold flex items-center gap-1 ${t.textHeading}`}>
-                  <User className="w-3.5 h-3.5 text-slate-400" />
-                  Full Name
-                </label>
+          {/* Customer Name, Mobile & WhatsApp Inputs (Shown only for new/unmatched customer entry) */}
+          {!matchedCustomer && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className={`text-xs font-semibold flex items-center gap-1 ${t.textHeading}`}>
+                    <User className="w-3.5 h-3.5 text-slate-400" />
+                    Full Name
+                  </label>
+                </div>
+                <input
+                  id="input-customer-name"
+                  type="text"
+                  placeholder="Customer full name..."
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2.5 text-xs ${t.textInput}`}
+                />
               </div>
-              <input
-                id="input-customer-name"
-                type="text"
-                placeholder="Customer full name..."
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className={`w-full rounded-xl px-3 py-2.5 text-xs ${t.textInput}`}
-              />
-            </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className={`text-xs font-semibold flex items-center gap-1 ${t.textHeading}`}>
-                  <Phone className="w-3.5 h-3.5 text-slate-400" />
-                  Mobile Number
-                </label>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className={`text-xs font-semibold flex items-center gap-1 ${t.textHeading}`}>
+                    <Phone className="w-3.5 h-3.5 text-slate-400" />
+                    Mobile Number
+                  </label>
+                </div>
+                <input
+                  id="input-customer-phone"
+                  type="tel"
+                  placeholder="e.g. 077 123 4567"
+                  value={customerPhone}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2.5 text-xs font-mono ${t.textInput}`}
+                />
               </div>
-              <input
-                id="input-customer-phone"
-                type="tel"
-                placeholder="e.g. 077 123 4567"
-                value={customerPhone}
-                onChange={(e) => handlePhoneChange(e.target.value)}
-                className={`w-full rounded-xl px-3 py-2.5 text-xs font-mono ${t.textInput}`}
-              />
-            </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold flex items-center gap-1 text-emerald-500">
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  WhatsApp Number
-                </label>
-                {customerPhone && customerPhone !== customerWhatsapp && (
-                  <button
-                    type="button"
-                    onClick={() => setCustomerWhatsapp(customerPhone)}
-                    className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer font-bold"
-                    title="Copy mobile number to WhatsApp"
-                  >
-                    Same as Mobile
-                  </button>
-                )}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold flex items-center gap-1 text-emerald-500">
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    WhatsApp Number
+                  </label>
+                  {customerPhone && customerPhone !== customerWhatsapp && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomerWhatsapp(customerPhone)}
+                      className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer font-bold"
+                      title="Copy mobile number to WhatsApp"
+                    >
+                      Same as Mobile
+                    </button>
+                  )}
+                </div>
+                <input
+                  id="input-customer-whatsapp"
+                  type="tel"
+                  placeholder="e.g. 077 123 4567"
+                  value={customerWhatsapp}
+                  onChange={(e) => setCustomerWhatsapp(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2.5 text-xs font-mono text-emerald-600 dark:text-emerald-400 ${t.textInput}`}
+                />
               </div>
-              <input
-                id="input-customer-whatsapp"
-                type="tel"
-                placeholder="e.g. 077 123 4567"
-                value={customerWhatsapp}
-                onChange={(e) => setCustomerWhatsapp(e.target.value)}
-                className={`w-full rounded-xl px-3 py-2.5 text-xs font-mono text-emerald-600 dark:text-emerald-400 ${t.textInput}`}
-              />
             </div>
-          </div>
+          )}
         </div>
 
         {/* ================= STEP 2: SELECT / SCAN VEHICLE ================= */}

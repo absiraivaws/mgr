@@ -32,6 +32,7 @@ import {
   deleteMessageTemplateFromSupabase,
   fetchMessageTemplatesFromSupabase,
   syncSettingsToSupabase,
+  syncNotificationConfigToSupabase,
 } from '../lib/supabaseSync';
 import {
   DEFAULT_MESSAGE_TEMPLATES,
@@ -63,6 +64,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
   onUpdateSettings,
 }) => {
   const t = getThemeClasses(themeMode, accent);
+  const isDark = themeMode !== 'light';
 
   // Active sub-tab: 'templates' | 'contacts' | 'delivery_logs'
   const [activeSubTab, setActiveSubTab] = useState<'templates' | 'contacts' | 'delivery_logs'>('templates');
@@ -122,6 +124,15 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupUrl, setNewGroupUrl] = useState('');
   const [groupError, setGroupError] = useState<string | null>(null);
+
+  // Edit Contact & Group states
+  const [editingContact, setEditingContact] = useState<NotificationContact | null>(null);
+  const [editContactName, setEditContactName] = useState('');
+  const [editContactPhone, setEditContactPhone] = useState('');
+
+  const [editingGroup, setEditingGroup] = useState<WhatsAppGroupLink | null>(null);
+  const [editGroupName, setEditGroupName] = useState('');
+  const [editGroupUrl, setEditGroupUrl] = useState('');
 
   const [saveSettingsSuccess, setSaveSettingsSuccess] = useState<string | null>(null);
 
@@ -381,6 +392,38 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
     handlePersistNotificationSettings(additionalContacts, updated);
   };
 
+  const handleOpenEditContact = (c: NotificationContact) => {
+    setEditingContact(c);
+    setEditContactName(c.name);
+    setEditContactPhone(c.phone);
+  };
+
+  const handleSaveEditContact = () => {
+    if (!editingContact || !editContactName.trim()) return;
+    const updated = additionalContacts.map((c) =>
+      c.id === editingContact.id ? { ...c, name: editContactName.trim(), phone: editContactPhone.trim() } : c
+    );
+    setAdditionalContacts(updated);
+    handlePersistNotificationSettings(updated, groupLinks);
+    setEditingContact(null);
+  };
+
+  const handleOpenEditGroup = (g: WhatsAppGroupLink) => {
+    setEditingGroup(g);
+    setEditGroupName(g.name);
+    setEditGroupUrl(g.url);
+  };
+
+  const handleSaveEditGroup = () => {
+    if (!editingGroup || !editGroupName.trim() || !editGroupUrl.trim()) return;
+    const updated = groupLinks.map((g) =>
+      g.id === editingGroup.id ? { ...g, name: editGroupName.trim(), url: editGroupUrl.trim() } : g
+    );
+    setGroupLinks(updated);
+    handlePersistNotificationSettings(additionalContacts, updated);
+    setEditingGroup(null);
+  };
+
   const handlePersistNotificationSettings = (
     contacts = additionalContacts,
     groups = groupLinks,
@@ -411,10 +454,11 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
       localStorage.setItem('v_rental_settings', JSON.stringify(merged));
       if (isSupabaseConfigured()) {
         syncSettingsToSupabase(merged);
+        syncNotificationConfigToSupabase(merged);
       }
     }
 
-    setSaveSettingsSuccess('✓ WhatsApp notification contacts & settings saved!');
+    setSaveSettingsSuccess('✓ WhatsApp notification contacts & settings saved to database!');
     setTimeout(() => setSaveSettingsSuccess(null), 3000);
   };
 
@@ -504,7 +548,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
 
                     <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
                       {/* 1. Start - Customer */}
-                      <label className="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/40 transition cursor-pointer">
+                      <label className={`flex items-start gap-2.5 p-2 rounded-xl transition cursor-pointer ${isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-100'}`}>
                         <input
                           type="checkbox"
                           checked={notifyCustomerOnStart}
@@ -521,7 +565,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       </label>
 
                       {/* 2. Start - Additional Contacts */}
-                      <label className="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/40 transition cursor-pointer">
+                      <label className={`flex items-start gap-2.5 p-2 rounded-xl transition cursor-pointer ${isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-100'}`}>
                         <input
                           type="checkbox"
                           checked={notifyAdditionalOnStart}
@@ -538,7 +582,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       </label>
 
                       {/* 3. Return - Customer */}
-                      <label className="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/40 transition cursor-pointer">
+                      <label className={`flex items-start gap-2.5 p-2 rounded-xl transition cursor-pointer ${isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-100'}`}>
                         <input
                           type="checkbox"
                           checked={notifyCustomerOnEnd}
@@ -555,7 +599,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       </label>
 
                       {/* 4. Return - Additional Contacts */}
-                      <label className="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/40 transition cursor-pointer">
+                      <label className={`flex items-start gap-2.5 p-2 rounded-xl transition cursor-pointer ${isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-100'}`}>
                         <input
                           type="checkbox"
                           checked={notifyAdditionalOnEnd}
@@ -572,7 +616,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       </label>
 
                       {/* 5. Birthday Wishes */}
-                      <label className="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/40 transition cursor-pointer">
+                      <label className={`flex items-start gap-2.5 p-2 rounded-xl transition cursor-pointer ${isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-100'}`}>
                         <input
                           type="checkbox"
                           checked={notifyBirthday}
@@ -589,7 +633,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       </label>
 
                       {/* 6. Overdue & Return Reminders */}
-                      <label className="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-800/40 transition cursor-pointer">
+                      <label className={`flex items-start gap-2.5 p-2 rounded-xl transition cursor-pointer ${isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-100'}`}>
                         <input
                           type="checkbox"
                           checked={notifyReminders}
@@ -606,7 +650,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       </label>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-[11px]">
+                    <div className={`pt-2 border-t flex items-center justify-between text-[11px] ${isDark ? 'border-slate-700/60' : 'border-slate-200'}`}>
                       <button
                         type="button"
                         onClick={() => {
@@ -618,7 +662,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                           setNotifyReminders(true);
                           handlePersistNotificationSettings(undefined, undefined, true, true, true, true, true, true);
                         }}
-                        className="text-emerald-400 hover:underline font-semibold cursor-pointer"
+                        className="text-emerald-500 hover:underline font-semibold cursor-pointer"
                       >
                         Enable All
                       </button>
@@ -661,28 +705,30 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
 
         {/* FEEDBACK BANNERS */}
         {templateSuccess && (
-          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium flex items-center gap-2">
+          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-medium flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{templateSuccess}</span>
           </div>
         )}
 
         {saveSettingsSuccess && (
-          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium flex items-center gap-2">
+          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-medium flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{saveSettingsSuccess}</span>
           </div>
         )}
 
         {/* TOP SUB-TAB NAVIGATOR */}
-        <div className="flex items-center gap-2 p-1 rounded-xl bg-slate-900/40 border border-slate-700/50 max-w-fit">
+        <div className={`flex items-center gap-2 p-1 rounded-xl border max-w-fit ${
+          isDark ? 'bg-slate-900/40 border-slate-700/50' : 'bg-slate-100 border-slate-300'
+        }`}>
           <button
             type="button"
             onClick={() => setActiveSubTab('templates')}
             className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
               activeSubTab === 'templates'
                 ? 'bg-emerald-500 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-700 hover:text-slate-950 font-semibold'
             }`}
           >
             <MessageSquare className="w-3.5 h-3.5" />
@@ -695,7 +741,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
             className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
               activeSubTab === 'contacts'
                 ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-700 hover:text-slate-950 font-semibold'
             }`}
           >
             <Users className="w-3.5 h-3.5" />
@@ -708,7 +754,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
             className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
               activeSubTab === 'delivery_logs'
                 ? 'bg-cyan-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-700 hover:text-slate-950 font-semibold'
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
@@ -742,7 +788,13 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                     }`}
                   >
                     <span>{tab.label}</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-slate-700/50 text-slate-300'}`}>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      isActive
+                        ? 'bg-white/20 text-white'
+                        : isDark
+                        ? 'bg-slate-700/50 text-slate-300'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}>
                       {count}
                     </span>
                   </button>
@@ -753,7 +805,9 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
             {/* Template Cards Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredTemplates.length === 0 ? (
-                <div className="col-span-full p-8 rounded-2xl border border-dashed border-slate-700 text-center space-y-2">
+                <div className={`col-span-full p-8 rounded-2xl border border-dashed text-center space-y-2 ${
+                  isDark ? 'border-slate-700' : 'border-slate-300'
+                }`}>
                   <p className={`text-sm font-semibold ${t.textHeading}`}>
                     No message templates found in this category.
                   </p>
@@ -784,7 +838,9 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                                 {badgeInfo.label}
                               </span>
                               {(isWelcomeStart || isReturnThanks) && (
-                                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                                <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
+                                  isDark ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' : 'bg-cyan-50 text-cyan-700 border-cyan-300'
+                                }`}>
                                   {isWelcomeStart ? '⚡ Auto Start Message' : '⚡ Auto End Message'}
                                 </span>
                               )}
@@ -798,7 +854,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                             <button
                               type="button"
                               onClick={() => handleOpenEditTemplate(tmpl)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-500 hover:bg-emerald-500/10 transition cursor-pointer"
                               title="Edit Template"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
@@ -806,7 +862,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                             <button
                               type="button"
                               onClick={() => handleDeleteTemplate(tmpl.id, tmpl.title)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
                               title="Delete Template"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -815,17 +871,23 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                         </div>
 
                         {/* WhatsApp Message Preview Bubble */}
-                        <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-700/50 text-slate-200 text-xs font-mono leading-relaxed whitespace-pre-wrap select-all">
+                        <div className={`p-3.5 rounded-xl border text-xs font-mono leading-relaxed whitespace-pre-wrap select-all ${
+                          isDark
+                            ? 'bg-slate-900/60 border-slate-700/50 text-slate-200'
+                            : 'bg-emerald-50/70 border-emerald-200 text-slate-800 shadow-sm'
+                        }`}>
                           {tmpl.content}
                         </div>
                       </div>
 
-                      <div className="mt-3 pt-2.5 border-t border-slate-700/40 flex items-center justify-between text-[11px] text-slate-400">
+                      <div className={`mt-3 pt-2.5 border-t ${t.divider} flex items-center justify-between text-[11px] ${
+                        isDark ? 'text-slate-400' : 'text-slate-600 font-medium'
+                      }`}>
                         <span className="font-mono">ID: {tmpl.id}</span>
                         <button
                           type="button"
                           onClick={() => handleOpenEditTemplate(tmpl)}
-                          className="font-bold text-emerald-400 hover:underline flex items-center gap-1"
+                          className="font-bold text-emerald-500 hover:underline flex items-center gap-1"
                         >
                           <Edit3 className="w-3 h-3" />
                           <span>Customize Template</span>
@@ -855,7 +917,9 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-700/50 cursor-pointer">
+                <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer ${
+                  isDark ? 'bg-slate-900/40 border-slate-700/50' : 'bg-slate-50 border-slate-200 shadow-sm'
+                }`}>
                   <input
                     type="checkbox"
                     checked={notifyCustomerOnStart}
@@ -863,15 +927,17 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       setNotifyCustomerOnStart(e.target.checked);
                       handlePersistNotificationSettings(additionalContacts, groupLinks, e.target.checked);
                     }}
-                    className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500"
+                    className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500 cursor-pointer"
                   />
                   <div>
-                    <span className="font-bold text-slate-200 block">Customer on Start Rental</span>
-                    <span className="text-[11px] text-slate-400">Send welcome message to customer phone</span>
+                    <span className={`font-bold block ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Customer on Start Rental</span>
+                    <span className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Send welcome message to customer phone</span>
                   </div>
                 </label>
 
-                <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-700/50 cursor-pointer">
+                <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer ${
+                  isDark ? 'bg-slate-900/40 border-slate-700/50' : 'bg-slate-50 border-slate-200 shadow-sm'
+                }`}>
                   <input
                     type="checkbox"
                     checked={notifyCustomerOnEnd}
@@ -879,15 +945,17 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       setNotifyCustomerOnEnd(e.target.checked);
                       handlePersistNotificationSettings(additionalContacts, groupLinks, undefined, e.target.checked);
                     }}
-                    className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500"
+                    className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500 cursor-pointer"
                   />
                   <div>
-                    <span className="font-bold text-slate-200 block">Customer on End Rental</span>
-                    <span className="text-[11px] text-slate-400">Send return receipt message (without duration)</span>
+                    <span className={`font-bold block ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Customer on End Rental</span>
+                    <span className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Send return receipt message (without duration)</span>
                   </div>
                 </label>
 
-                <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-700/50 cursor-pointer">
+                <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer ${
+                  isDark ? 'bg-slate-900/40 border-slate-700/50' : 'bg-slate-50 border-slate-200 shadow-sm'
+                }`}>
                   <input
                     type="checkbox"
                     checked={notifyAdditionalOnStart}
@@ -895,15 +963,17 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       setNotifyAdditionalOnStart(e.target.checked);
                       handlePersistNotificationSettings(additionalContacts, groupLinks, undefined, undefined, e.target.checked);
                     }}
-                    className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500"
+                    className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500 cursor-pointer"
                   />
                   <div>
-                    <span className="font-bold text-slate-200 block">Additional Contacts on Start</span>
-                    <span className="text-[11px] text-slate-400">Notify Owner/Manager when a rental starts</span>
+                    <span className={`font-bold block ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Additional Contacts on Start</span>
+                    <span className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Notify Owner/Manager when a rental starts</span>
                   </div>
                 </label>
 
-                <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-700/50 cursor-pointer">
+                <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer ${
+                  isDark ? 'bg-slate-900/40 border-slate-700/50' : 'bg-slate-50 border-slate-200 shadow-sm'
+                }`}>
                   <input
                     type="checkbox"
                     checked={notifyAdditionalOnEnd}
@@ -911,11 +981,11 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       setNotifyAdditionalOnEnd(e.target.checked);
                       handlePersistNotificationSettings(additionalContacts, groupLinks, undefined, undefined, undefined, e.target.checked);
                     }}
-                    className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500"
+                    className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500 cursor-pointer"
                   />
                   <div>
-                    <span className="font-bold text-slate-200 block">Additional Contacts on End</span>
-                    <span className="text-[11px] text-slate-400">Notify Owner/Manager when rental settles</span>
+                    <span className={`font-bold block ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Additional Contacts on End</span>
+                    <span className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Notify Owner/Manager when rental settles</span>
                   </div>
                 </label>
               </div>
@@ -926,7 +996,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <PhoneCall className="w-4 h-4 text-cyan-400" />
+                    <PhoneCall className="w-4 h-4 text-cyan-500" />
                     <h3 className={`text-sm font-bold ${t.textHeading}`}>
                       Additional WhatsApp Notification Numbers
                     </h3>
@@ -938,8 +1008,10 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
               </div>
 
               {/* Add New Contact Form */}
-              <div className="p-3.5 rounded-xl bg-slate-900/50 border border-slate-700/60 space-y-3">
-                <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider block">
+              <div className={`p-3.5 rounded-xl border space-y-3 ${
+                isDark ? 'bg-slate-900/50 border-slate-700/60' : 'bg-white border-slate-200 shadow-sm'
+              }`}>
+                <span className="text-xs font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-wider block">
                   Add Additional WhatsApp Contact
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
@@ -965,7 +1037,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                     <button
                       type="button"
                       onClick={handleAddContact}
-                      className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 ${t.primaryBtn}`}
+                      className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer ${t.primaryBtn}`}
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>Add</span>
@@ -973,14 +1045,16 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                   </div>
                 </div>
                 {contactError && (
-                  <p className="text-xs text-rose-400 font-semibold">{contactError}</p>
+                  <p className="text-xs text-rose-500 font-semibold">{contactError}</p>
                 )}
               </div>
 
               {/* Contacts Table */}
-              <div className="overflow-x-auto rounded-xl border border-slate-700/60">
+              <div className={`overflow-x-auto rounded-xl border ${isDark ? 'border-slate-700/60' : 'border-slate-200 shadow-sm'}`}>
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-900/70 border-b border-slate-700/60 text-slate-300 font-bold uppercase text-[11px]">
+                  <thead className={`border-b font-bold uppercase text-[11px] ${
+                    isDark ? 'bg-slate-900/70 border-slate-700/60 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                  }`}>
                     <tr>
                       <th className="py-2.5 px-3">Name / Role</th>
                       <th className="py-2.5 px-3">WhatsApp Number</th>
@@ -988,7 +1062,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       <th className="py-2.5 px-3 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-700/30">
+                  <tbody className={`divide-y ${isDark ? 'divide-slate-700/30' : 'divide-slate-200'}`}>
                     {additionalContacts.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="py-6 text-center text-slate-500 italic">
@@ -997,9 +1071,9 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       </tr>
                     ) : (
                       additionalContacts.map((c) => (
-                        <tr key={c.id} className="hover:bg-slate-800/30 transition">
-                          <td className="py-2.5 px-3 font-semibold text-slate-200">{c.name}</td>
-                          <td className="py-2.5 px-3 font-mono text-emerald-400">
+                        <tr key={c.id} className={`transition ${isDark ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50'}`}>
+                          <td className={`py-2.5 px-3 font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{c.name}</td>
+                          <td className={`py-2.5 px-3 font-mono ${isDark ? 'text-emerald-400' : 'text-emerald-700 font-bold'}`}>
                             {cleanWhatsAppPhoneNumber(c.phone) || c.phone}
                           </td>
                           <td className="py-2.5 px-3 text-center">
@@ -1008,22 +1082,32 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                               onClick={() => handleToggleContact(c.id)}
                               className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition ${
                                 c.active !== false
-                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                  : 'bg-slate-700 text-slate-400'
+                                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                                  : isDark ? 'bg-slate-700 text-slate-400' : 'bg-slate-200 text-slate-600'
                               }`}
                             >
                               {c.active !== false ? '● Active' : 'Disabled'}
                             </button>
                           </td>
                           <td className="py-2.5 px-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteContact(c.id)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
-                              title="Delete Contact"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditContact(c)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-emerald-500 hover:bg-emerald-500/10 transition cursor-pointer"
+                                title="Edit Contact"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteContact(c.id)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
+                                title="Delete Contact"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -1038,7 +1122,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <LinkIcon className="w-4 h-4 text-purple-400" />
+                    <LinkIcon className="w-4 h-4 text-purple-500" />
                     <h3 className={`text-sm font-bold ${t.textHeading}`}>
                       WhatsApp Group Links
                     </h3>
@@ -1050,8 +1134,10 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
               </div>
 
               {/* Add New Group Link Form */}
-              <div className="p-3.5 rounded-xl bg-slate-900/50 border border-slate-700/60 space-y-3">
-                <span className="text-xs font-bold text-purple-400 uppercase tracking-wider block">
+              <div className={`p-3.5 rounded-xl border space-y-3 ${
+                isDark ? 'bg-slate-900/50 border-slate-700/60' : 'bg-white border-slate-200 shadow-sm'
+              }`}>
+                <span className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider block">
                   Add WhatsApp Group Link
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
@@ -1077,7 +1163,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                     <button
                       type="button"
                       onClick={handleAddGroupLink}
-                      className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 ${t.primaryBtn}`}
+                      className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer ${t.primaryBtn}`}
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>Add</span>
@@ -1085,14 +1171,16 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                   </div>
                 </div>
                 {groupError && (
-                  <p className="text-xs text-rose-400 font-semibold">{groupError}</p>
+                  <p className="text-xs text-rose-500 font-semibold">{groupError}</p>
                 )}
               </div>
 
               {/* Group Links Table */}
-              <div className="overflow-x-auto rounded-xl border border-slate-700/60">
+              <div className={`overflow-x-auto rounded-xl border ${isDark ? 'border-slate-700/60' : 'border-slate-200 shadow-sm'}`}>
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-900/70 border-b border-slate-700/60 text-slate-300 font-bold uppercase text-[11px]">
+                  <thead className={`border-b font-bold uppercase text-[11px] ${
+                    isDark ? 'bg-slate-900/70 border-slate-700/60 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                  }`}>
                     <tr>
                       <th className="py-2.5 px-3">Group Name</th>
                       <th className="py-2.5 px-3">Group Link</th>
@@ -1100,7 +1188,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       <th className="py-2.5 px-3 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-700/30">
+                  <tbody className={`divide-y ${isDark ? 'divide-slate-700/30' : 'divide-slate-200'}`}>
                     {groupLinks.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="py-6 text-center text-slate-500 italic">
@@ -1109,9 +1197,9 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       </tr>
                     ) : (
                       groupLinks.map((g) => (
-                        <tr key={g.id} className="hover:bg-slate-800/30 transition">
-                          <td className="py-2.5 px-3 font-semibold text-slate-200">{g.name}</td>
-                          <td className="py-2.5 px-3 font-mono text-cyan-400 max-w-xs truncate">
+                        <tr key={g.id} className={`transition ${isDark ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50'}`}>
+                          <td className={`py-2.5 px-3 font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{g.name}</td>
+                          <td className={`py-2.5 px-3 font-mono max-w-xs truncate ${isDark ? 'text-cyan-400' : 'text-cyan-700 font-semibold'}`}>
                             <a
                               href={g.url}
                               target="_blank"
@@ -1128,22 +1216,32 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                               onClick={() => handleToggleGroup(g.id)}
                               className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition ${
                                 g.active !== false
-                                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                                  : 'bg-slate-700 text-slate-400'
+                                  ? 'bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30'
+                                  : isDark ? 'bg-slate-700 text-slate-400' : 'bg-slate-200 text-slate-600'
                               }`}
                             >
                               {g.active !== false ? '● Active' : 'Disabled'}
                             </button>
                           </td>
                           <td className="py-2.5 px-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteGroup(g.id)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
-                              title="Delete Group Link"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditGroup(g)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-purple-500 hover:bg-purple-500/10 transition cursor-pointer"
+                                title="Edit Group Link"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteGroup(g.id)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
+                                title="Delete Group Link"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -1152,6 +1250,118 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                 </table>
               </div>
             </div>
+
+            {/* Modal for Editing Contact */}
+            {editingContact && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+                <div className={`w-full max-w-md p-5 rounded-2xl border shadow-2xl space-y-4 ${t.modalBg}`}>
+                  <div className="flex items-center justify-between border-b pb-3">
+                    <h3 className={`text-sm font-bold ${t.textHeading}`}>Edit WhatsApp Contact</h3>
+                    <button
+                      type="button"
+                      onClick={() => setEditingContact(null)}
+                      className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs font-semibold block mb-1">Contact Name</label>
+                      <input
+                        type="text"
+                        value={editContactName}
+                        onChange={(e) => setEditContactName(e.target.value)}
+                        className={`w-full px-3 py-2 rounded-xl text-xs border ${t.inputBg}`}
+                        placeholder="e.g. Workshop Manager"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold block mb-1">WhatsApp Number</label>
+                      <input
+                        type="text"
+                        value={editContactPhone}
+                        onChange={(e) => setEditContactPhone(e.target.value)}
+                        className={`w-full px-3 py-2 rounded-xl text-xs font-mono border ${t.inputBg}`}
+                        placeholder="e.g. +94 77 123 4567"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t">
+                    <button
+                      type="button"
+                      onClick={() => setEditingContact(null)}
+                      className="px-3.5 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer hover:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveEditContact}
+                      className={`px-4 py-1.5 rounded-xl text-xs font-bold ${t.primaryBtn} cursor-pointer`}
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal for Editing Group Link */}
+            {editingGroup && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+                <div className={`w-full max-w-md p-5 rounded-2xl border shadow-2xl space-y-4 ${t.modalBg}`}>
+                  <div className="flex items-center justify-between border-b pb-3">
+                    <h3 className={`text-sm font-bold ${t.textHeading}`}>Edit WhatsApp Group Link</h3>
+                    <button
+                      type="button"
+                      onClick={() => setEditingGroup(null)}
+                      className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs font-semibold block mb-1">Group Name</label>
+                      <input
+                        type="text"
+                        value={editGroupName}
+                        onChange={(e) => setEditGroupName(e.target.value)}
+                        className={`w-full px-3 py-2 rounded-xl text-xs border ${t.inputBg}`}
+                        placeholder="e.g. Cycly Fleet Desk Group"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold block mb-1">Group URL</label>
+                      <input
+                        type="url"
+                        value={editGroupUrl}
+                        onChange={(e) => setEditGroupUrl(e.target.value)}
+                        className={`w-full px-3 py-2 rounded-xl text-xs font-mono border ${t.inputBg}`}
+                        placeholder="https://chat.whatsapp.com/..."
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t">
+                    <button
+                      type="button"
+                      onClick={() => setEditingGroup(null)}
+                      className="px-3.5 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer hover:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveEditGroup}
+                      className={`px-4 py-1.5 rounded-xl text-xs font-bold ${t.primaryBtn} cursor-pointer`}
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1160,9 +1370,11 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
           <div className="space-y-6 animate-in fade-in duration-150">
             {/* DIAGNOSTICS & SYSTEM STATUS CARD */}
             <div className={`p-4 sm:p-5 rounded-2xl border ${t.cardSubtleBg} space-y-4`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-700/60">
+              <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b ${
+                isDark ? 'border-slate-700/60' : 'border-slate-200'
+              }`}>
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 flex items-center justify-center shrink-0">
+                  <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-500 flex items-center justify-center shrink-0">
                     <ShieldCheck className="w-5 h-5" />
                   </div>
                   <div>
@@ -1195,7 +1407,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                           setDeliveryLogs([]);
                         }
                       }}
-                      className="px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-400 hover:bg-rose-500/10 border border-rose-500/30 transition cursor-pointer"
+                      className="px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-500 hover:bg-rose-500/10 border border-rose-500/30 transition cursor-pointer"
                       title="Clear log history"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -1207,42 +1419,54 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
 
               {/* Status Indicator Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 rounded-xl bg-slate-900/50 border border-slate-700/60 space-y-1">
-                  <div className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Gateway Dispatch Mode</div>
-                  <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                <div className={`p-3 rounded-xl border space-y-1 ${
+                  isDark ? 'bg-slate-900/50 border-slate-700/60' : 'bg-slate-50 border-slate-200 shadow-sm'
+                }`}>
+                  <div className={`text-[11px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Gateway Dispatch Mode
+                  </div>
+                  <div className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     <span>{settings?.whatsappApiUrl ? 'Cloud Gateway Connected' : 'Direct Link / Simulated Mode'}</span>
                   </div>
-                  <div className="text-[10px] text-slate-400 truncate">
+                  <div className={`text-[10px] truncate ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
                     {settings?.whatsappApiUrl || 'Uses wa.me direct WhatsApp triggers'}
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-900/50 border border-slate-700/60 space-y-1">
-                  <div className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Additional Contacts</div>
-                  <div className="font-bold text-cyan-400 flex items-center gap-1.5">
+                <div className={`p-3 rounded-xl border space-y-1 ${
+                  isDark ? 'bg-slate-900/50 border-slate-700/60' : 'bg-slate-50 border-slate-200 shadow-sm'
+                }`}>
+                  <div className={`text-[11px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Additional Contacts
+                  </div>
+                  <div className="font-bold text-cyan-600 dark:text-cyan-400 flex items-center gap-1.5">
                     <Users className="w-3.5 h-3.5" />
                     <span>{additionalContacts.filter(c => c.active !== false).length} Active Contact(s)</span>
                   </div>
-                  <div className="text-[10px] text-slate-400">
+                  <div className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
                     Notified on Start: {notifyAdditionalOnStart ? 'Yes' : 'No'} | End: {notifyAdditionalOnEnd ? 'Yes' : 'No'}
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-900/50 border border-slate-700/60 space-y-1">
-                  <div className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Group Links</div>
-                  <div className="font-bold text-purple-400 flex items-center gap-1.5">
+                <div className={`p-3 rounded-xl border space-y-1 ${
+                  isDark ? 'bg-slate-900/50 border-slate-700/60' : 'bg-slate-50 border-slate-200 shadow-sm'
+                }`}>
+                  <div className={`text-[11px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Group Links
+                  </div>
+                  <div className="font-bold text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
                     <LinkIcon className="w-3.5 h-3.5" />
                     <span>{groupLinks.filter(g => g.active !== false).length} Active Group(s)</span>
                   </div>
-                  <div className="text-[10px] text-slate-400">
+                  <div className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
                     Group links tracked and included in delivery hub
                   </div>
                 </div>
               </div>
 
               {/* Instant Test Dispatch Box */}
-              <div className="pt-2 border-t border-slate-700/50">
+              <div className={`pt-2 border-t ${isDark ? 'border-slate-700/50' : 'border-slate-200'}`}>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   <div className="relative flex-1">
                     <input
@@ -1302,7 +1526,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                 </div>
 
                 {testSendStatus && (
-                  <p className={`text-xs mt-2 font-semibold ${testSendStatus.startsWith('Error') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  <p className={`text-xs mt-2 font-semibold ${testSendStatus.startsWith('Error') ? 'text-rose-500' : 'text-emerald-500'}`}>
                     {testSendStatus}
                   </p>
                 )}
@@ -1328,7 +1552,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                 <button
                   type="button"
                   onClick={() => setLogSearchQuery('')}
-                  className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white border border-slate-700 cursor-pointer"
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold cursor-pointer ${t.inactiveTab}`}
                 >
                   Clear Filter
                 </button>
@@ -1351,7 +1575,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                 if (filtered.length === 0) {
                   return (
                     <div className={`p-8 rounded-2xl border text-center ${t.cardSubtleBg} space-y-2`}>
-                      <ShieldCheck className="w-8 h-8 mx-auto text-slate-500" />
+                      <ShieldCheck className="w-8 h-8 mx-auto text-slate-400" />
                       <p className={`text-sm font-bold ${t.textHeading}`}>
                         {logSearchQuery ? `No delivery logs matching "${logSearchQuery}"` : 'No Delivery Records Yet'}
                       </p>
@@ -1375,15 +1599,17 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       className={`p-4 sm:p-5 rounded-2xl border transition ${t.cardBg} space-y-3 shadow-sm`}
                     >
                       {/* Log Header */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-700/40">
+                      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b ${
+                        isDark ? 'border-slate-700/40' : 'border-slate-200'
+                      }`}>
                         <div className="flex items-center gap-2.5">
-                          <span className="font-mono font-bold text-sm text-emerald-400">
+                          <span className="font-mono font-bold text-sm text-emerald-600 dark:text-emerald-400">
                             #{log.rentalNumber}
                           </span>
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                             log.type === 'start'
-                              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                              : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30'
+                              : 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
                           }`}>
                             {log.type === 'start' ? 'Start Rental' : 'Return & Settle'}
                           </span>
@@ -1395,10 +1621,10 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                         <div className="flex items-center gap-2">
                           <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                             log.overallStatus === 'success'
-                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                              ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
                               : log.overallStatus === 'partial'
-                              ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                              : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                              ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                              : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30'
                           }`}>
                             {log.overallStatus === 'success' ? 'All Recipients Ready/Sent' : log.overallStatus === 'partial' ? 'Partial Delivery' : 'Action Required'}
                           </span>
@@ -1406,9 +1632,11 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                       </div>
 
                       {/* Recipient breakdown list */}
-                      <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+                      <div className={`overflow-x-auto rounded-xl border ${isDark ? 'border-slate-700/50' : 'border-slate-200 shadow-sm'}`}>
                         <table className="w-full text-left text-xs">
-                          <thead className="bg-slate-900/60 border-b border-slate-700/50 text-slate-300 font-bold uppercase text-[10px]">
+                          <thead className={`border-b font-bold uppercase text-[10px] ${
+                            isDark ? 'bg-slate-900/60 border-slate-700/50 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                          }`}>
                             <tr>
                               <th className="py-2 px-3">Recipient / Role</th>
                               <th className="py-2 px-3">Destination</th>
@@ -1416,13 +1644,13 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                               <th className="py-2 px-3 text-right">Quick Action</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-700/30">
+                          <tbody className={`divide-y ${isDark ? 'divide-slate-700/30' : 'divide-slate-200'}`}>
                             {log.recipients.map((rec, idx) => {
                               const roleBadge = rec.role === 'customer'
-                                ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                ? 'bg-blue-500/20 text-blue-600 dark:text-blue-300 border-blue-500/30'
                                 : rec.role === 'group'
-                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                                : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
+                                ? 'bg-purple-500/20 text-purple-600 dark:text-purple-300 border-purple-500/30'
+                                : 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-300 border-cyan-500/30';
 
                               const roleLabel = rec.role === 'customer'
                                 ? 'Customer'
@@ -1431,16 +1659,16 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                                 : 'Store Manager / Desk';
 
                               return (
-                                <tr key={idx} className="hover:bg-slate-800/30 transition">
+                                <tr key={idx} className={`transition ${isDark ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50'}`}>
                                   <td className="py-2.5 px-3">
                                     <div className="flex items-center gap-1.5">
-                                      <span className="font-bold text-slate-200">{rec.name}</span>
+                                      <span className={`font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{rec.name}</span>
                                       <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${roleBadge}`}>
                                         {roleLabel}
                                       </span>
                                     </div>
                                   </td>
-                                  <td className="py-2.5 px-3 font-mono text-slate-300">
+                                  <td className={`py-2.5 px-3 font-mono ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                                     {rec.phoneOrUrl}
                                   </td>
                                   <td className="py-2.5 px-3">
@@ -1448,23 +1676,23 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                                       <div className="flex items-center gap-1.5">
                                         <span className={`w-2 h-2 rounded-full ${
                                           rec.status === 'delivered'
-                                            ? 'bg-emerald-400'
+                                            ? 'bg-emerald-500'
                                             : rec.status === 'failed'
-                                            ? 'bg-rose-400'
-                                            : 'bg-cyan-400'
+                                            ? 'bg-rose-500'
+                                            : 'bg-cyan-500'
                                         }`} />
                                         <span className={`font-semibold capitalize ${
                                           rec.status === 'delivered'
-                                            ? 'text-emerald-400'
+                                            ? 'text-emerald-600 dark:text-emerald-400'
                                             : rec.status === 'failed'
-                                            ? 'text-rose-400'
-                                            : 'text-cyan-400'
+                                            ? 'text-rose-600 dark:text-rose-400'
+                                            : 'text-cyan-600 dark:text-cyan-400'
                                         }`}>
                                           {rec.status === 'delivered' ? 'Gateway Delivered' : rec.status === 'failed' ? 'Failed' : 'Direct Link Ready'}
                                         </span>
                                       </div>
                                       {rec.error && (
-                                        <span className="text-[10px] text-slate-400 italic">
+                                        <span className={`text-[10px] italic ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                           {rec.error}
                                         </span>
                                       )}
@@ -1476,7 +1704,7 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
                                         href={rec.phoneOrUrl}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 font-bold text-[11px] transition"
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-purple-700 dark:text-purple-300 border border-purple-500/30 font-bold text-[11px] transition"
                                       >
                                         <span>Open Group</span>
                                         <ExternalLink className="w-3 h-3" />
@@ -1502,11 +1730,15 @@ export const BicycleMessageTemplatesView: React.FC<BicycleMessageTemplatesViewPr
 
                       {/* Expandable Message Content preview */}
                       <details className="text-xs group">
-                        <summary className="font-semibold text-slate-400 hover:text-slate-200 cursor-pointer list-none flex items-center gap-1.5">
+                        <summary className={`font-semibold cursor-pointer list-none flex items-center gap-1.5 ${
+                          isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                        }`}>
                           <MessageSquare className="w-3.5 h-3.5 text-slate-500" />
                           <span>View Compiled Message Text ({log.messageText.length} chars)</span>
                         </summary>
-                        <div className="mt-2 p-3 rounded-xl bg-slate-900/60 border border-slate-700/50 font-mono text-[11px] whitespace-pre-wrap text-slate-300 max-h-40 overflow-y-auto">
+                        <div className={`mt-2 p-3 rounded-xl font-mono text-[11px] whitespace-pre-wrap max-h-40 overflow-y-auto border ${
+                          isDark ? 'bg-slate-900/60 border-slate-700/50 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-800'
+                        }`}>
                           {log.messageText}
                         </div>
                       </details>

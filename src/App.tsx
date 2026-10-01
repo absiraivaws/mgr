@@ -41,6 +41,12 @@ import {
   MessageSquare,
   Tag,
   AlertCircle,
+  ExternalLink,
+  Share2,
+  Copy,
+  CheckCircle,
+  Users,
+  X,
 } from 'lucide-react';
 import { 
   INITIAL_CUSTOMERS,
@@ -91,7 +97,7 @@ import {
   syncUserAccountToSupabase,
 } from './lib/supabaseSync';
 import { getStoredMessageTemplates, saveStoredMessageTemplates, getStoredCustomerGroups, saveStoredCustomerGroups, getStoredMessageHistory, saveStoredMessageHistory, DEFAULT_MESSAGE_TEMPLATES } from './utils/customer';
-import { getNextRentalNumber, formatRentalNumber } from './utils/pricing';
+import { getNextRentalNumber, formatRentalNumber, computeRentalFinance } from './utils/pricing';
 import { isSupabaseConfigured, getSupabase } from './lib/supabase';
 import { MGRBookingHub } from './components/mgr-booking/MGRBookingHub';
 import { MGRTabType } from './types/mgrBooking';
@@ -473,6 +479,40 @@ export default function App() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
+  // Floating Interactive WhatsApp Multi-Channel Dispatch Toast state
+  const [waToast, setWaToast] = useState<{
+    rentalNumber: string;
+    type: 'start' | 'end';
+    customerName: string;
+    customerPhone?: string;
+    customerUrl?: string;
+    groupName?: string;
+    groupUrl?: string;
+    messageText: string;
+  } | null>(null);
+  const [waToastCopied, setWaToastCopied] = useState(false);
+  const [waToastPreviewOpen, setWaToastPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    const handleWaToast = (e: any) => {
+      if (e.detail) {
+        setWaToast(e.detail);
+        setWaToastCopied(false);
+        setWaToastPreviewOpen(false);
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          setWaToast(null);
+        }, 20000);
+      }
+    };
+    window.addEventListener('cycly_whatsapp_dispatch_toast', handleWaToast);
+    return () => {
+      window.removeEventListener('cycly_whatsapp_dispatch_toast', handleWaToast);
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
   // Dynamic permissions version to immediately reflect role & tab access changes across the entire app
   const [permissionsVersion, setPermissionsVersion] = useState(0);
 
@@ -845,15 +885,45 @@ export default function App() {
     fallbackCashier: string
   ) => {
     let hasChanges = false;
-    const currentIncomes = [...incomes];
+    let deletedIds: string[] = [];
+    try {
+      deletedIds = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
+    } catch {}
+    const deletedSet = new Set(deletedIds);
+
+    // Strip any tombstoned entries from existing incomes
+    const currentIncomes = incomes.filter((i) => {
+      if (deletedSet.has(i.id)) return false;
+      if (i.reference && (deletedSet.has(i.reference) || deletedSet.has(`RENT-${i.reference}`))) return false;
+      if (i.description) {
+        for (const tid of deletedIds) {
+          if (tid && tid.length >= 4 && i.description.includes(tid)) return false;
+        }
+      }
+      return true;
+    });
+    if (currentIncomes.length !== incomes.length) {
+      hasChanges = true;
+    }
+
     const newItems: IncomeEntry[] = [];
     const updatedItems: IncomeEntry[] = [];
 
     for (const r of rentals) {
       if (!r.totalAmount || r.totalAmount <= 0) continue;
       const expectedId = `inc-rent-${r.id}`;
+
+      // If this rental or its expected income ID was deleted by Admin, DO NOT recreate it!
+      if (
+        deletedSet.has(expectedId) ||
+        deletedSet.has(r.id) ||
+        (r.rentalNumber && (deletedSet.has(r.rentalNumber) || deletedSet.has(`RENT-${r.rentalNumber}`)))
+      ) {
+        continue;
+      }
+
       const existing = currentIncomes.find(
-        (i) => i.id === expectedId || i.description.includes(`Rental #${r.rentalNumber}`)
+        (i) => i.id === expectedId || (r.rentalNumber && i.description.includes(`Rental #${r.rentalNumber}`))
       );
       const cashier = r.cashierName || fallbackCashier || 'Staff';
 
@@ -868,6 +938,7 @@ export default function App() {
           who: cashier,
           createdAt: r.completedAt || Date.now(),
           cashierName: cashier,
+          reference: `RENT-${r.rentalNumber}`,
         };
         currentIncomes.unshift(newEntry);
         newItems.push(newEntry);
@@ -925,14 +996,19 @@ export default function App() {
         fetchMessageTemplatesFromSupabase(),
       ]);
       if (cloudData) {
+        const deletedTypeIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_type_ids') || '[]'));
+        const deletedVehicleIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_ids') || '[]'));
+        const deletedVehicleSerials = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_serials') || '[]'));
+
         if (cloudData.vehicleTypes && cloudData.vehicleTypes.length > 0) {
+          const cleanCloudTypes = (cloudData.vehicleTypes || []).filter((t) => !deletedTypeIds.has(t.id));
           setVehicleTypes((prev) => {
-            const cloudList = cloudData.vehicleTypes || [];
-            const unsynced = prev.filter(
-              (pt) => !cloudList.some((ct) => ct.id === pt.id || ct.name.trim().toLowerCase() === pt.name.trim().toLowerCase())
+            const cleanPrev = prev.filter((t) => !deletedTypeIds.has(t.id));
+            const unsynced = cleanPrev.filter(
+              (pt) => !cleanCloudTypes.some((ct) => ct.id === pt.id || ct.name.trim().toLowerCase() === pt.name.trim().toLowerCase())
             );
             unsynced.forEach((t) => syncVehicleTypeToSupabase(t));
-            const merged = [...cloudList, ...unsynced];
+            const merged = [...cleanCloudTypes, ...unsynced];
             try {
               localStorage.setItem('v_rental_types', JSON.stringify(merged));
             } catch {}
@@ -940,16 +1016,22 @@ export default function App() {
           });
         }
         if (cloudData.vehicles && cloudData.vehicles.length > 0) {
+          const cleanCloudVehicles = (cloudData.vehicles || []).filter(
+            (cv) => !deletedVehicleIds.has(cv.id) && !deletedVehicleSerials.has(cv.serialNumber?.trim().toUpperCase() || '')
+          );
           setVehicles((prev) => {
-            const cloudList = (cloudData.vehicles || []).map((cv) => {
-              const local = prev.find((pv) => pv.id === cv.id || pv.serialNumber === cv.serialNumber);
+            const cleanPrev = prev.filter(
+              (pv) => !deletedVehicleIds.has(pv.id) && !deletedVehicleSerials.has(pv.serialNumber?.trim().toUpperCase() || '')
+            );
+            const cloudList = cleanCloudVehicles.map((cv) => {
+              const local = cleanPrev.find((pv) => pv.id === cv.id || pv.serialNumber === cv.serialNumber);
               return {
                 ...cv,
                 costPrice: cv.costPrice !== undefined ? cv.costPrice : local?.costPrice,
                 purchaseRef: cv.purchaseRef || local?.purchaseRef,
               };
             });
-            const unsynced = prev.filter(
+            const unsynced = cleanPrev.filter(
               (pv) =>
                 !cloudList.some(
                   (cv) =>
@@ -1074,7 +1156,24 @@ export default function App() {
         ? cloudData.completedRentals.map(sanitizeRentalRecordNumber)
         : completedRentals;
 
-      // Merge local incomeEntries with cloudIncome so newly added local entries (e.g. by Store Manager) are never wiped
+      // Merge local incomeEntries with cloudIncome so newly added local entries are preserved while respecting deleted tombstones
+      let deletedIncomeIds: string[] = [];
+      try {
+        deletedIncomeIds = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
+      } catch {}
+      const deletedIncomeSet = new Set(deletedIncomeIds);
+      const isEntryDeleted = (item: IncomeEntry | null | undefined): boolean => {
+        if (!item || !item.id) return true;
+        if (deletedIncomeSet.has(item.id)) return true;
+        if (item.reference && (deletedIncomeSet.has(item.reference) || deletedIncomeSet.has(`RENT-${item.reference}`))) return true;
+        if (item.description) {
+          for (const tid of deletedIncomeIds) {
+            if (tid && tid.length >= 4 && item.description.includes(tid)) return true;
+          }
+        }
+        return false;
+      };
+
       const mergedIncomesMap = new Map<string, IncomeEntry>();
 
       // 1. Load latest from localStorage first
@@ -1084,13 +1183,15 @@ export default function App() {
         if (raw) storedLocalIncomes = JSON.parse(raw);
       } catch {}
 
-      const localPool = storedLocalIncomes.length > 0 ? storedLocalIncomes : incomeEntries;
+      const localPool = (storedLocalIncomes.length > 0 ? storedLocalIncomes : incomeEntries).filter(
+        (item) => !isEntryDeleted(item)
+      );
       for (const item of localPool) {
         if (item && item.id) mergedIncomesMap.set(item.id, item);
       }
 
       // 2. Overlay cloud income entries while keeping rich local details if present
-      const cloudList = cloudIncome || [];
+      const cloudList = (cloudIncome || []).filter((item) => !isEntryDeleted(item));
       const unsyncedLocalItems: IncomeEntry[] = [];
       for (const cloudItem of cloudList) {
         if (cloudItem && cloudItem.id) {
@@ -1109,13 +1210,13 @@ export default function App() {
       // 3. Identify local entries that are not yet in cloud and queue them for sync
       const cloudIdSet = new Set(cloudList.map((c) => c.id));
       for (const localItem of localPool) {
-        if (localItem && localItem.id && !cloudIdSet.has(localItem.id)) {
+        if (localItem && localItem.id && !cloudIdSet.has(localItem.id) && !isEntryDeleted(localItem)) {
           unsyncedLocalItems.push(localItem);
         }
       }
 
-      const mergedIncomesList = Array.from(mergedIncomesMap.values());
-      const effectiveIncome = mergedIncomesList.length > 0 ? mergedIncomesList : incomeEntries;
+      const mergedIncomesList = Array.from(mergedIncomesMap.values()).filter((item) => !isEntryDeleted(item));
+      const effectiveIncome = mergedIncomesList.length > 0 ? mergedIncomesList : incomeEntries.filter((item) => !isEntryDeleted(item));
 
       const { reconciledIncomes, hasChanges, newItems, updatedItems } = reconcileRentalIncomeLedger(
         effectiveRentals,
@@ -1123,14 +1224,17 @@ export default function App() {
         currentUser?.name || settings.cashierName || 'Staff'
       );
 
-      const finalIncomes = hasChanges ? reconciledIncomes : effectiveIncome;
+      const finalIncomes = (hasChanges ? reconciledIncomes : effectiveIncome).filter((item) => !isEntryDeleted(item));
       setIncomeEntries(finalIncomes);
       try {
         localStorage.setItem('v_rental_income', JSON.stringify(finalIncomes));
+        localStorage.setItem('v_rental_income_entries', JSON.stringify(finalIncomes));
       } catch {}
 
       if (isSupabaseConfigured()) {
-        const itemsToSync = [...unsyncedLocalItems, ...(hasChanges ? [...newItems, ...updatedItems] : [])];
+        const itemsToSync = [...unsyncedLocalItems, ...(hasChanges ? [...newItems, ...updatedItems] : [])].filter(
+          (item) => !isEntryDeleted(item)
+        );
         itemsToSync.forEach((entry) => {
           syncIncomeEntryToSupabase(entry);
         });
@@ -1254,8 +1358,18 @@ export default function App() {
   };
 
   const handleUpdateVehicleTypes = async (newTypes: VehicleType[]) => {
-    const oldIds = new Set(newTypes.map(t => t.id));
-    const deleted = vehicleTypes.filter(t => !oldIds.has(t.id));
+    const newIds = new Set(newTypes.map(t => t.id));
+    const deleted = vehicleTypes.filter(t => !newIds.has(t.id));
+
+    if (deleted.length > 0) {
+      try {
+        const deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_type_ids') || '[]');
+        for (const t of deleted) {
+          if (t.id && !deletedIds.includes(t.id)) deletedIds.push(t.id);
+        }
+        localStorage.setItem('v_rental_deleted_type_ids', JSON.stringify(deletedIds));
+      } catch {}
+    }
 
     setVehicleTypes(newTypes);
     localStorage.setItem('v_rental_types', JSON.stringify(newTypes));
@@ -1269,9 +1383,11 @@ export default function App() {
       }
       try {
         const fresh = await fetchSupabaseData();
-        if (fresh?.vehicleTypes && fresh.vehicleTypes.length > 0) {
-          setVehicleTypes(fresh.vehicleTypes);
-          localStorage.setItem('v_rental_types', JSON.stringify(fresh.vehicleTypes));
+        if (fresh?.vehicleTypes) {
+          const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_type_ids') || '[]'));
+          const cleanTypes = fresh.vehicleTypes.filter(t => !deletedIds.has(t.id));
+          setVehicleTypes(cleanTypes);
+          localStorage.setItem('v_rental_types', JSON.stringify(cleanTypes));
         }
       } catch (err) {
         console.error('[Types] Error reloading from Supabase:', err);
@@ -1286,7 +1402,36 @@ export default function App() {
 
   const handleUpdateVehicles = async (newVehicles: Vehicle[]) => {
     const newIds = new Set(newVehicles.map(v => v.id));
-    const deleted = vehicles.filter(v => !newIds.has(v.id));
+    const newSerials = new Set(newVehicles.map(v => v.serialNumber?.trim().toUpperCase()).filter(Boolean));
+    const deleted = vehicles.filter(v => !newIds.has(v.id) && !newSerials.has(v.serialNumber?.trim().toUpperCase() || ''));
+
+    // Persistent tombstones for deleted inventory items
+    try {
+      let deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_ids') || '[]');
+      let deletedSerials: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_serials') || '[]');
+
+      if (deleted.length > 0) {
+        for (const v of deleted) {
+          if (v.id && !deletedIds.includes(v.id)) deletedIds.push(v.id);
+          if (v.serialNumber) {
+            const upper = v.serialNumber.trim().toUpperCase();
+            if (!deletedSerials.includes(upper)) deletedSerials.push(upper);
+          }
+        }
+      }
+
+      // If any vehicle is newly added or existing, remove it from tombstones
+      for (const nv of newVehicles) {
+        deletedIds = deletedIds.filter(id => id !== nv.id);
+        if (nv.serialNumber) {
+          const upper = nv.serialNumber.trim().toUpperCase();
+          deletedSerials = deletedSerials.filter(s => s !== upper);
+        }
+      }
+
+      localStorage.setItem('v_rental_deleted_vehicle_ids', JSON.stringify(deletedIds));
+      localStorage.setItem('v_rental_deleted_vehicle_serials', JSON.stringify(deletedSerials));
+    } catch {}
 
     setVehicles(newVehicles);
     localStorage.setItem('v_rental_vehicles', JSON.stringify(newVehicles));
@@ -1296,35 +1441,36 @@ export default function App() {
         await syncVehicleToSupabase(v);
       }
       for (const v of deleted) {
-        await deleteVehicleFromSupabase(v.id);
-        if (v.serialNumber) {
-          await deleteVehicleFromSupabase(v.serialNumber);
-        }
+        await deleteVehicleFromSupabase(v.id, v.serialNumber);
       }
       try {
         const fresh = await fetchSupabaseData();
-        if (fresh?.vehicles && fresh.vehicles.length > 0) {
-          // Strictly exclude explicitly deleted vehicle IDs and serials
-          const deletedIds = new Set(deleted.map(d => d.id));
-          const deletedSerials = new Set(deleted.map(d => d.serialNumber?.toUpperCase()).filter(Boolean));
+        if (fresh?.vehicles) {
+          const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_ids') || '[]'));
+          const deletedSerials = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_serials') || '[]'));
 
           const cleanCloudVehicles = fresh.vehicles.filter(
-            (fv) => !deletedIds.has(fv.id) && !deletedSerials.has(fv.serialNumber?.toUpperCase() || '')
+            (fv) => !deletedIds.has(fv.id) && !deletedSerials.has(fv.serialNumber?.trim().toUpperCase() || '')
           );
 
           // Keep local user edits with absolute priority over stale cloud reads
-          const merged = newVehicles.map((lv) => {
-            const fv = cleanCloudVehicles.find((c) => c.id === lv.id || (c.serialNumber && c.serialNumber.toUpperCase() === lv.serialNumber.toUpperCase()));
-            if (!fv) return lv;
-            return {
-              ...fv,
-              ...lv, // User's latest edits take precedence!
-              costPrice: lv.costPrice !== undefined ? lv.costPrice : fv.costPrice,
-              purchaseRef: lv.purchaseRef || fv.purchaseRef,
-            };
-          });
-          const localIds = new Set(newVehicles.map((v) => v.id));
-          const extraFromCloud = cleanCloudVehicles.filter((fv) => !localIds.has(fv.id));
+          const merged = newVehicles
+            .filter((lv) => !deletedIds.has(lv.id) && !deletedSerials.has(lv.serialNumber?.trim().toUpperCase() || ''))
+            .map((lv) => {
+              const fv = cleanCloudVehicles.find((c) => c.id === lv.id || (c.serialNumber && c.serialNumber.toUpperCase() === lv.serialNumber.toUpperCase()));
+              if (!fv) return lv;
+              return {
+                ...fv,
+                ...lv, // User's latest edits take precedence!
+                costPrice: lv.costPrice !== undefined ? lv.costPrice : fv.costPrice,
+                purchaseRef: lv.purchaseRef || fv.purchaseRef,
+              };
+            });
+          const localIds = new Set(merged.map((v) => v.id));
+          const localSerials = new Set(merged.map((v) => v.serialNumber?.trim().toUpperCase()).filter(Boolean));
+          const extraFromCloud = cleanCloudVehicles.filter(
+            (fv) => !localIds.has(fv.id) && !localSerials.has(fv.serialNumber?.trim().toUpperCase() || '')
+          );
           const finalVehicles = [...merged, ...extraFromCloud];
 
           setVehicles(finalVehicles);
@@ -1748,6 +1894,111 @@ export default function App() {
     }
   };
 
+  // Handler: Add Completed Historical Rental (Admin user only)
+  const handleAddCompletedRental = async (newRental: RentalRecord) => {
+    const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+                        activeUser.email.toLowerCase() === 'absiraiva@gmail.com' ||
+                        activeUser.email.toLowerCase() === 'admin@mannargreenride.lk';
+    const isAdmin = activeUser.role === 'admin' || isRootAdmin;
+    if (!isAdmin) {
+      alert('Permission Denied: Only an administrator can add completed rental records.');
+      return;
+    }
+
+    // 1. Immediately update completedRentals state & localStorage
+    setCompletedRentals((prev) => {
+      const updated = [newRental, ...prev];
+      try {
+        localStorage.setItem('v_rental_history', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // 2. Compute finance and immediately update incomeEntries state & BOTH localStorage keys
+    const fin = computeRentalFinance(newRental);
+    const revenueAmount = fin.totalRevenueReceived;
+    const newIncomeEntry: IncomeEntry = {
+      id: `inc-rent-${newRental.id}`,
+      type: 'income',
+      amount: revenueAmount,
+      category: 'Rental Income',
+      date: new Date(newRental.completedAt || newRental.endTime || newRental.startTime).toISOString().slice(0, 10),
+      description: `Rental #${newRental.rentalNumber} — ${newRental.vehicleSerialNumber} (${newRental.vehicleTypeName})`,
+      paymentMethod: (newRental.paymentMethod as any) || 'cash',
+      createdBy: newRental.cashierName || activeUser.name || 'Staff',
+      reference: newRental.rentalNumber,
+    };
+
+    setIncomeEntries((prev) => {
+      const updated = [newIncomeEntry, ...prev.filter(e => e.id !== newIncomeEntry.id && !e.description.includes(`Rental #${newRental.rentalNumber}`))];
+      try {
+        localStorage.setItem('v_rental_income', JSON.stringify(updated));
+        localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // 3. Sync to Supabase
+    if (isSupabaseConfigured()) {
+      syncRentalToSupabase(newRental).catch(console.error);
+      syncIncomeEntryToSupabase(newIncomeEntry).catch(console.error);
+    }
+  };
+
+  // Handler: Update Completed Historical Rental (Admin user only)
+  const handleUpdateCompletedRental = async (updatedRental: RentalRecord) => {
+    const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+                        activeUser.email.toLowerCase() === 'absiraiva@gmail.com' ||
+                        activeUser.email.toLowerCase() === 'admin@mannargreenride.lk';
+    const isAdmin = activeUser.role === 'admin' || isRootAdmin;
+    if (!isAdmin) {
+      alert('Permission Denied: Only an administrator can edit completed rental records.');
+      return;
+    }
+
+    // 1. Immediately update completedRentals state & localStorage
+    setCompletedRentals((prev) => {
+      const updated = prev.map((r) => (r.id === updatedRental.id ? updatedRental : r));
+      try {
+        localStorage.setItem('v_rental_history', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // 2. Update income entry with latest financial calculation & BOTH localStorage keys
+    const fin = computeRentalFinance(updatedRental);
+    const revenueAmount = fin.totalRevenueReceived;
+    const updatedIncomeEntry: IncomeEntry = {
+      id: `inc-rent-${updatedRental.id}`,
+      type: 'income',
+      amount: revenueAmount,
+      category: 'Rental Income',
+      date: new Date(updatedRental.completedAt || updatedRental.endTime || updatedRental.startTime).toISOString().slice(0, 10),
+      description: `Rental #${updatedRental.rentalNumber} — ${updatedRental.vehicleSerialNumber} (${updatedRental.vehicleTypeName})`,
+      paymentMethod: (updatedRental.paymentMethod as any) || 'cash',
+      createdBy: updatedRental.cashierName || activeUser.name || 'Staff',
+      reference: updatedRental.rentalNumber,
+    };
+
+    setIncomeEntries((prev) => {
+      const exists = prev.some(e => e.id === updatedIncomeEntry.id || e.description.includes(`Rental #${updatedRental.rentalNumber}`));
+      const updated = exists
+        ? prev.map(e => (e.id === updatedIncomeEntry.id || e.description.includes(`Rental #${updatedRental.rentalNumber}`)) ? updatedIncomeEntry : e)
+        : [updatedIncomeEntry, ...prev];
+      try {
+        localStorage.setItem('v_rental_income', JSON.stringify(updated));
+        localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // 3. Sync to Supabase
+    if (isSupabaseConfigured()) {
+      syncRentalToSupabase(updatedRental).catch(console.error);
+      syncIncomeEntryToSupabase(updatedIncomeEntry).catch(console.error);
+    }
+  };
+
   // Handler: Delete Completed Rental (Admin user only)
   const handleDeleteRental = async (rentalId: string) => {
     const isRootAdmin = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
@@ -1771,7 +2022,7 @@ export default function App() {
       return updated;
     });
 
-    // 2. Also remove associated rental revenue entry from incomeEntries and localStorage
+    // 2. Also remove associated rental revenue entry from incomeEntries and BOTH localStorage keys
     setIncomeEntries((prev) => {
       const updated = prev.filter(
         (entry) =>
@@ -1779,23 +2030,36 @@ export default function App() {
           !entry.description.includes(`Rental #${target.rentalNumber}`)
       );
       try {
+        localStorage.setItem('v_rental_income', JSON.stringify(updated));
         localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
       } catch {}
       return updated;
     });
 
-    // 3. Record in deleted rentals tombstone storage
+    // 3. Record in deleted rentals tombstone storage and deleted income tombstones
     try {
       const deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_rental_ids') || '[]');
       if (!deletedIds.includes(rentalId)) {
         deletedIds.push(rentalId);
         localStorage.setItem('v_rental_deleted_rental_ids', JSON.stringify(deletedIds));
       }
+      const deletedIncomeIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
+      const incId = `inc-rent-${target.id}`;
+      if (!deletedIncomeIds.includes(incId)) deletedIncomeIds.push(incId);
+      if (target.rentalNumber) {
+        if (!deletedIncomeIds.includes(target.rentalNumber)) deletedIncomeIds.push(target.rentalNumber);
+        if (!deletedIncomeIds.includes(`RENT-${target.rentalNumber}`)) deletedIncomeIds.push(`RENT-${target.rentalNumber}`);
+      }
+      localStorage.setItem('v_rental_deleted_income_ids', JSON.stringify(deletedIncomeIds));
     } catch {}
 
     if (isSupabaseConfigured()) {
       deleteRentalFromSupabase(target.id, target.rentalNumber).catch(console.error);
-      deleteIncomeEntryFromSupabase(`inc-rent-${target.id}`).catch(console.error);
+      deleteIncomeEntryFromSupabase(
+        `inc-rent-${target.id}`,
+        target.rentalNumber ? `RENT-${target.rentalNumber}` : undefined,
+        target.rentalNumber ? `Rental #${target.rentalNumber}` : undefined
+      ).catch(console.error);
     }
   };
 
@@ -2340,6 +2604,9 @@ export default function App() {
               completedRentals={completedRentals}
               settings={settings}
               currentUser={activeUser}
+              vehicles={vehicles}
+              onAddRental={handleAddCompletedRental}
+              onUpdateRental={handleUpdateCompletedRental}
               onDeleteRental={handleDeleteRental}
               themeMode={themeMode}
               accent={accent}
@@ -2402,6 +2669,7 @@ export default function App() {
                   const updated = [entry, ...prev];
                   try {
                     localStorage.setItem('v_rental_income', JSON.stringify(updated));
+                    localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
                   } catch {}
                   return updated;
                 });
@@ -2412,6 +2680,7 @@ export default function App() {
                     if (freshIncomes && freshIncomes.length > 0) {
                       setIncomeEntries(freshIncomes);
                       localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                      localStorage.setItem('v_rental_income_entries', JSON.stringify(freshIncomes));
                     }
                   } catch (err) {
                     console.error('[Finance] Error reloading income entries:', err);
@@ -2429,6 +2698,7 @@ export default function App() {
                   const list = prev.map((e) => (e.id === updated.id ? updated : e));
                   try {
                     localStorage.setItem('v_rental_income', JSON.stringify(list));
+                    localStorage.setItem('v_rental_income_entries', JSON.stringify(list));
                   } catch {}
                   return list;
                 });
@@ -2439,6 +2709,7 @@ export default function App() {
                     if (freshIncomes && freshIncomes.length > 0) {
                       setIncomeEntries(freshIncomes);
                       localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                      localStorage.setItem('v_rental_income_entries', JSON.stringify(freshIncomes));
                     }
                   } catch (err) {
                     console.error('[Finance] Error reloading income entries:', err);
@@ -2452,23 +2723,54 @@ export default function App() {
                   console.warn('[Finance] Action rejected: Active role does not have permission to delete finance records.');
                   return;
                 }
-                setIncomeEntries((prev) => {
-                  const list = prev.filter((e) => e.id !== id);
-                  try {
-                    localStorage.setItem('v_rental_income', JSON.stringify(list));
-                  } catch {}
-                  return list;
-                });
+                const entryToDelete = incomeEntries.find((e) => e.id === id);
+                const updatedList = incomeEntries.filter((e) => e.id !== id);
+                setIncomeEntries(updatedList);
+                try {
+                  localStorage.setItem('v_rental_income', JSON.stringify(updatedList));
+                  localStorage.setItem('v_rental_income_entries', JSON.stringify(updatedList));
+                } catch {}
+
+                try {
+                  const deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
+                  if (!deletedIds.includes(id)) deletedIds.push(id);
+                  if (entryToDelete?.reference && !deletedIds.includes(entryToDelete.reference)) {
+                    deletedIds.push(entryToDelete.reference);
+                  }
+                  if (entryToDelete?.description) {
+                    const match = entryToDelete.description.match(/Rental #([A-Za-z0-9-]+)/);
+                    if (match && match[1]) {
+                      const rentNum = match[1];
+                      if (!deletedIds.includes(rentNum)) deletedIds.push(rentNum);
+                      if (!deletedIds.includes(`RENT-${rentNum}`)) deletedIds.push(`RENT-${rentNum}`);
+                      if (!deletedIds.includes(`inc-rent-${rentNum}`)) deletedIds.push(`inc-rent-${rentNum}`);
+                    }
+                  }
+                  localStorage.setItem('v_rental_deleted_income_ids', JSON.stringify(deletedIds));
+                } catch {}
+
                 if (isSupabaseConfigured()) {
-                  await deleteIncomeEntryFromSupabase(id);
+                  await deleteIncomeEntryFromSupabase(id, entryToDelete?.reference, entryToDelete?.description);
                   try {
                     const freshIncomes = await fetchIncomeEntries();
                     if (freshIncomes) {
-                      setIncomeEntries(freshIncomes);
-                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                      const deletedSet = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]'));
+                      const cleanFresh = freshIncomes.filter((item) => {
+                        if (deletedSet.has(item.id)) return false;
+                        if (item.reference && deletedSet.has(item.reference)) return false;
+                        if (item.description) {
+                          for (const tid of deletedSet) {
+                            if (tid && tid.length >= 4 && item.description.includes(tid)) return false;
+                          }
+                        }
+                        return true;
+                      });
+                      setIncomeEntries(cleanFresh);
+                      localStorage.setItem('v_rental_income', JSON.stringify(cleanFresh));
+                      localStorage.setItem('v_rental_income_entries', JSON.stringify(cleanFresh));
                     }
                   } catch (err) {
-                    console.error('[Finance] Error reloading income entries:', err);
+                    console.error('[Finance] Error reloading income entries after delete:', err);
                   }
                 }
               }}
@@ -2509,6 +2811,35 @@ export default function App() {
                   }
                 }
               }}
+              onUpdateEntry={async (entry) => {
+                const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || activeUser.email.toLowerCase() === 'absiraiva@gmail.com';
+                const canEdit = activeUser.role === 'admin' || isRoot;
+                if (!canEdit) {
+                  alert('Permission Denied: Only an administrator can edit purchase records.');
+                  return;
+                }
+                setIncomeEntries((prev) => {
+                  const updated = prev.map((e) => (e.id === entry.id ? entry : e));
+                  try {
+                    localStorage.setItem('v_rental_income', JSON.stringify(updated));
+                    localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
+                  } catch {}
+                  return updated;
+                });
+                if (isSupabaseConfigured()) {
+                  await syncIncomeEntryToSupabase(entry);
+                  try {
+                    const freshIncomes = await fetchIncomeEntries();
+                    if (freshIncomes && freshIncomes.length > 0) {
+                      setIncomeEntries(freshIncomes);
+                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                      localStorage.setItem('v_rental_income_entries', JSON.stringify(freshIncomes));
+                    }
+                  } catch (err) {
+                    console.error('[Purchase] Error reloading income entries:', err);
+                  }
+                }
+              }}
               onDeleteEntry={async (id) => {
                 const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || activeUser.email.toLowerCase() === 'absiraiva@gmail.com';
                 const canDelete = activeUser.role === 'admin' || isRoot;
@@ -2516,23 +2847,36 @@ export default function App() {
                   console.warn('[Purchase] Action rejected: Active role does not have permission to delete finance records.');
                   return;
                 }
+                const entryToDelete = incomeEntries.find((e) => e.id === id);
                 setIncomeEntries((prev) => {
                   const list = prev.filter((e) => e.id !== id);
                   try {
                     localStorage.setItem('v_rental_income', JSON.stringify(list));
+                    localStorage.setItem('v_rental_income_entries', JSON.stringify(list));
                   } catch {}
                   return list;
                 });
+                try {
+                  const deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
+                  if (!deletedIds.includes(id)) deletedIds.push(id);
+                  if (entryToDelete?.reference && !deletedIds.includes(entryToDelete.reference)) {
+                    deletedIds.push(entryToDelete.reference);
+                  }
+                  localStorage.setItem('v_rental_deleted_income_ids', JSON.stringify(deletedIds));
+                } catch {}
                 if (isSupabaseConfigured()) {
-                  await deleteIncomeEntryFromSupabase(id);
+                  await deleteIncomeEntryFromSupabase(id, entryToDelete?.reference, entryToDelete?.description);
                   try {
                     const freshIncomes = await fetchIncomeEntries();
                     if (freshIncomes) {
-                      setIncomeEntries(freshIncomes);
-                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                      const deletedSet = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]'));
+                      const cleanFresh = freshIncomes.filter(item => !deletedSet.has(item.id));
+                      setIncomeEntries(cleanFresh);
+                      localStorage.setItem('v_rental_income', JSON.stringify(cleanFresh));
+                      localStorage.setItem('v_rental_income_entries', JSON.stringify(cleanFresh));
                     }
                   } catch (err) {
-                    console.error('[Purchase] Error reloading income entries:', err);
+                    console.error('[Purchase] Error reloading income entries after delete:', err);
                   }
                 }
               }}
@@ -2557,6 +2901,7 @@ export default function App() {
                   const updated = [entry, ...prev];
                   try {
                     localStorage.setItem('v_rental_income', JSON.stringify(updated));
+                    localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
                   } catch {}
                   return updated;
                 });
@@ -2567,6 +2912,36 @@ export default function App() {
                     if (freshIncomes && freshIncomes.length > 0) {
                       setIncomeEntries(freshIncomes);
                       localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                      localStorage.setItem('v_rental_income_entries', JSON.stringify(freshIncomes));
+                    }
+                  } catch (err) {
+                    console.error('[Sale] Error reloading income entries:', err);
+                  }
+                }
+              }}
+              onUpdateEntry={async (entry) => {
+                const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || activeUser.email.toLowerCase() === 'absiraiva@gmail.com';
+                const canEdit = activeUser.role === 'admin' || isRoot;
+                if (!canEdit) {
+                  alert('Permission Denied: Only an administrator can edit sale records.');
+                  return;
+                }
+                setIncomeEntries((prev) => {
+                  const updated = prev.map((e) => (e.id === entry.id ? entry : e));
+                  try {
+                    localStorage.setItem('v_rental_income', JSON.stringify(updated));
+                    localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
+                  } catch {}
+                  return updated;
+                });
+                if (isSupabaseConfigured()) {
+                  await syncIncomeEntryToSupabase(entry);
+                  try {
+                    const freshIncomes = await fetchIncomeEntries();
+                    if (freshIncomes && freshIncomes.length > 0) {
+                      setIncomeEntries(freshIncomes);
+                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                      localStorage.setItem('v_rental_income_entries', JSON.stringify(freshIncomes));
                     }
                   } catch (err) {
                     console.error('[Sale] Error reloading income entries:', err);
@@ -2580,23 +2955,36 @@ export default function App() {
                   console.warn('[Sale] Action rejected: Active role does not have permission to delete finance records.');
                   return;
                 }
+                const entryToDelete = incomeEntries.find((e) => e.id === id);
                 setIncomeEntries((prev) => {
                   const list = prev.filter((e) => e.id !== id);
                   try {
                     localStorage.setItem('v_rental_income', JSON.stringify(list));
+                    localStorage.setItem('v_rental_income_entries', JSON.stringify(list));
                   } catch {}
                   return list;
                 });
+                try {
+                  const deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
+                  if (!deletedIds.includes(id)) deletedIds.push(id);
+                  if (entryToDelete?.reference && !deletedIds.includes(entryToDelete.reference)) {
+                    deletedIds.push(entryToDelete.reference);
+                  }
+                  localStorage.setItem('v_rental_deleted_income_ids', JSON.stringify(deletedIds));
+                } catch {}
                 if (isSupabaseConfigured()) {
-                  await deleteIncomeEntryFromSupabase(id);
+                  await deleteIncomeEntryFromSupabase(id, entryToDelete?.reference, entryToDelete?.description);
                   try {
                     const freshIncomes = await fetchIncomeEntries();
                     if (freshIncomes) {
-                      setIncomeEntries(freshIncomes);
-                      localStorage.setItem('v_rental_income', JSON.stringify(freshIncomes));
+                      const deletedSet = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]'));
+                      const cleanFresh = freshIncomes.filter(item => !deletedSet.has(item.id));
+                      setIncomeEntries(cleanFresh);
+                      localStorage.setItem('v_rental_income', JSON.stringify(cleanFresh));
+                      localStorage.setItem('v_rental_income_entries', JSON.stringify(cleanFresh));
                     }
                   } catch (err) {
-                    console.error('[Sale] Error reloading income entries:', err);
+                    console.error('[Sale] Error reloading income entries after delete:', err);
                   }
                 }
               }}
@@ -2676,6 +3064,141 @@ export default function App() {
           localStorage.removeItem('v_rental_must_change_password');
         }}
       />
+
+      {/* Floating Interactive WhatsApp Multi-Channel Dispatch Banner */}
+      {waToast && (
+        <div className="fixed top-4 right-4 z-[99999] max-w-sm sm:max-w-md w-full px-2 sm:px-0 animate-in slide-in-from-top-3 duration-200 pointer-events-auto">
+          <div className="bg-slate-900/95 border-2 border-emerald-500/70 rounded-2xl p-4 shadow-2xl text-slate-100 backdrop-blur-xl space-y-3 ring-4 ring-black/40">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <span className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </span>
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-1.5 flex-wrap">
+                    <span>WhatsApp Dispatched</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
+                      #{waToast.rentalNumber}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    {waToast.type === 'start' ? 'Rental Started Welcome' : 'Rental Return & Settlement'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWaToast(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="text-xs bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 space-y-1">
+              <div className="flex items-center justify-between text-slate-300">
+                <span className="text-slate-400 font-medium">Customer:</span>
+                <span className="font-semibold text-white truncate max-w-[200px]">
+                  {waToast.customerName} {waToast.customerPhone ? `(${waToast.customerPhone})` : ''}
+                </span>
+              </div>
+              {waToast.groupName && (
+                <div className="flex items-center justify-between text-slate-300">
+                  <span className="text-slate-400 font-medium">WhatsApp Group:</span>
+                  <span className="font-semibold text-emerald-400 truncate max-w-[200px]">{waToast.groupName}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Quick 1-Click Action Buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-0.5">
+              {waToast.customerUrl && (
+                <a
+                  href={waToast.customerUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer"
+                  title="Open direct WhatsApp chat with Customer"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>Customer Chat</span>
+                  <ExternalLink className="w-3 h-3 opacity-70" />
+                </a>
+              )}
+
+              {waToast.groupUrl && (
+                <a
+                  href={waToast.groupUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => {
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(waToast.messageText).catch(() => {});
+                      setWaToastCopied(true);
+                      setTimeout(() => setWaToastCopied(false), 3000);
+                    }
+                  }}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-500 text-white flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer"
+                  title="Open registered WhatsApp Group Link"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>WhatsApp Group</span>
+                  <ExternalLink className="w-3 h-3 opacity-70" />
+                </a>
+              )}
+
+              <a
+                href={`https://api.whatsapp.com/send?text=${encodeURIComponent(waToast.messageText)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-2 rounded-xl text-xs font-bold bg-cyan-700 hover:bg-cyan-600 text-white flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer"
+                title="Select registered Group or any chat directly in WhatsApp Web"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Share via Web</span>
+                <ExternalLink className="w-3 h-3 opacity-70" />
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (navigator.clipboard) {
+                    navigator.clipboard.writeText(waToast.messageText).catch(() => {});
+                    setWaToastCopied(true);
+                    setTimeout(() => setWaToastCopied(false), 3000);
+                  }
+                }}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  waToastCopied
+                    ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                    : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                }`}
+              >
+                {waToastCopied ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{waToastCopied ? 'Copied!' : 'Copy Message'}</span>
+              </button>
+            </div>
+
+            {/* Expandable Preview */}
+            <div className="pt-0.5 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={() => setWaToastPreviewOpen(!waToastPreviewOpen)}
+                className="text-[11px] text-slate-400 hover:text-slate-200 flex items-center gap-1 cursor-pointer pt-1"
+              >
+                <MessageSquare className="w-3 h-3 text-slate-400" />
+                <span>{waToastPreviewOpen ? 'Hide Text Preview' : 'Preview Message Content'}</span>
+              </button>
+              {waToastPreviewOpen && (
+                <div className="mt-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-300 whitespace-pre-wrap max-h-36 overflow-y-auto leading-relaxed select-all">
+                  {waToast.messageText}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

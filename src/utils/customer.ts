@@ -181,6 +181,31 @@ export function formatWhatsAppBirthdayMessage(customer: Customer, businessName: 
   return `🎉 *Happy Birthday ${name}!* 🎂🎈\n\nWishing you a wonderful celebration${ageStr} filled with happiness and joy from all of us at *${businessName}*! 🚴‍♂️✨\n\nAs a token of our appreciation, we invite you to enjoy a special birthday discount on your next ride with us. Have an incredible year ahead!\n\nWarm regards,\n*${businessName}* Team`;
 }
 
+/**
+ * Normalizes all escaped literal backslash-n sequences (\n, \r\n) into real line breaks (char code 10).
+ * Prevents literal "\n \n" from appearing in WhatsApp messages or UI previews.
+ */
+export function normalizeMessageText(rawText?: string): string {
+  if (!rawText) return '';
+  return rawText
+    // Convert all forms of escaped literal backslashes (\n, \\n, \\\n, \r\n) into real line breaks
+    .replace(/\\+r\\+n/g, '\n')
+    .replace(/\\+n/g, '\n')
+    .replace(/\\+r/g, '\n')
+    .split(String.fromCharCode(92) + 'r' + String.fromCharCode(92) + 'n').join('\n')
+    .split(String.fromCharCode(92) + 'n').join('\n')
+    .split(String.fromCharCode(92) + 'r').join('\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    // Remove trailing spaces/tabs before line breaks (eliminates " \n\n" and "\n \n")
+    .replace(/[ \t]+\n/g, '\n')
+    // Remove whitespace-only blank lines
+    .replace(/\n[ \t]+\n/g, '\n\n')
+    // Normalize excessive multiple line breaks to standard double newline (paragraph break)
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export interface ResolvePlaceholderOptions {
   customer?: Partial<Customer> | null;
   rental?: Partial<RentalRecord> | null;
@@ -199,7 +224,7 @@ export function resolveTemplatePlaceholders(
   options: ResolvePlaceholderOptions = {}
 ): string {
   if (!templateContent) return '';
-  let text = templateContent;
+  let text = normalizeMessageText(templateContent);
   const { customer, rental, shopName = 'Mannar Green Ride', currencySymbol = 'LKR', extra = {} } = options;
 
   const customerName = customer?.fullName || customer?.name || rental?.customerName || 'Valued Customer';
@@ -271,7 +296,7 @@ export function resolveTemplatePlaceholders(
     });
   }
 
-  return text;
+  return normalizeMessageText(text).trim();
 }
 
 /**
@@ -318,7 +343,14 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-welcome-start',
     title: 'Rental Started & Welcome',
     category: 'welcome',
-    content: `🚴 *Welcome to {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has started at {start_time}.\n\nPlease wear your helmet and ride safely! If you need assistance or wish to extend your hire, contact us anytime.\n\nEnjoy your ride!\n*{shop_name}*`,
+    content: `🚴 *Welcome to {shop_name}, {customer_name}!*
+
+Your rental #{rental_number} for *{vehicle_name}* has started at {start_time}.
+
+Please wear your helmet and ride safely! If you need assistance or wish to extend your hire, contact us anytime.
+
+Enjoy your ride!
+*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -326,7 +358,14 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-birthday-default',
     title: 'Birthday Celebration Wishes',
     category: 'birthday',
-    content: `🎉 *Happy Birthday {customer_name}!* 🎂🎈\n\nWishing you a wonderful celebration filled with joy and happiness from all of us at *{shop_name}*! 🚴‍♂️✨\n\nAs a token of our appreciation, please enjoy a special birthday discount on your next ride with us. Have an incredible year ahead!\n\nWarm regards,\n*{shop_name}* Team`,
+    content: `🎉 *Happy Birthday {customer_name}!* 🎂🎈
+
+Wishing you a wonderful celebration filled with joy and happiness from all of us at *{shop_name}*! 🚴‍♂️✨
+
+As a token of our appreciation, please enjoy a special birthday discount on your next ride with us. Have an incredible year ahead!
+
+Warm regards,
+*{shop_name}* Team`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -334,7 +373,12 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-weekend-promo',
     title: 'Special Promotion / Discount',
     category: 'promotion',
-    content: `🌟 *Special Promotion at {shop_name}!* \n\nHello {customer_name}, enjoy our sunny coastlines with a special weekend discount on all bike hires! \n\nVisit us today or reply to reserve your ride.\n*{shop_name}*`,
+    content: `🌟 *Special Promotion at {shop_name}!*
+
+Hello {customer_name}, enjoy our sunny coastlines with a special weekend discount on all bike hires!
+
+Visit us today or reply to reserve your ride.
+*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -342,7 +386,12 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-rental-reminder',
     title: 'Active Rental Reminder',
     category: 'rental_reminder',
-    content: `⏰ *Rental Reminder - {shop_name}*\n\nHello {customer_name}, your active hire for *{vehicle_name}* (#{rental_number}) is ongoing. If you'd like to extend your rental or have questions, please reach out to us here!\n\nRide safely,\n*{shop_name}*`,
+    content: `⏰ *Rental Reminder - {shop_name}*
+
+Hello {customer_name}, your active hire for *{vehicle_name}* (#{rental_number}) is ongoing. If you'd like to extend your rental or have questions, please reach out to us here!
+
+Ride safely,
+*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -350,7 +399,15 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-return-thanks',
     title: 'Return Completed & Thank You',
     category: 'return_reminder',
-    content: `🙏 *Thank you for riding with {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has been settled successfully.\n• Amount: {amount}\n\nWe hope you enjoyed exploring the sights of Mannar! We look forward to seeing you again soon. 🌿🚲\n\nBest regards,\n*{shop_name}*`,
+    content: `🙏 *Thank you for riding with {shop_name}, {customer_name}!*
+
+Your rental #{rental_number} for *{vehicle_name}* has been settled successfully.
+• Amount: {amount}
+
+We hope you enjoyed exploring the sights of Mannar! We look forward to seeing you again soon. 🌿🚲
+
+Best regards,
+*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -358,7 +415,12 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-payment-reminder',
     title: 'Payment & Invoice Reminder',
     category: 'payment_reminder',
-    content: `💳 *Payment Reminder - {shop_name}*\n\nHello {customer_name}, this is a gentle reminder regarding the outstanding balance of {amount} on rental #{rental_number}. Please visit our counter or reply here for direct payment.\n\nThank you,\n*{shop_name}*`,
+    content: `💳 *Payment Reminder - {shop_name}*
+
+Hello {customer_name}, this is a gentle reminder regarding the outstanding balance of {amount} on rental #{rental_number}. Please visit our counter or reply here for direct payment.
+
+Thank you,
+*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -366,7 +428,12 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-fitness-promo',
     title: 'Fitness & Health Ride Promotion',
     category: 'fitness_promo',
-    content: `💪 *Stay Active & Fit with {shop_name}!* \n\nHello {customer_name}! Start your mornings with invigorating cycling along Mannar's coastal trails. Ask about our weekly fitness passes for exclusive member perks!\n\nSee you on the road,\n*{shop_name}*`,
+    content: `💪 *Stay Active & Fit with {shop_name}!*
+
+Hello {customer_name}! Start your mornings with invigorating cycling along Mannar's coastal trails. Ask about our weekly fitness passes for exclusive member perks!
+
+See you on the road,
+*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -374,7 +441,12 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-tourist-promo',
     title: 'Tourist & Explorer Package',
     category: 'tourist_promo',
-    content: `🗺️ *Explore Mannar Island by Bicycle!*\n\nWelcome {customer_name}! Uncover hidden beaches, the historic Baobab tree, and migratory bird sites at your own pace with our premium explorer bikes.\n\nBook your island tour today!\n*{shop_name}*`,
+    content: `🗺️ *Explore Mannar Island by Bicycle!*
+
+Welcome {customer_name}! Uncover hidden beaches, the historic Baobab tree, and migratory bird sites at your own pace with our premium explorer bikes.
+
+Book your island tour today!
+*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -382,7 +454,12 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-thank-you',
     title: 'Customer Appreciation & Thank You',
     category: 'thank_you',
-    content: `✨ *Thank You from {shop_name}!* \n\nDear {customer_name}, thank you for choosing us for your travels. Your support means the world to our local team. We hope to see you again soon!\n\nWarmest regards,\n*{shop_name}*`,
+    content: `✨ *Thank You from {shop_name}!*
+
+Dear {customer_name}, thank you for choosing us for your travels. Your support means the world to our local team. We hope to see you again soon!
+
+Warmest regards,
+*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -390,7 +467,12 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-special-offer',
     title: 'VIP Special Offer',
     category: 'special_offer',
-    content: `🎁 *Exclusive VIP Offer - {shop_name}*\n\nDear {customer_name}, as a valued member of our {shop_name} community, enjoy complimentary gear and 25% off on your next full-day rental!\n\nShow this message at the counter.\n*{shop_name}*`,
+    content: `🎁 *Exclusive VIP Offer - {shop_name}*
+
+Dear {customer_name}, as a valued member of our {shop_name} community, enjoy complimentary gear and 25% off on your next full-day rental!
+
+Show this message at the counter.
+*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -398,7 +480,9 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-holiday-greeting',
     title: 'Festive Holiday Greeting',
     category: 'holiday_greeting',
-    content: `🎄🎉 *Warm Holiday Greetings from {shop_name}!* \n\nWishing you and your loved ones a season filled with peace, joy, and memorable adventures. Happy Holidays from our entire team! 🚴‍♂️✨`,
+    content: `🎄🎉 *Warm Holiday Greetings from {shop_name}!*
+
+Wishing you and your loved ones a season filled with peace, joy, and memorable adventures. Happy Holidays from our entire team! 🚴‍♂️✨`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -406,7 +490,12 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplate[] = [
     id: 'tmpl-general-reminder',
     title: 'General Notification',
     category: 'general',
-    content: `🔔 *Notification from {shop_name}*\n\nHello {customer_name}, here is an update regarding your rental account. For any questions, please reply directly to this message.\n\nThank you,\n*{shop_name}*`,
+    content: `🔔 *Notification from {shop_name}*
+
+Hello {customer_name}, here is an update regarding your rental account. For any questions, please reply directly to this message.
+
+Thank you,
+*{shop_name}*`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
@@ -420,7 +509,7 @@ export function getStoredMessageTemplates(): MessageTemplate[] {
     const map = new Map<string, MessageTemplate>();
     // Prepopulate standard default templates
     for (const def of DEFAULT_MESSAGE_TEMPLATES) {
-      map.set(def.id, def);
+      map.set(def.id, { ...def, content: normalizeMessageText(def.content) });
     }
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -428,13 +517,14 @@ export function getStoredMessageTemplates(): MessageTemplate[] {
         for (const t of parsed) {
           if (t && t.id) {
             // Strip duration if present in return template
-            if (t.id === 'tmpl-return-thanks' && t.content && t.content.includes('{duration}')) {
-              t.content = t.content
+            let content = normalizeMessageText(t.content || '');
+            if (t.id === 'tmpl-return-thanks' && content.includes('{duration}')) {
+              content = content
                 .replace(/•?\s*Duration:\s*\{duration\}\s*\n?/gi, '')
                 .replace(/⏱\s*Duration:\s*\{duration\}\s*\n?/gi, '')
                 .trim();
             }
-            map.set(t.id, t);
+            map.set(t.id, { ...t, content: normalizeMessageText(content) });
           }
         }
       }
@@ -448,10 +538,11 @@ export function getStoredMessageTemplates(): MessageTemplate[] {
 
 export function saveStoredMessageTemplates(templates: MessageTemplate[]): void {
   try {
-    localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
+    const cleanTemplates = templates.map((t) => ({ ...t, content: normalizeMessageText(t.content) }));
+    localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(cleanTemplates));
     // Dispatch custom event so any active component instantly updates its templates
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('bicycle-message-templates-updated', { detail: templates }));
+      window.dispatchEvent(new CustomEvent('bicycle-message-templates-updated', { detail: cleanTemplates }));
     }
   } catch (err) {
     console.error('Error saving message templates:', err);
@@ -470,9 +561,25 @@ export function getActiveRentalMessage(
 ): string {
   const allTemplates = getStoredMessageTemplates();
   const tmpl = allTemplates.find((t) => t.id === templateId) || DEFAULT_MESSAGE_TEMPLATES.find((t) => t.id === templateId);
-  const content = tmpl?.content || (templateId === 'tmpl-welcome-start'
-    ? `🚴 *Welcome to {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has started at {start_time}.\n\nPlease wear your helmet and ride safely! If you need assistance or wish to extend your hire, contact us anytime.\n\nEnjoy your ride!\n*{shop_name}*`
-    : `🙏 *Thank you for riding with {shop_name}, {customer_name}!* \n\nYour rental #{rental_number} for *{vehicle_name}* has been settled successfully.\n• Total Amount: {amount}\n\nWe hope you enjoyed exploring the sights of Mannar! We look forward to seeing you again soon. 🌿🚲\n\nBest regards,\n*{shop_name}*`);
+  const fallbackStart = `🚴 *Welcome to {shop_name}, {customer_name}!*
+
+Your rental #{rental_number} for *{vehicle_name}* has started at {start_time}.
+
+Please wear your helmet and ride safely! If you need assistance or wish to extend your hire, contact us anytime.
+
+Enjoy your ride!
+*{shop_name}*`;
+  const fallbackEnd = `🙏 *Thank you for riding with {shop_name}, {customer_name}!*
+
+Your rental #{rental_number} for *{vehicle_name}* has been settled successfully.
+• Amount: {amount}
+
+We hope you enjoyed exploring the sights of Mannar! We look forward to seeing you again soon. 🌿🚲
+
+Best regards,
+*{shop_name}*`;
+
+  const content = normalizeMessageText(tmpl?.content || (templateId === 'tmpl-welcome-start' ? fallbackStart : fallbackEnd));
 
   return resolveTemplatePlaceholders(content, {
     rental,

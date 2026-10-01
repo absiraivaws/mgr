@@ -24,7 +24,8 @@ import {
   ArrowDownZA,
   ArrowDown01,
   ArrowDown10,
-  ArrowUpDown
+  ArrowUpDown,
+  Edit2,
 } from 'lucide-react';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { AppSettings, IncomeEntry, PurchaseRecord, Vehicle, VehicleType } from '../types';
@@ -41,6 +42,7 @@ interface PurchaseManagementPanelProps {
   vehicleTypes?: VehicleType[];
   vehicles?: Vehicle[];
   onAddEntry: (entry: IncomeEntry) => Promise<void> | void;
+  onUpdateEntry?: (entry: IncomeEntry) => Promise<void> | void;
   onDeleteEntry?: (id: string) => Promise<void> | void;
   onAddVehicles?: (newVehicles: Vehicle[]) => Promise<void> | void;
 }
@@ -63,6 +65,7 @@ export const PurchaseManagementPanel: React.FC<PurchaseManagementPanelProps> = (
   vehicleTypes = [],
   vehicles = [],
   onAddEntry,
+  onUpdateEntry,
   onDeleteEntry,
   onAddVehicles,
 }) => {
@@ -126,6 +129,61 @@ export const PurchaseManagementPanel: React.FC<PurchaseManagementPanelProps> = (
 
   // Voucher view state
   const [viewingPurchase, setViewingPurchase] = useState<PurchaseRecord | null>(null);
+
+  // Edit Purchase Modal state (Admin only)
+  const [editingPurchase, setEditingPurchase] = useState<PurchaseRecord | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [editItemName, setEditItemName] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editSupplier, setEditSupplier] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editPaymentMethod, setEditPaymentMethod] = useState<'cash' | 'card' | 'bank_transfer' | 'qr_transfer' | 'other'>('cash');
+  const [editRemarks, setEditRemarks] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const handleOpenEdit = (r: PurchaseRecord) => {
+    setEditingPurchase(r);
+    setEditDate(r.date);
+    setEditItemName(r.itemName);
+    setEditCategory(r.category);
+    setEditSupplier(r.supplierName);
+    setEditAmount(String(r.totalAmount));
+    setEditPaymentMethod(r.paymentMethod as any);
+    setEditRemarks(r.remarks);
+    setEditError(null);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPurchase || !onUpdateEntry) return;
+    const numAmount = parseFloat(editAmount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setEditError('Please enter a valid positive amount.');
+      return;
+    }
+    if (!editItemName.trim()) {
+      setEditError('Please enter an item name.');
+      return;
+    }
+
+    const updatedIncomeEntry: IncomeEntry = {
+      id: editingPurchase.id,
+      date: editDate,
+      type: 'expense',
+      category: `Purchase: ${editCategory.trim() || 'General Purchase'}`,
+      description: `[Purchase] ${editItemName.trim()}`,
+      amount: numAmount,
+      paymentMethod: editPaymentMethod,
+      who: editingPurchase.purchasedBy,
+      cashierName: editingPurchase.purchasedBy,
+      reference: editingPurchase.reference,
+      remarks: `Vendor: ${editSupplier.trim() || 'Supplier'}${editingPurchase.assignedSerials?.length ? ` | Serials: ${editingPurchase.assignedSerials.join(', ')}` : ''}${editRemarks.trim() ? ` | Notes: ${editRemarks.trim()}` : ''}`,
+      createdAt: editingPurchase.createdAt,
+    };
+
+    await onUpdateEntry(updatedIncomeEntry);
+    setEditingPurchase(null);
+  };
 
   // Serial numbers generated automatically for the selected vehicle type
   const calculatedSerials = useMemo(() => {
@@ -859,6 +917,18 @@ export const PurchaseManagementPanel: React.FC<PurchaseManagementPanelProps> = (
                         >
                           Voucher
                         </button>
+                        {isAdmin && onUpdateEntry && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(r)}
+                            className={`p-1 rounded-lg transition ${
+                              themeMode === 'dark' ? 'text-slate-400 hover:text-blue-400 hover:bg-blue-500/10' : 'text-gray-500 hover:text-blue-600 hover:bg-blue-50'
+                            }`}
+                            title="Edit Purchase Record (Admin Only)"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         {isAdmin && onDeleteEntry && (
                           <button
                             type="button"
@@ -1297,6 +1367,162 @@ export const PurchaseManagementPanel: React.FC<PurchaseManagementPanelProps> = (
                 <span>Print Voucher</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT PURCHASE MODAL (Admin Only) */}
+      {editingPurchase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className={`${t.modalBg} rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden border border-slate-700/60 flex flex-col max-h-[92vh]`}>
+            {/* Header */}
+            <div className={`p-4 sm:p-5 border-b ${t.divider} flex items-center justify-between`}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-500 flex items-center justify-center">
+                  <Edit2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className={`font-bold text-base ${t.textHeading}`}>
+                    Edit Purchase Record ({editingPurchase.reference})
+                  </h3>
+                  <p className={`text-xs ${t.textMuted}`}>
+                    Update purchase details and sync financial entries immediately.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingPurchase(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveEdit} className="p-4 sm:p-5 space-y-4 overflow-y-auto">
+              {editError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold">
+                  {editError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Purchase Date: <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-mono font-medium ${t.textInput}`}
+                  />
+                </div>
+
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Item Name / Description: <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editItemName}
+                    onChange={(e) => setEditItemName(e.target.value)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-medium ${t.textInput}`}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Category:
+                  </label>
+                  <input
+                    type="text"
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-medium ${t.textInput}`}
+                  />
+                </div>
+
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Supplier / Vendor Name:
+                  </label>
+                  <input
+                    type="text"
+                    value={editSupplier}
+                    onChange={(e) => setEditSupplier(e.target.value)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-medium ${t.textInput}`}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Total Amount ({settings.currencySymbol}): <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="any"
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-mono font-bold ${t.textInput}`}
+                  />
+                </div>
+
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                    Payment Method:
+                  </label>
+                  <select
+                    value={editPaymentMethod}
+                    onChange={(e) => setEditPaymentMethod(e.target.value as any)}
+                    className={`w-full h-10 rounded-xl px-3 text-xs font-semibold ${t.dropdownInput}`}
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="card">Card / POS</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="qr_transfer">QR / LankaQR</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${t.textHeading}`}>
+                  Notes / Remarks:
+                </label>
+                <textarea
+                  rows={2}
+                  value={editRemarks}
+                  onChange={(e) => setEditRemarks(e.target.value)}
+                  className={`w-full rounded-xl p-3 text-xs ${t.textInput}`}
+                />
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-700/40">
+                <button
+                  type="button"
+                  onClick={() => setEditingPurchase(null)}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold ${t.inactiveTab}`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md transition cursor-pointer"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -289,10 +289,13 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
 
     // Automated Return Notification (Customer + Additional WhatsApp Contacts + Group):
     if (sendThankYouWhatsApp) {
+      const whatsappToUse = rental.customerWhatsapp || rental.customerPhone;
       dispatchRentalNotification({
         type: 'end',
         rental: finalRecord,
         settings,
+        overrideCustomerPhone: whatsappToUse,
+        overrideCustomerName: rental.customerName,
       }).catch((err) => {
         console.error('Failed to trigger return rental notification:', err);
       });
@@ -795,9 +798,9 @@ export const StopRentalModal: React.FC<StopRentalModalProps> = ({
                 <span>Send WhatsApp Return Receipt & Thank You message to customer</span>
               </span>
             </label>
-            {!rental.customerPhone && (
+            {!rental.customerWhatsapp && !rental.customerPhone && (
               <p className="text-[10px] text-slate-400 italic mt-0.5 ml-6">
-                * Customer has no phone number recorded on file.
+                * Customer has no WhatsApp or phone number recorded on file.
               </p>
             )}
           </div>

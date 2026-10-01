@@ -361,11 +361,11 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
     }, '');
   }, [points]);
 
-  // Dynamic font sizing helper so large currency amounts never truncate or overflow cards
+  // Dynamic font sizing helper so large currency amounts are compact and never truncate
   const getDynamicAmountClass = (text: string) => {
-    if (text.length > 14) return 'text-xl sm:text-2xl lg:text-3xl font-black';
-    if (text.length > 10) return 'text-2xl sm:text-3xl lg:text-3xl font-black';
-    return 'text-2xl sm:text-3xl lg:text-4xl font-black';
+    if (text.length > 14) return 'text-base sm:text-lg lg:text-xl font-extrabold';
+    if (text.length > 10) return 'text-lg sm:text-xl lg:text-2xl font-extrabold';
+    return 'text-xl sm:text-2xl lg:text-2xl font-black';
   };
 
   const formattedTotalAllTime = formatCurrency(totalAllTimeRevenue, settings.currencySymbol, settings.currencyPosition);
@@ -390,8 +390,19 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
             </div>
           </div>
 
-          {/* User badge */}
-          <div className="flex items-center gap-2">
+          {/* User badge & Actions */}
+          <div className="flex items-center gap-2.5">
+            {onNavigateToHistory && (
+              <button
+                type="button"
+                onClick={onNavigateToHistory}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                title="Navigate to detailed settled records table"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>Rental History Table →</span>
+              </button>
+            )}
             <div className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-2 ${t.cardSubtleBg}`}>
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className={t.textHeading}>{currentUser?.name || 'Admin'}</span>
@@ -402,24 +413,24 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
           </div>
         </div>
 
-        {/* Key Metrics Grid - 4 Non-Repeating Executive Cards with Dynamic Scaling */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+        {/* Key Metrics Grid - 5 Compact Executive Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-3.5">
           
-          {/* 1. Total Amount Card */}
-          <div className={`p-5 rounded-2xl ${t.cardSubtleBg} border ${t.divider} border-l-4 border-l-emerald-500 shadow-sm transition-all hover:scale-[1.01]`}>
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center shrink-0">
-                  <DollarSign className="w-4 h-4 text-emerald-500" />
+          {/* 1. Total Amount Card (Compacted per Requirement 5) */}
+          <div className={`p-4 rounded-xl ${t.cardSubtleBg} border ${t.divider} border-l-4 border-l-emerald-500 shadow-sm transition-all hover:scale-[1.01]`}>
+            <div className="flex items-center justify-between gap-1.5 mb-1.5">
+              <div className="flex items-center gap-1.5">
+                <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center shrink-0">
+                  <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
                 </div>
-                <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
+                <span className={`text-[11px] font-bold uppercase tracking-wider ${t.textMuted}`}>
                   Total Amount
                 </span>
               </div>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 ${
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${
                 isDashboardFiltered
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  ? 'bg-amber-500/20 text-amber-600 dark:text-amber-300 border-amber-500/40'
+                  : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
               }`}>
                 {isDashboardFiltered ? 'Filtered Period' : 'All-Time'}
               </span>
@@ -429,91 +440,116 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
                 ? formatCurrency(filteredDashboardRevenue, settings.currencySymbol, settings.currencyPosition)
                 : formattedTotalAllTime}
             </p>
-            <p className={`text-xs ${t.textMuted} mt-2 flex items-center justify-between flex-wrap gap-1 border-t border-slate-700/20 pt-1.5`}>
+            <p className={`text-[11px] ${t.textMuted} mt-1.5 flex items-center justify-between flex-wrap gap-1 border-t border-slate-700/20 pt-1`}>
               {isDashboardFiltered ? (
                 <>
-                  <span className="text-amber-400 font-semibold">{matchedDaysCount} days ({filteredDashboardRentals.length} trips) matched</span>
-                  <span className="opacity-80 font-medium">All-Time: {formattedTotalAllTime}</span>
+                  <span className="text-amber-500 font-semibold">{matchedDaysCount} days ({filteredDashboardRentals.length} trips) matched</span>
+                  <span className="opacity-80">All-Time: {formattedTotalAllTime}</span>
                 </>
               ) : (
                 <>
-                  <span>Today: <strong className="text-emerald-400 font-mono font-semibold">{formattedTotalToday}</strong></span>
-                  <span className="opacity-80 font-medium">Across {totalAllTimeTrips} trips</span>
+                  <span>Today: <strong className="text-emerald-500 font-mono font-semibold">{formattedTotalToday}</strong></span>
+                  <span className="opacity-80">Across {totalAllTimeTrips} trips</span>
                 </>
               )}
             </p>
           </div>
 
-          {/* 2. Trip / Ride Count Card */}
-          <div className={`p-5 rounded-2xl ${t.cardSubtleBg} border ${t.divider} border-l-4 border-l-amber-500 shadow-sm transition-all hover:scale-[1.01]`}>
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center shrink-0">
-                  <Bike className="w-4 h-4 text-amber-500" />
+          {/* 2. Available Fleet Card (Moved next to Total Amount per Requirement 5) */}
+          <div className={`p-4 rounded-xl ${t.cardSubtleBg} border ${t.divider} border-l-4 border-l-cyan-500 shadow-sm transition-all hover:scale-[1.01]`}>
+            <div className="flex items-center justify-between gap-1.5 mb-1.5">
+              <div className="flex items-center gap-1.5">
+                <div className="w-7 h-7 rounded-lg bg-cyan-500/15 flex items-center justify-center shrink-0">
+                  <Bike className="w-3.5 h-3.5 text-cyan-500" />
                 </div>
-                <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
+                <span className={`text-[11px] font-bold uppercase tracking-wider ${t.textMuted}`}>
+                  Available
+                </span>
+              </div>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-cyan-500/10 text-cyan-500 border-cyan-500/20 shrink-0">
+                Fleet
+              </span>
+            </div>
+            <p className="text-xl sm:text-2xl font-mono font-black text-cyan-500 tracking-tight leading-tight my-1">
+              {availableVehiclesCount}{' '}
+              <span className="text-xs sm:text-sm font-bold text-slate-400">/ {totalVehiclesCount}</span>
+            </p>
+            <p className={`text-[11px] ${t.textMuted} mt-1.5 flex items-center justify-between flex-wrap gap-1 border-t border-slate-700/20 pt-1`}>
+              <span className="text-emerald-500 font-semibold">{availableVehiclesCount} ready</span>
+              <span className="text-amber-500 font-semibold">{totalActiveRentals} rented</span>
+            </p>
+          </div>
+
+          {/* 3. Trip / Ride Count Card */}
+          <div className={`p-4 rounded-xl ${t.cardSubtleBg} border ${t.divider} border-l-4 border-l-amber-500 shadow-sm transition-all hover:scale-[1.01]`}>
+            <div className="flex items-center justify-between gap-1.5 mb-1.5">
+              <div className="flex items-center gap-1.5">
+                <div className="w-7 h-7 rounded-lg bg-amber-500/15 flex items-center justify-center shrink-0">
+                  <Bike className="w-3.5 h-3.5 text-amber-500" />
+                </div>
+                <span className={`text-[11px] font-bold uppercase tracking-wider ${t.textMuted}`}>
                   Trip / Ride Count
                 </span>
               </div>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 ${
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${
                 isDashboardFiltered
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                  : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                  ? 'bg-amber-500/20 text-amber-600 dark:text-amber-300 border-amber-500/40'
+                  : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
               }`}>
                 {isDashboardFiltered ? 'Filtered' : 'Total'}
               </span>
             </div>
-            <p className="text-2xl sm:text-3xl lg:text-4xl font-mono font-black text-amber-500 tracking-tight leading-tight my-1">
+            <p className="text-xl sm:text-2xl font-mono font-black text-amber-500 tracking-tight leading-tight my-1">
               {isDashboardFiltered ? filteredDashboardRentals.length : totalAllTimeTrips}{' '}
-              <span className="text-base sm:text-lg font-bold text-slate-400">Trips</span>
+              <span className="text-xs sm:text-sm font-bold text-slate-400">Trips</span>
             </p>
-            <p className={`text-xs ${t.textMuted} mt-2 flex items-center justify-between flex-wrap gap-1 border-t border-slate-700/20 pt-1.5`}>
+            <p className={`text-[11px] ${t.textMuted} mt-1.5 flex items-center justify-between flex-wrap gap-1 border-t border-slate-700/20 pt-1`}>
               {isDashboardFiltered ? (
                 <>
-                  <span className="text-emerald-400 font-medium">Across {matchedDaysCount} matched {matchedDaysCount === 1 ? 'day' : 'days'}</span>
-                  <span className="opacity-80 font-medium">Total: {totalAllTimeTrips}</span>
+                  <span className="text-emerald-500 font-medium">Across {matchedDaysCount} matched {matchedDaysCount === 1 ? 'day' : 'days'}</span>
+                  <span className="opacity-80">Total: {totalAllTimeTrips}</span>
                 </>
               ) : (
                 <>
                   <span>{completedTodayCount} completed today</span>
-                  <span className="text-cyan-400 font-semibold">{totalActiveRentals} active now</span>
+                  <span className="text-cyan-500 font-semibold">{totalActiveRentals} active</span>
                 </>
               )}
             </p>
           </div>
 
-          {/* 3. Today's Revenue Card */}
-          <div className={`p-5 rounded-2xl ${t.cardSubtleBg} border ${t.divider} shadow-sm transition-all hover:scale-[1.01]`}>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center shrink-0">
-                <DollarSign className="w-4 h-4 text-emerald-500" />
+          {/* 4. Today's Revenue Card */}
+          <div className={`p-4 rounded-xl ${t.cardSubtleBg} border ${t.divider} border-l-4 border-l-emerald-600 shadow-sm transition-all hover:scale-[1.01]`}>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center shrink-0">
+                <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
               </div>
-              <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
+              <span className={`text-[11px] font-bold uppercase tracking-wider ${t.textMuted}`}>
                 Today's Revenue
               </span>
             </div>
-            <p className={`${getDynamicAmountClass(formattedTotalToday)} font-mono font-bold text-emerald-400 tracking-tight leading-tight my-1 break-normal`}>
+            <p className={`${getDynamicAmountClass(formattedTotalToday)} font-mono font-bold text-emerald-500 tracking-tight leading-tight my-1 break-normal`}>
               {formattedTotalToday}
             </p>
-            <p className={`text-xs ${t.textMuted} mt-2 border-t border-slate-700/20 pt-1.5`}>
+            <p className={`text-[11px] ${t.textMuted} mt-1.5 border-t border-slate-700/20 pt-1`}>
               {completedTodayCount} {completedTodayCount === 1 ? 'trip completed today' : 'trips completed today'}
             </p>
           </div>
 
-          {/* 4. Daily Avg. Income Card */}
-          <div className={`p-5 rounded-2xl ${t.cardSubtleBg} border ${t.divider} shadow-sm transition-all hover:scale-[1.01]`}>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-purple-500/15 flex items-center justify-center shrink-0">
-                <TrendingUp className="w-4 h-4 text-purple-400" />
+          {/* 5. Daily Avg. Income Card */}
+          <div className={`p-4 rounded-xl ${t.cardSubtleBg} border ${t.divider} border-l-4 border-l-purple-500 shadow-sm transition-all hover:scale-[1.01]`}>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <div className="w-7 h-7 rounded-lg bg-purple-500/15 flex items-center justify-center shrink-0">
+                <TrendingUp className="w-3.5 h-3.5 text-purple-400" />
               </div>
-              <span className={`text-xs font-bold uppercase tracking-wider ${t.textMuted}`}>
+              <span className={`text-[11px] font-bold uppercase tracking-wider ${t.textMuted}`}>
                 Daily Avg. Income
               </span>
             </div>
             <p className={`${getDynamicAmountClass(formattedAvgDaily)} font-mono font-bold text-purple-400 tracking-tight leading-tight my-1 break-normal`}>
               {formattedAvgDaily}
             </p>
-            <p className={`text-xs ${t.textMuted} mt-2 border-t border-slate-700/20 pt-1.5`}>
+            <p className={`text-[11px] ${t.textMuted} mt-1.5 border-t border-slate-700/20 pt-1`}>
               {filterFromDate || filterToDate
                 ? `Calculated over filtered ${chartData.length} days`
                 : `Calculated over past ${chartDays} days`}
@@ -525,54 +561,28 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
         {/* ========================================================================= */}
         {/* ================= DASHBOARD ANALYTICS FILTERS (DATE, AMOUNT, TRIP) ====== */}
         {/* ========================================================================= */}
-        <div className={`p-5 rounded-2xl border shadow-lg ${t.cardSubtleBg} ${t.divider} space-y-4`}>
-          <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-700/30">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                <Filter className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Filters</span>
-              </div>
-              {isDashboardFiltered ? (
-                <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-xs">
-                  {matchedDaysCount} {matchedDaysCount === 1 ? 'Day' : 'Days'} Matched ({filteredDashboardRentals.length} Trips · {formatCurrency(filteredDashboardRevenue, settings.currencySymbol, settings.currencyPosition)})
-                </span>
-              ) : (
-                <span className="text-xs text-slate-400 font-medium hidden sm:inline">
-                  Timeline & metrics filter
-                </span>
-              )}
+        <div className={`p-4 sm:p-5 rounded-2xl border shadow-sm ${t.cardSubtleBg} ${t.divider}`}>
+          {isDashboardFiltered && (
+            <div className="flex items-center justify-between gap-2 mb-3 pb-2.5 border-b border-slate-200 dark:border-slate-700/50">
+              <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                Filtered: {matchedDaysCount} {matchedDaysCount === 1 ? 'Day' : 'Days'} ({filteredDashboardRentals.length} Trips · {formatCurrency(filteredDashboardRevenue, settings.currencySymbol, settings.currencyPosition)})
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterFromDate('');
+                  setFilterToDate('');
+                  setFilterAmount('');
+                  setFilterTripCount('');
+                }}
+                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-300 hover:bg-rose-500/20 border border-rose-500/20 flex items-center gap-1 transition cursor-pointer"
+                title="Clear all active filters"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset Filters</span>
+              </button>
             </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              {isDashboardFiltered && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFilterFromDate('');
-                    setFilterToDate('');
-                    setFilterAmount('');
-                    setFilterTripCount('');
-                  }}
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/20 text-rose-600 dark:text-rose-300 hover:bg-rose-500/30 border border-rose-500/40 flex items-center gap-1.5 transition cursor-pointer"
-                  title="Clear all active filters"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Reset Filters</span>
-                </button>
-              )}
-              {onNavigateToHistory && (
-                <button
-                  type="button"
-                  onClick={onNavigateToHistory}
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
-                  title="Navigate to detailed settled records table"
-                >
-                  <History className="w-4 h-4" />
-                  <span>Open Full Rental History Table →</span>
-                </button>
-              )}
-            </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             {/* 1. From Date */}
@@ -629,7 +639,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
               />
             </div>
 
-            {/* 3. Amount Filter with Daily/Trip mode, Above/Below Selector, and Up/Down Controls */}
+            {/* 3. Amount Filter with Daily/Trip Toggle, Above/Below Selector, and Up/Down Controls */}
             <div>
               <div className="min-h-[28px] flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -638,7 +648,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
-                  {/* Daily Total vs Per Trip Mode Selector */}
+                  {/* Daily vs Per-Trip Pill */}
                   <div className="inline-flex items-center bg-slate-200/90 dark:bg-slate-700/90 p-0.5 rounded-lg text-[10px] font-bold">
                     <button
                       type="button"
@@ -648,7 +658,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
                           ? 'bg-emerald-500 text-white shadow-xs font-bold'
                           : 'text-slate-600 dark:text-slate-300 hover:text-white'
                       }`}
-                      title="Filter by Daily Total Income (evaluates full day's revenue)"
+                      title="Filter by daily aggregate revenue"
                     >
                       Daily
                     </button>
@@ -660,7 +670,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
                           ? 'bg-emerald-500 text-white shadow-xs font-bold'
                           : 'text-slate-600 dark:text-slate-300 hover:text-white'
                       }`}
-                      title="Filter by Individual Rental Amount"
+                      title="Filter by individual rental ticket amount"
                     >
                       Trip
                     </button>
@@ -733,7 +743,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFilterAmount(prev => (typeof prev === 'number' ? prev + 100 : 100))}
+                    onClick={() => setFilterAmount(prev => (typeof prev === 'number' ? prev + 1 : 100))}
                     className="w-6 h-6 rounded-lg bg-slate-200/80 dark:bg-slate-700/80 hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center justify-center text-slate-700 dark:text-slate-200 font-bold cursor-pointer"
                     title="Increase 100"
                   >

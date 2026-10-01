@@ -37,8 +37,9 @@ import {
   Wallet,
   Tag,
   Coins,
+  Edit2,
 } from 'lucide-react';
-import { AppSettings, RentalRecord } from '../types';
+import { AppSettings, RentalRecord, Vehicle } from '../types';
 import { VehicleIcon } from './VehicleIcon';
 import { 
   formatCurrency, 
@@ -50,11 +51,15 @@ import {
 } from '../utils/pricing';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { DEFAULT_USER, UserAccount } from '../utils/auth';
+import { HistoricalRentalModal } from './HistoricalRentalModal';
 
 interface RentalHistoryPanelProps {
   completedRentals: RentalRecord[];
   settings: AppSettings;
   currentUser?: UserAccount;
+  vehicles?: Vehicle[];
+  onAddRental?: (rental: RentalRecord) => void;
+  onUpdateRental?: (rental: RentalRecord) => void;
   onDeleteRental?: (id: string) => void;
   themeMode?: ThemeMode;
   accent?: AccentColor;
@@ -111,6 +116,9 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   completedRentals,
   settings,
   currentUser,
+  vehicles = [],
+  onAddRental,
+  onUpdateRental,
   onDeleteRental,
   themeMode = 'dark',
   accent = 'emerald',
@@ -118,6 +126,10 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
   // Admin Authorization check - Strictly root admin or admin role
   const isRootAdmin = currentUser?.email?.toLowerCase() === DEFAULT_USER.email.toLowerCase();
   const isAdmin = currentUser?.role === 'admin' || isRootAdmin;
+
+  // Historical Rental Add / Edit modal state (Admin only)
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [rentalToEdit, setRentalToEdit] = useState<RentalRecord | null>(null);
 
   // Get today's ISO date string (YYYY-MM-DD)
   const getTodayISO = () => {
@@ -705,6 +717,22 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
               <option value="qr_transfer">QR / LankaQR</option>
             </select>
 
+            {isAdmin && onAddRental && (
+              <button
+                id="btn-add-rental-record"
+                type="button"
+                onClick={() => {
+                  setRentalToEdit(null);
+                  setIsAddModalOpen(true);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer shadow-sm ${t.primaryBtn}`}
+                title="Add Historical Rental Record (Admin Only)"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Record</span>
+              </button>
+            )}
+
             <button
               id="btn-export-csv"
               type="button"
@@ -881,6 +909,20 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
                             <Eye className="w-3.5 h-3.5" />
                             <span>View</span>
                           </button>
+
+                          {/* Edit Action: Admin user ONLY */}
+                          {isAdmin && onUpdateRental && (
+                            <button
+                              id={`btn-edit-receipt-${rental.rentalNumber}`}
+                              type="button"
+                              onClick={() => setRentalToEdit(rental)}
+                              className="px-2.5 py-1.5 rounded-lg transition inline-flex items-center gap-1 text-[11px] font-semibold text-blue-500 hover:bg-blue-500/10 border border-blue-500/30 hover:border-blue-500/60 cursor-pointer shadow-sm"
+                              title="Edit Settled Rental Record (Admin Only)"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                              <span>Edit</span>
+                            </button>
+                          )}
 
                           {/* Delete Action: Admin user ONLY */}
                           {isAdmin && (
@@ -1277,6 +1319,29 @@ export const RentalHistoryPanel: React.FC<RentalHistoryPanelProps> = ({
           </div>
         </div>
       )}
+
+      {/* Historical Rental Add / Edit Modal (Admin Only) */}
+      <HistoricalRentalModal
+        isOpen={isAddModalOpen || Boolean(rentalToEdit)}
+        rental={rentalToEdit}
+        vehicles={vehicles}
+        settings={settings}
+        themeMode={themeMode}
+        accent={accent}
+        onClose={() => {
+          setIsAddModalOpen(false);
+          setRentalToEdit(null);
+        }}
+        onSave={(savedRental) => {
+          if (rentalToEdit && onUpdateRental) {
+            onUpdateRental(savedRental);
+          } else if (onAddRental) {
+            onAddRental(savedRental);
+          }
+          setIsAddModalOpen(false);
+          setRentalToEdit(null);
+        }}
+      />
     </div>
   );
 };

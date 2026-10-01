@@ -128,7 +128,7 @@ export function getThemeClasses(mode: ThemeMode | string = 'dark', accent: Accen
     modalBg: isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900 shadow-2xl',
     divider: isDark ? 'border-slate-800' : 'border-slate-200',
     border: isDark ? 'border-slate-700' : 'border-slate-200',
-    textMuted: isDark ? 'text-slate-400' : 'text-slate-500',
+    textMuted: isDark ? 'text-slate-400' : 'text-slate-600',
     textMain: isDark ? 'text-slate-100' : 'text-slate-900',
     textHeading: isDark ? 'text-white' : 'text-slate-900',
 
@@ -153,16 +153,16 @@ export function getThemeClasses(mode: ThemeMode | string = 'dark', accent: Accen
     // 3. User Key-in / Standard Textbox Input (Clean Slate + Accent glow)
     textInput: isDark
       ? `bg-slate-800/90 border-2 border-slate-700 text-white placeholder:text-slate-500 hover:border-slate-600 ${accentFocusRing} focus:outline-none`
-      : `bg-white border-2 border-slate-300 text-slate-900 placeholder:text-slate-400 hover:border-slate-400 ${accentFocusRing} focus:outline-none`,
+      : `bg-white border-2 border-slate-300 text-slate-900 placeholder:text-slate-500 hover:border-slate-400 ${accentFocusRing} focus:outline-none font-medium`,
 
     inputBg: isDark
       ? 'bg-slate-800/90 border-slate-700 text-white placeholder:text-slate-500'
-      : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400',
+      : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-500 font-medium',
 
     // 4. Tabs: Non-Active tab has clear distinct separating border
     inactiveTab: isDark
       ? 'border-2 border-slate-700/80 bg-slate-800/70 text-slate-300 hover:border-slate-500 hover:bg-slate-800 hover:text-white transition-all shadow-sm'
-      : 'border-2 border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 transition-all shadow-sm',
+      : 'border-2 border-slate-300 bg-white text-slate-700 font-semibold hover:border-slate-400 hover:bg-slate-100 hover:text-slate-950 transition-all shadow-sm',
 
     activeTab: accentActiveTab,
     primaryBtn: accentBtn,
