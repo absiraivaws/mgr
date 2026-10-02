@@ -1121,15 +1121,21 @@ export async function fetchIncomeEntries(): Promise<import('../types').IncomeEnt
     try {
       deletedIds = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
     } catch {}
-    const deletedSet = new Set(deletedIds);
+    const deletedLowerList = deletedIds.map((s) => String(s).toLowerCase().trim()).filter(Boolean);
+    const deletedSet = new Set(deletedLowerList);
 
     return data
       .filter((row) => {
-        if (deletedSet.has(row.id)) return false;
-        if (row.reference && (deletedSet.has(row.reference) || deletedSet.has(`RENT-${row.reference}`))) return false;
+        const rowId = String(row.id || '').toLowerCase().trim();
+        if (deletedSet.has(rowId)) return false;
+        if (row.id && row.id.startsWith('inc-rent-')) {
+          const innerId = row.id.replace(/^inc-rent-/, '').toLowerCase().trim();
+          if (deletedSet.has(innerId)) return false;
+        }
         if (row.description) {
-          for (const tid of deletedIds) {
-            if (tid && tid.length >= 4 && row.description.includes(tid)) {
+          const descLower = row.description.toLowerCase();
+          for (const tid of deletedLowerList) {
+            if (tid.length >= 3 && descLower.includes(tid)) {
               return false;
             }
           }
@@ -1218,13 +1224,20 @@ export async function syncAllIncomeEntriesToSupabase(entries: import('../types')
 }
 
 /**
- * Delete an income/expense entry from Supabase by ID, optional reference, and description
+ * Delete an income/expense entry from Supabase by ID, optional reference, description, rental number, and rental ID
  */
-export async function deleteIncomeEntryFromSupabase(id: string, reference?: string, description?: string) {
+export async function deleteIncomeEntryFromSupabase(
+  id: string,
+  reference?: string,
+  description?: string,
+  rentalNumber?: string,
+  rentalId?: string
+) {
   const supabase = getSupabase();
   if (!supabase) return;
 
   try {
+    // 1. Delete by direct ID
     if (id) {
       const { error } = await supabase.from('income_expenses').delete().eq('id', id);
       if (error) {
@@ -1232,27 +1245,55 @@ export async function deleteIncomeEntryFromSupabase(id: string, reference?: stri
       }
     }
 
-    // Try deleting by reference if supported
-    if (reference) {
-      try {
-        await supabase.from('income_expenses').delete().eq('reference', reference);
-      } catch {}
+    // 2. If rentalId is provided or id starts with inc-rent-, delete that expected ID too
+    if (rentalId) {
+      await supabase.from('income_expenses').delete().eq('id', `inc-rent-${rentalId}`);
+      await supabase.from('income_expenses').delete().eq('id', rentalId);
+    }
+    if (id && id.startsWith('inc-rent-')) {
+      const bareId = id.replace(/^inc-rent-/, '');
+      await supabase.from('income_expenses').delete().eq('id', bareId);
     }
 
-    // Delete by description pattern if it corresponds to a rental
+    // 3. Extract all rental number variations
+    const rentalNumbersToDelete = new Set<string>();
+    if (rentalNumber) rentalNumbersToDelete.add(rentalNumber.trim());
+
     const targetDesc = description || (reference ? `Rental #${reference}` : undefined);
     if (targetDesc) {
-      const match = targetDesc.match(/Rental #([A-Za-z0-9-]+)/);
+      const match = targetDesc.match(/Rental #?([A-Za-z0-9-]+)/i);
       if (match && match[1]) {
-        const rentNum = match[1];
-        await supabase.from('income_expenses').delete().ilike('description', `%${rentNum}%`);
+        rentalNumbersToDelete.add(match[1].trim());
       }
     }
     if (reference) {
-      const cleanRef = reference.replace(/^RENT-/, '');
-      if (cleanRef) {
-        await supabase.from('income_expenses').delete().ilike('description', `%${cleanRef}%`);
+      const cleanRef = reference.replace(/^RENT-/i, '').trim();
+      if (cleanRef) rentalNumbersToDelete.add(cleanRef);
+    }
+
+    // 4. Delete by all rental number patterns
+    for (const rNum of rentalNumbersToDelete) {
+      if (!rNum) continue;
+      await supabase.from('income_expenses').delete().ilike('description', `%${rNum}%`);
+      await supabase.from('income_expenses').delete().ilike('id', `%${rNum}%`);
+
+      const cleanPrefix = rNum.replace(/^[A-Za-z0-9]+-/, '');
+      if (cleanPrefix && cleanPrefix !== rNum) {
+        await supabase.from('income_expenses').delete().ilike('description', `%${cleanPrefix}%`);
       }
+
+      const digits = rNum.match(/\d+/g);
+      if (digits && digits.length > 0) {
+        const lastDigits = digits[digits.length - 1];
+        if (lastDigits.length >= 3) {
+          await supabase.from('income_expenses').delete().ilike('description', `%${lastDigits}%`);
+        }
+      }
+    }
+
+    // 5. Delete by exact description match if it was a non-rental item (expense, etc.)
+    if (description && rentalNumbersToDelete.size === 0) {
+      await supabase.from('income_expenses').delete().eq('description', description.trim());
     }
   } catch (err) {
     console.error('Failed to delete income entry from Supabase:', err);

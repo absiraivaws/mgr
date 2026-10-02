@@ -29,7 +29,9 @@ import {
   RotateCcw, 
   Wrench, 
   Boxes, 
-  UserCheck 
+  UserCheck,
+  ShoppingBag,
+  TrendingUp
 } from 'lucide-react';
 import { 
   DEFAULT_USER, 
@@ -216,6 +218,8 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
         { key: 'accessUsers' as keyof RolePermissionSet, label: 'Message Templates', desc: 'WhatsApp & SMS notification templates, placeholders, alerts', icon: <FileText className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessSettings' as keyof RolePermissionSet, label: 'Rates & Inventory', desc: 'Bicycle fleet inventory, rates, currency & system settings', icon: <SettingsIcon className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessFinance' as keyof RolePermissionSet, label: 'Finance', desc: 'Income & expenses, cash register, P&L statement, deposits', icon: <DollarSign className="w-4 h-4 text-emerald-600" /> },
+        { key: 'accessPurchase' as keyof RolePermissionSet, label: 'Purchase', desc: 'Purchase orders, vendor bills, bike & spare parts procurement', icon: <ShoppingBag className="w-4 h-4 text-emerald-600" /> },
+        { key: 'accessSale' as keyof RolePermissionSet, label: 'Sale', desc: 'Used bicycle sales, accessory sales & retail invoicing', icon: <TrendingUp className="w-4 h-4 text-emerald-600" /> },
       ],
       privileges: [
         { key: 'canRent' as keyof RolePermissionSet, label: 'Start & Process Rentals', desc: 'Permit checking out bicycles and recording active timers' },

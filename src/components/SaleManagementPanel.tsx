@@ -56,7 +56,7 @@ interface SaleManagementPanelProps {
   vehicles?: Vehicle[];
   onAddEntry: (entry: IncomeEntry) => Promise<void> | void;
   onUpdateEntry?: (entry: IncomeEntry) => Promise<void> | void;
-  onDeleteEntry?: (id: string) => Promise<void> | void;
+  onDeleteEntry?: (id: string, entry?: IncomeEntry) => Promise<void> | void;
   onUpdateVehicles?: (vehicles: Vehicle[]) => Promise<void> | void;
   onNavigateTab?: (tab: any) => void;
 }
@@ -755,9 +755,10 @@ export const SaleManagementPanel: React.FC<SaleManagementPanelProps> = ({
 
   const handleDelete = async (id: string, ref: string) => {
     if (!onDeleteEntry) return;
+    const raw = entries.find((e) => e.id === id);
     if (window.confirm(`Are you sure you want to delete sale transaction #${ref}? This will remove the revenue entry from financial accounts and P&L.`)) {
       try {
-        await onDeleteEntry(id);
+        await onDeleteEntry(id, raw);
         if (viewingSale?.id === id) setViewingSale(null);
       } catch (err: any) {
         alert(`Failed to delete sale: ${err.message}`);

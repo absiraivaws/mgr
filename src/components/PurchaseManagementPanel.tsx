@@ -43,7 +43,7 @@ interface PurchaseManagementPanelProps {
   vehicles?: Vehicle[];
   onAddEntry: (entry: IncomeEntry) => Promise<void> | void;
   onUpdateEntry?: (entry: IncomeEntry) => Promise<void> | void;
-  onDeleteEntry?: (id: string) => Promise<void> | void;
+  onDeleteEntry?: (id: string, entry?: IncomeEntry) => Promise<void> | void;
   onAddVehicles?: (newVehicles: Vehicle[]) => Promise<void> | void;
 }
 
@@ -235,6 +235,7 @@ export const PurchaseManagementPanel: React.FC<PurchaseManagementPanelProps> = (
           purchasedBy: e.who || e.cashierName || 'Staff',
           remarks: e.remarks || '',
           createdAt: e.createdAt || 0,
+          rawEntry: e,
         };
       });
   }, [entries]);
@@ -934,7 +935,7 @@ export const PurchaseManagementPanel: React.FC<PurchaseManagementPanelProps> = (
                             type="button"
                             onClick={() => {
                               if (confirm(`Delete purchase "${r.reference} - ${r.itemName}"? This will update financial records.`)) {
-                                onDeleteEntry(r.id);
+                                onDeleteEntry(r.id, r.rawEntry);
                               }
                             }}
                             className={`p-1 rounded-lg transition ${

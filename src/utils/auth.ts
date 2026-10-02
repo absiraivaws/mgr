@@ -134,6 +134,8 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       accessSettings: true,
       accessIncome: true,
       accessFinance: true,
+      accessPurchase: true,
+      accessSale: true,
       // Top menu access
       accessBicyclePOS: true,
       accessMGRTransport: true,
@@ -194,6 +196,8 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       accessSettings: true,
       accessIncome: true,
       accessFinance: true,
+      accessPurchase: true,
+      accessSale: true,
       // Top menu access
       accessBicyclePOS: true,
       accessMGRTransport: true,
@@ -254,6 +258,8 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       accessSettings: false,
       accessIncome: false,
       accessFinance: false,
+      accessPurchase: false,
+      accessSale: false,
       // Top menu access
       accessBicyclePOS: true,
       accessMGRTransport: false,
@@ -314,6 +320,8 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       accessSettings: false,
       accessIncome: false,
       accessFinance: false,
+      accessPurchase: false,
+      accessSale: false,
       // Top menu access
       accessBicyclePOS: false,
       accessMGRTransport: true,
@@ -374,6 +382,8 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
       accessSettings: false,
       accessIncome: true,
       accessFinance: true,
+      accessPurchase: true,
+      accessSale: true,
       // Top menu access
       accessBicyclePOS: true,
       accessMGRTransport: true,
@@ -509,6 +519,8 @@ export function getStoredRoles(): RoleDefinition[] {
             accessSettings: true,
             accessIncome: true,
             accessFinance: true,
+            accessPurchase: true,
+            accessSale: true,
             accessBicyclePOS: true,
             accessMGRTransport: true,
             accessPRHRental: true,
@@ -563,6 +575,8 @@ export function getStoredRoles(): RoleDefinition[] {
           accessSettings: role.permissions?.accessSettings ?? (defaultMatch ? defaultMatch.permissions.accessSettings : false),
           accessIncome: role.permissions?.accessIncome ?? role.permissions?.accessFinance ?? (defaultMatch?.permissions?.accessIncome ?? false),
           accessFinance: role.permissions?.accessFinance ?? role.permissions?.accessIncome ?? (defaultMatch?.permissions?.accessFinance ?? false),
+          accessPurchase: role.permissions?.accessPurchase ?? (defaultMatch?.permissions?.accessPurchase ?? false),
+          accessSale: role.permissions?.accessSale ?? (defaultMatch?.permissions?.accessSale ?? false),
           // Top menu
           accessBicyclePOS: role.permissions?.accessBicyclePOS ?? (defaultMatch?.permissions?.accessBicyclePOS ?? (role.id !== 'passenger' && role.id !== 'owner')),
           accessMGRTransport: role.permissions?.accessMGRTransport ?? (defaultMatch?.permissions?.accessMGRTransport ?? (role.id === 'owner' || role.id === 'passenger' || role.id === 'admin' || role.id === 'manager')),
@@ -890,10 +904,10 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
         if (rawPerms.canExportReports === undefined || rawPerms.canExportReports === null) rawPerms.canExportReports = true;
       }
       if (rawPerms.accessPurchase === undefined || rawPerms.accessPurchase === null) {
-        rawPerms.accessPurchase = Boolean(rawPerms.accessFinance ?? rawPerms.accessIncome ?? true);
+        rawPerms.accessPurchase = Boolean(rawPerms.accessFinance ?? rawPerms.accessIncome ?? false);
       }
       if (rawPerms.accessSale === undefined || rawPerms.accessSale === null) {
-        rawPerms.accessSale = Boolean(rawPerms.accessFinance ?? rawPerms.accessIncome ?? true);
+        rawPerms.accessSale = Boolean(rawPerms.accessFinance ?? rawPerms.accessIncome ?? false);
       }
     } else {
       rawPerms = { ...EMPTY_PERMS };
@@ -920,6 +934,8 @@ export function getUserPermissions(user: UserAccount | null | undefined): RolePe
     perms.accessSettings = false;
     perms.accessIncome = false;
     perms.accessFinance = false;
+    perms.accessPurchase = false;
+    perms.accessSale = false;
     perms.canRent = false;
     perms.canSettle = false;
   }
@@ -1009,6 +1025,8 @@ export function createCustomRole(params: {
       accessSettings: params.permissions?.accessSettings ?? false,
       accessIncome: params.permissions?.accessIncome ?? false,
       accessFinance: params.permissions?.accessFinance ?? false,
+      accessPurchase: params.permissions?.accessPurchase ?? false,
+      accessSale: params.permissions?.accessSale ?? false,
       // Multi-business top menu
       accessBicyclePOS: params.permissions?.accessBicyclePOS ?? true,
       accessMGRTransport: params.permissions?.accessMGRTransport ?? true,

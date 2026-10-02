@@ -139,6 +139,42 @@ function sanitizeRentalRecordNumber(r: RentalRecord): RentalRecord {
   }
   return { ...r, rentalNumber: rn };
 }
+
+function isIncomeEntryDeleted(
+  item: IncomeEntry | null | undefined,
+  deletedIds: string[]
+): boolean {
+  if (!item || !item.id) return true;
+  const deletedLowerList = deletedIds.map((s) => String(s).toLowerCase().trim()).filter(Boolean);
+  const deletedSet = new Set(deletedLowerList);
+  const itemId = String(item.id).toLowerCase().trim();
+  if (deletedSet.has(itemId)) return true;
+
+  if (itemId.startsWith('inc-rent-')) {
+    const bareId = itemId.replace(/^inc-rent-/, '');
+    if (deletedSet.has(bareId)) return true;
+  }
+
+  if (item.reference) {
+    const ref = String(item.reference).toLowerCase().trim();
+    if (deletedSet.has(ref)) return true;
+    if (deletedSet.has(`rent-${ref}`)) return true;
+    const cleanRef = ref.replace(/^rent-/, '');
+    if (deletedSet.has(cleanRef)) return true;
+  }
+
+  if (item.description) {
+    const descLower = item.description.toLowerCase().trim();
+    for (const tid of deletedLowerList) {
+      if (tid.length >= 3 && descLower.includes(tid)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 import { 
   AccentColor, 
   ThemeMode, 
@@ -569,8 +605,8 @@ export default function App() {
       users: perms.accessUsers || isRoot,
       settings: perms.accessSettings,
       finance: perms.accessFinance ?? perms.accessIncome,
-      purchase: perms.accessPurchase ?? true,
-      sale: perms.accessSale ?? true,
+      purchase: perms.accessPurchase,
+      sale: perms.accessSale,
     };
 
     if (activeTab in tabPermMap && tabPermMap[activeTab] === false) {
@@ -889,19 +925,11 @@ export default function App() {
     try {
       deletedIds = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
     } catch {}
-    const deletedSet = new Set(deletedIds);
+    const deletedLowerList = deletedIds.map((s) => String(s).toLowerCase().trim()).filter(Boolean);
+    const deletedSet = new Set(deletedLowerList);
 
     // Strip any tombstoned entries from existing incomes
-    const currentIncomes = incomes.filter((i) => {
-      if (deletedSet.has(i.id)) return false;
-      if (i.reference && (deletedSet.has(i.reference) || deletedSet.has(`RENT-${i.reference}`))) return false;
-      if (i.description) {
-        for (const tid of deletedIds) {
-          if (tid && tid.length >= 4 && i.description.includes(tid)) return false;
-        }
-      }
-      return true;
-    });
+    const currentIncomes = incomes.filter((i) => !isIncomeEntryDeleted(i, deletedIds));
     if (currentIncomes.length !== incomes.length) {
       hasChanges = true;
     }
@@ -911,20 +939,56 @@ export default function App() {
 
     for (const r of rentals) {
       if (!r.totalAmount || r.totalAmount <= 0) continue;
-      const expectedId = `inc-rent-${r.id}`;
 
-      // If this rental or its expected income ID was deleted by Admin, DO NOT recreate it!
+      // 1. If explicitly marked as finance deleted in rental breakdown or object: NEVER recreate!
       if (
-        deletedSet.has(expectedId) ||
-        deletedSet.has(r.id) ||
-        (r.rentalNumber && (deletedSet.has(r.rentalNumber) || deletedSet.has(`RENT-${r.rentalNumber}`)))
+        r.breakdown?.financeDeleted ||
+        r.breakdown?.rentalIncomeDeleted ||
+        (r as any).financeDeleted
       ) {
         continue;
       }
 
-      const existing = currentIncomes.find(
-        (i) => i.id === expectedId || (r.rentalNumber && i.description.includes(`Rental #${r.rentalNumber}`))
-      );
+      const expectedId = `inc-rent-${r.id}`.toLowerCase().trim();
+      const rIdLower = String(r.id || '').toLowerCase().trim();
+      const rentalNum = r.rentalNumber ? String(r.rentalNumber).trim() : '';
+      const rentalNumLower = rentalNum.toLowerCase();
+      const rentalNumClean = rentalNumLower.replace(/^[a-z0-9]+-/, '');
+      const rawDigitsMatch = rentalNum.match(/\d+/g);
+      const lastDigits = rawDigitsMatch ? rawDigitsMatch[rawDigitsMatch.length - 1] : '';
+      const intNum = lastDigits ? String(parseInt(lastDigits, 10)) : '';
+
+      // Check all tombstone variants
+      const isRentalTombstoned =
+        deletedSet.has(expectedId) ||
+        (rIdLower && deletedSet.has(rIdLower)) ||
+        (rentalNumLower && (
+          deletedSet.has(rentalNumLower) ||
+          deletedSet.has(`rent-${rentalNumLower}`) ||
+          deletedSet.has(`inc-rent-${rentalNumLower}`)
+        )) ||
+        (rentalNumClean && (
+          deletedSet.has(rentalNumClean) ||
+          deletedSet.has(`rent-${rentalNumClean}`) ||
+          deletedSet.has(`inc-rent-${rentalNumClean}`)
+        )) ||
+        (intNum && (
+          deletedSet.has(intNum) ||
+          deletedSet.has(`rent-${intNum}`) ||
+          deletedSet.has(`inc-rent-${intNum}`)
+        ));
+
+      if (isRentalTombstoned) {
+        continue;
+      }
+
+      const existing = currentIncomes.find((i) => {
+        if (!i) return false;
+        if (i.id && i.id.toLowerCase() === expectedId) return true;
+        if (rentalNum && i.description && i.description.toLowerCase().includes(rentalNumLower)) return true;
+        if (rentalNumClean && i.description && i.description.toLowerCase().includes(rentalNumClean)) return true;
+        return false;
+      });
       const cashier = r.cashierName || fallbackCashier || 'Staff';
 
       if (!existing) {
@@ -1161,17 +1225,8 @@ export default function App() {
       try {
         deletedIncomeIds = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
       } catch {}
-      const deletedIncomeSet = new Set(deletedIncomeIds);
       const isEntryDeleted = (item: IncomeEntry | null | undefined): boolean => {
-        if (!item || !item.id) return true;
-        if (deletedIncomeSet.has(item.id)) return true;
-        if (item.reference && (deletedIncomeSet.has(item.reference) || deletedIncomeSet.has(`RENT-${item.reference}`))) return true;
-        if (item.description) {
-          for (const tid of deletedIncomeIds) {
-            if (tid && tid.length >= 4 && item.description.includes(tid)) return true;
-          }
-        }
-        return false;
+        return isIncomeEntryDeleted(item, deletedIncomeIds);
       };
 
       const mergedIncomesMap = new Map<string, IncomeEntry>();
@@ -1965,37 +2020,48 @@ export default function App() {
       return updated;
     });
 
-    // 2. Update income entry with latest financial calculation & BOTH localStorage keys
-    const fin = computeRentalFinance(updatedRental);
-    const revenueAmount = fin.totalRevenueReceived;
-    const updatedIncomeEntry: IncomeEntry = {
-      id: `inc-rent-${updatedRental.id}`,
-      type: 'income',
-      amount: revenueAmount,
-      category: 'Rental Income',
-      date: new Date(updatedRental.completedAt || updatedRental.endTime || updatedRental.startTime).toISOString().slice(0, 10),
-      description: `Rental #${updatedRental.rentalNumber} — ${updatedRental.vehicleSerialNumber} (${updatedRental.vehicleTypeName})`,
-      paymentMethod: (updatedRental.paymentMethod as any) || 'cash',
-      createdBy: updatedRental.cashierName || activeUser.name || 'Staff',
-      reference: updatedRental.rentalNumber,
-    };
+    const isFinanceDeleted = Boolean(
+      updatedRental.breakdown?.financeDeleted ||
+      updatedRental.breakdown?.rentalIncomeDeleted ||
+      (updatedRental as any).financeDeleted
+    );
 
-    setIncomeEntries((prev) => {
-      const exists = prev.some(e => e.id === updatedIncomeEntry.id || e.description.includes(`Rental #${updatedRental.rentalNumber}`));
-      const updated = exists
-        ? prev.map(e => (e.id === updatedIncomeEntry.id || e.description.includes(`Rental #${updatedRental.rentalNumber}`)) ? updatedIncomeEntry : e)
-        : [updatedIncomeEntry, ...prev];
-      try {
-        localStorage.setItem('v_rental_income', JSON.stringify(updated));
-        localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
+    if (!isFinanceDeleted) {
+      // 2. Update income entry with latest financial calculation & BOTH localStorage keys
+      const fin = computeRentalFinance(updatedRental);
+      const revenueAmount = fin.totalRevenueReceived;
+      const updatedIncomeEntry: IncomeEntry = {
+        id: `inc-rent-${updatedRental.id}`,
+        type: 'income',
+        amount: revenueAmount,
+        category: 'Rental Income',
+        date: new Date(updatedRental.completedAt || updatedRental.endTime || updatedRental.startTime).toISOString().slice(0, 10),
+        description: `Rental #${updatedRental.rentalNumber} — ${updatedRental.vehicleSerialNumber} (${updatedRental.vehicleTypeName})`,
+        paymentMethod: (updatedRental.paymentMethod as any) || 'cash',
+        createdBy: updatedRental.cashierName || activeUser.name || 'Staff',
+        reference: updatedRental.rentalNumber,
+      };
 
-    // 3. Sync to Supabase
+      setIncomeEntries((prev) => {
+        const exists = prev.some(e => e.id === updatedIncomeEntry.id || e.description.includes(`Rental #${updatedRental.rentalNumber}`));
+        const updated = exists
+          ? prev.map(e => (e.id === updatedIncomeEntry.id || e.description.includes(`Rental #${updatedRental.rentalNumber}`)) ? updatedIncomeEntry : e)
+          : [updatedIncomeEntry, ...prev];
+        try {
+          localStorage.setItem('v_rental_income', JSON.stringify(updated));
+          localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      if (isSupabaseConfigured()) {
+        syncIncomeEntryToSupabase(updatedIncomeEntry).catch(console.error);
+      }
+    }
+
+    // 3. Sync rental record to Supabase
     if (isSupabaseConfigured()) {
       syncRentalToSupabase(updatedRental).catch(console.error);
-      syncIncomeEntryToSupabase(updatedIncomeEntry).catch(console.error);
     }
   };
 
@@ -2060,6 +2126,182 @@ export default function App() {
         target.rentalNumber ? `RENT-${target.rentalNumber}` : undefined,
         target.rentalNumber ? `Rental #${target.rentalNumber}` : undefined
       ).catch(console.error);
+    }
+  };
+
+  // Handler: Delete Finance Transaction (Admin only)
+  const handleDeleteFinanceEntry = async (id: string, entry?: IncomeEntry) => {
+    const isRoot =
+      activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() ||
+      activeUser.email.toLowerCase() === 'absiraiva@gmail.com' ||
+      activeUser.email.toLowerCase() === 'admin@mannargreenride.lk';
+    const canDelete = activeUser.role === 'admin' || isRoot;
+    if (!canDelete) {
+      console.warn('[Finance] Action rejected: Active role does not have permission to delete finance records.');
+      return;
+    }
+
+    const entryToDelete = entry || incomeEntries.find((e) => e.id === id);
+    const targetId = entryToDelete?.id || id;
+
+    // 1. Immediately remove from local state and both storage keys
+    setIncomeEntries((prev) => {
+      const updated = prev.filter((e) => e.id !== id && e.id !== targetId);
+      try {
+        localStorage.setItem('v_rental_income', JSON.stringify(updated));
+        localStorage.setItem('v_rental_income_entries', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // 2. Build comprehensive list of deleted identifiers (tombstones)
+    let deletedIds: string[] = [];
+    try {
+      deletedIds = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
+    } catch {}
+
+    const pushUnique = (val?: string) => {
+      if (!val) return;
+      const str = String(val).trim();
+      if (!str) return;
+      if (!deletedIds.includes(str)) deletedIds.push(str);
+      const lower = str.toLowerCase();
+      if (!deletedIds.includes(lower)) deletedIds.push(lower);
+    };
+
+    pushUnique(id);
+    pushUnique(targetId);
+
+    // If targetId is inc-rent-..., also tombstone the inner rental id
+    if (targetId.startsWith('inc-rent-')) {
+      const innerRentalId = targetId.replace(/^inc-rent-/, '');
+      pushUnique(innerRentalId);
+    }
+
+    if (entryToDelete?.reference) {
+      const ref = entryToDelete.reference.trim();
+      pushUnique(ref);
+      const cleanRef = ref.replace(/^RENT-/i, '').trim();
+      pushUnique(cleanRef);
+      pushUnique(`RENT-${cleanRef}`);
+    }
+
+    let detectedRentalNumber: string | undefined;
+    if (entryToDelete?.description) {
+      const match = entryToDelete.description.match(/Rental #?([A-Za-z0-9-]+)/i);
+      if (match && match[1]) {
+        detectedRentalNumber = match[1].trim();
+      }
+    }
+
+    if (!detectedRentalNumber && entryToDelete?.reference) {
+      detectedRentalNumber = entryToDelete.reference.replace(/^RENT-/i, '').trim();
+    }
+
+    if (detectedRentalNumber) {
+      pushUnique(detectedRentalNumber);
+      pushUnique(`RENT-${detectedRentalNumber}`);
+      pushUnique(`inc-rent-${detectedRentalNumber}`);
+
+      const rawDigitsMatch = detectedRentalNumber.match(/\d+/g);
+      if (rawDigitsMatch && rawDigitsMatch.length > 0) {
+        const lastDigits = rawDigitsMatch[rawDigitsMatch.length - 1];
+        const numVal = parseInt(lastDigits, 10);
+        if (!isNaN(numVal)) {
+          const intStr = String(numVal);
+          pushUnique(lastDigits);
+          pushUnique(intStr);
+          pushUnique(`RENT-${lastDigits}`);
+          pushUnique(`RENT-${intStr}`);
+          pushUnique(`inc-rent-${lastDigits}`);
+          pushUnique(`inc-rent-${intStr}`);
+          pushUnique(formatRentalNumber(numVal, 'REN'));
+          pushUnique(formatRentalNumber(numVal, settings.rentalNumberPrefix || 'CYC'));
+        }
+      }
+    }
+
+    // 3. If this entry corresponds to a completed rental, find that rental and mark its breakdown
+    let matchedRentalRecord: RentalRecord | undefined;
+    if (detectedRentalNumber || targetId.startsWith('inc-rent-')) {
+      const searchInner = targetId.startsWith('inc-rent-')
+        ? targetId.replace(/^inc-rent-/, '').toLowerCase()
+        : '';
+      const numLower = detectedRentalNumber ? detectedRentalNumber.toLowerCase() : '';
+      const numDigitsMatch = detectedRentalNumber ? detectedRentalNumber.match(/\d+/g) : null;
+      const numDigits = numDigitsMatch ? numDigitsMatch[numDigitsMatch.length - 1] : '';
+
+      matchedRentalRecord = completedRentals.find((r) => {
+        if (!r) return false;
+        if (searchInner && String(r.id).toLowerCase() === searchInner) return true;
+        if (numLower && r.rentalNumber && r.rentalNumber.toLowerCase() === numLower) return true;
+        if (numLower && r.rentalNumber && r.rentalNumber.toLowerCase().includes(numLower)) return true;
+        if (numDigits && r.rentalNumber && r.rentalNumber.includes(numDigits)) return true;
+        return false;
+      });
+
+      if (matchedRentalRecord) {
+        pushUnique(matchedRentalRecord.id);
+        pushUnique(`inc-rent-${matchedRentalRecord.id}`);
+        if (matchedRentalRecord.rentalNumber) {
+          pushUnique(matchedRentalRecord.rentalNumber);
+          pushUnique(`RENT-${matchedRentalRecord.rentalNumber}`);
+          pushUnique(`inc-rent-${matchedRentalRecord.rentalNumber}`);
+        }
+
+        // Permanently flag rental record breakdown so reconcileRentalIncomeLedger NEVER regenerates it!
+        const updatedRental: RentalRecord = {
+          ...matchedRentalRecord,
+          breakdown: {
+            ...(matchedRentalRecord.breakdown || {}),
+            financeDeleted: true,
+            rentalIncomeDeleted: true,
+          },
+        };
+        (updatedRental as any).financeDeleted = true;
+
+        setCompletedRentals((prev) => {
+          const updated = prev.map((r) => (r.id === updatedRental.id ? updatedRental : r));
+          try {
+            localStorage.setItem('v_rental_completed', JSON.stringify(updated));
+            localStorage.setItem('v_rental_completed_rentals', JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+
+        if (isSupabaseConfigured()) {
+          syncRentalToSupabase(updatedRental).catch(console.error);
+        }
+      }
+    }
+
+    try {
+      localStorage.setItem('v_rental_deleted_income_ids', JSON.stringify(deletedIds));
+    } catch {}
+
+    // 4. Delete from Supabase
+    if (isSupabaseConfigured()) {
+      await deleteIncomeEntryFromSupabase(
+        targetId,
+        entryToDelete?.reference,
+        entryToDelete?.description,
+        detectedRentalNumber,
+        matchedRentalRecord?.id
+      );
+
+      try {
+        const freshIncomes = await fetchIncomeEntries();
+        if (freshIncomes) {
+          const cleanFresh = freshIncomes.filter(
+            (item) => !isIncomeEntryDeleted(item, deletedIds) && item.id !== id && item.id !== targetId
+          );
+          setIncomeEntries(cleanFresh);
+          localStorage.setItem('v_rental_income', JSON.stringify(cleanFresh));
+          localStorage.setItem('v_rental_income_entries', JSON.stringify(cleanFresh));
+        }
+      } catch (err) {
+        console.error('[Finance] Error reloading income entries after delete:', err);
+      }
     }
   };
 
@@ -2262,6 +2504,8 @@ export default function App() {
                 { tab: 'users', perm: 'accessUsers' },
                 { tab: 'settings', perm: 'accessSettings' },
                 { tab: 'finance', perm: 'accessFinance' },
+                { tab: 'purchase', perm: 'accessPurchase' },
+                { tab: 'sale', perm: 'accessSale' },
               ];
               const permittedTab = isAdmin ? (currentRoute.bicycleTab || activeTab) : (
                 currentRoute.bicycleTab && perms[bicycleTabs.find(t => t.tab === currentRoute.bicycleTab)?.perm || 'accessRentals']
@@ -2716,64 +2960,7 @@ export default function App() {
                   }
                 }
               }}
-              onDeleteEntry={async (id) => {
-                const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || activeUser.email.toLowerCase() === 'absiraiva@gmail.com';
-                const canDelete = activeUser.role === 'admin' || isRoot;
-                if (!canDelete) {
-                  console.warn('[Finance] Action rejected: Active role does not have permission to delete finance records.');
-                  return;
-                }
-                const entryToDelete = incomeEntries.find((e) => e.id === id);
-                const updatedList = incomeEntries.filter((e) => e.id !== id);
-                setIncomeEntries(updatedList);
-                try {
-                  localStorage.setItem('v_rental_income', JSON.stringify(updatedList));
-                  localStorage.setItem('v_rental_income_entries', JSON.stringify(updatedList));
-                } catch {}
-
-                try {
-                  const deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
-                  if (!deletedIds.includes(id)) deletedIds.push(id);
-                  if (entryToDelete?.reference && !deletedIds.includes(entryToDelete.reference)) {
-                    deletedIds.push(entryToDelete.reference);
-                  }
-                  if (entryToDelete?.description) {
-                    const match = entryToDelete.description.match(/Rental #([A-Za-z0-9-]+)/);
-                    if (match && match[1]) {
-                      const rentNum = match[1];
-                      if (!deletedIds.includes(rentNum)) deletedIds.push(rentNum);
-                      if (!deletedIds.includes(`RENT-${rentNum}`)) deletedIds.push(`RENT-${rentNum}`);
-                      if (!deletedIds.includes(`inc-rent-${rentNum}`)) deletedIds.push(`inc-rent-${rentNum}`);
-                    }
-                  }
-                  localStorage.setItem('v_rental_deleted_income_ids', JSON.stringify(deletedIds));
-                } catch {}
-
-                if (isSupabaseConfigured()) {
-                  await deleteIncomeEntryFromSupabase(id, entryToDelete?.reference, entryToDelete?.description);
-                  try {
-                    const freshIncomes = await fetchIncomeEntries();
-                    if (freshIncomes) {
-                      const deletedSet = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]'));
-                      const cleanFresh = freshIncomes.filter((item) => {
-                        if (deletedSet.has(item.id)) return false;
-                        if (item.reference && deletedSet.has(item.reference)) return false;
-                        if (item.description) {
-                          for (const tid of deletedSet) {
-                            if (tid && tid.length >= 4 && item.description.includes(tid)) return false;
-                          }
-                        }
-                        return true;
-                      });
-                      setIncomeEntries(cleanFresh);
-                      localStorage.setItem('v_rental_income', JSON.stringify(cleanFresh));
-                      localStorage.setItem('v_rental_income_entries', JSON.stringify(cleanFresh));
-                    }
-                  } catch (err) {
-                    console.error('[Finance] Error reloading income entries after delete:', err);
-                  }
-                }
-              }}
+              onDeleteEntry={handleDeleteFinanceEntry}
             />
           )}
 
@@ -2840,46 +3027,7 @@ export default function App() {
                   }
                 }
               }}
-              onDeleteEntry={async (id) => {
-                const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || activeUser.email.toLowerCase() === 'absiraiva@gmail.com';
-                const canDelete = activeUser.role === 'admin' || isRoot;
-                if (!canDelete) {
-                  console.warn('[Purchase] Action rejected: Active role does not have permission to delete finance records.');
-                  return;
-                }
-                const entryToDelete = incomeEntries.find((e) => e.id === id);
-                setIncomeEntries((prev) => {
-                  const list = prev.filter((e) => e.id !== id);
-                  try {
-                    localStorage.setItem('v_rental_income', JSON.stringify(list));
-                    localStorage.setItem('v_rental_income_entries', JSON.stringify(list));
-                  } catch {}
-                  return list;
-                });
-                try {
-                  const deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
-                  if (!deletedIds.includes(id)) deletedIds.push(id);
-                  if (entryToDelete?.reference && !deletedIds.includes(entryToDelete.reference)) {
-                    deletedIds.push(entryToDelete.reference);
-                  }
-                  localStorage.setItem('v_rental_deleted_income_ids', JSON.stringify(deletedIds));
-                } catch {}
-                if (isSupabaseConfigured()) {
-                  await deleteIncomeEntryFromSupabase(id, entryToDelete?.reference, entryToDelete?.description);
-                  try {
-                    const freshIncomes = await fetchIncomeEntries();
-                    if (freshIncomes) {
-                      const deletedSet = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]'));
-                      const cleanFresh = freshIncomes.filter(item => !deletedSet.has(item.id));
-                      setIncomeEntries(cleanFresh);
-                      localStorage.setItem('v_rental_income', JSON.stringify(cleanFresh));
-                      localStorage.setItem('v_rental_income_entries', JSON.stringify(cleanFresh));
-                    }
-                  } catch (err) {
-                    console.error('[Purchase] Error reloading income entries after delete:', err);
-                  }
-                }
-              }}
+              onDeleteEntry={handleDeleteFinanceEntry}
             />
           )}
 
@@ -2948,46 +3096,7 @@ export default function App() {
                   }
                 }
               }}
-              onDeleteEntry={async (id) => {
-                const isRoot = activeUser.email.toLowerCase() === DEFAULT_USER.email.toLowerCase() || activeUser.email.toLowerCase() === 'absiraiva@gmail.com';
-                const canDelete = activeUser.role === 'admin' || isRoot;
-                if (!canDelete) {
-                  console.warn('[Sale] Action rejected: Active role does not have permission to delete finance records.');
-                  return;
-                }
-                const entryToDelete = incomeEntries.find((e) => e.id === id);
-                setIncomeEntries((prev) => {
-                  const list = prev.filter((e) => e.id !== id);
-                  try {
-                    localStorage.setItem('v_rental_income', JSON.stringify(list));
-                    localStorage.setItem('v_rental_income_entries', JSON.stringify(list));
-                  } catch {}
-                  return list;
-                });
-                try {
-                  const deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
-                  if (!deletedIds.includes(id)) deletedIds.push(id);
-                  if (entryToDelete?.reference && !deletedIds.includes(entryToDelete.reference)) {
-                    deletedIds.push(entryToDelete.reference);
-                  }
-                  localStorage.setItem('v_rental_deleted_income_ids', JSON.stringify(deletedIds));
-                } catch {}
-                if (isSupabaseConfigured()) {
-                  await deleteIncomeEntryFromSupabase(id, entryToDelete?.reference, entryToDelete?.description);
-                  try {
-                    const freshIncomes = await fetchIncomeEntries();
-                    if (freshIncomes) {
-                      const deletedSet = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]'));
-                      const cleanFresh = freshIncomes.filter(item => !deletedSet.has(item.id));
-                      setIncomeEntries(cleanFresh);
-                      localStorage.setItem('v_rental_income', JSON.stringify(cleanFresh));
-                      localStorage.setItem('v_rental_income_entries', JSON.stringify(cleanFresh));
-                    }
-                  } catch (err) {
-                    console.error('[Sale] Error reloading income entries after delete:', err);
-                  }
-                }
-              }}
+              onDeleteEntry={handleDeleteFinanceEntry}
             />
           )}
 

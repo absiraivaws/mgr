@@ -55,7 +55,7 @@ interface FinancePanelProps {
   currentUser?: UserAccount;
   onAddEntry: (entry: IncomeEntry) => void;
   onUpdateEntry?: (entry: IncomeEntry) => void;
-  onDeleteEntry: (id: string) => void;
+  onDeleteEntry: (id: string, entry?: IncomeEntry) => void;
 }
 
 const STORAGE_CATEGORIES_KEY = 'v_rental_finance_categories';
@@ -381,7 +381,8 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
       if (onUpdateEntry) {
         onUpdateEntry(updated);
       } else {
-        onDeleteEntry(editingEntryId);
+        const oldEntry = entries.find((e) => e.id === editingEntryId);
+        onDeleteEntry(editingEntryId, oldEntry);
         onAddEntry(updated);
       }
 
@@ -446,7 +447,7 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
       details: `Deleted ${deletingEntry.type} entry of ${formatCurrency(deletingEntry.amount, settings.currencySymbol, settings.currencyPosition)} (${deletingEntry.category}): ${deletingEntry.description}`,
     });
 
-    onDeleteEntry(deletingEntry.id);
+    onDeleteEntry(deletingEntry.id, deletingEntry);
     setDeletingEntry(null);
   };
 

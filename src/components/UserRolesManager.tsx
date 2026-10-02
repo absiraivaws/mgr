@@ -36,7 +36,9 @@ import {
   ChevronRight,
   CheckSquare,
   X,
-  Key
+  Key,
+  ShoppingBag,
+  TrendingUp
 } from 'lucide-react';
 import { 
   DEFAULT_USER, 
@@ -170,7 +172,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
 
   // Definition of all Side Menu Tabs as rows in the matrix
   const SIDE_MENU_TABS: {
-    key: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessMessages' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome' | 'accessFinance'>;
+    key: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessMessages' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome' | 'accessFinance' | 'accessPurchase' | 'accessSale'>;
     label: string;
     icon: React.ReactNode;
     badgeColor: string;
@@ -232,6 +234,20 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
       badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
       description: 'Finance Dashboard, automatic rental income, manual transactions, P&L reports, and Statement of Accounts',
     },
+    {
+      key: 'accessPurchase',
+      label: 'Purchase',
+      icon: <ShoppingBag className="w-4 h-4 text-rose-400" />,
+      badgeColor: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
+      description: 'Procurement bills, spare parts inventory orders & bike stock acquisition',
+    },
+    {
+      key: 'accessSale',
+      label: 'Sale',
+      icon: <TrendingUp className="w-4 h-4 text-emerald-400" />,
+      badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+      description: 'Used bike disposal sales, bike accessories & customer sales invoices',
+    },
   ];
 
   // Send Password Reset State
@@ -285,7 +301,7 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
   // Toggle Tab Access for a Role Level (Tick box)
   const handleToggleTabPermission = (
     roleId: string, 
-    tabKey: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessMessages' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome' | 'accessFinance'>
+    tabKey: keyof Pick<RolePermissionSet, 'accessDashboard' | 'accessRentals' | 'accessCustomers' | 'accessMessages' | 'accessHistory' | 'accessUsers' | 'accessSettings' | 'accessIncome' | 'accessFinance' | 'accessPurchase' | 'accessSale'>
   ) => {
     if (!isAdmin) return;
     if (roleId === 'admin') {
@@ -304,6 +320,8 @@ export const UserRolesManager: React.FC<UserRolesManagerProps> = ({
         accessSettings: false,
         accessIncome: false,
         accessFinance: false,
+        accessPurchase: false,
+        accessSale: false,
         canAddFinanceTransaction: false,
         canEditFinanceTransaction: false,
         canDeleteFinanceTransaction: false,
