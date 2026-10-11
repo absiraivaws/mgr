@@ -239,7 +239,35 @@ create table if not exists public.app_settings (
   updated_at timestamptz default now()
 );
 
-alter publication supabase_realtime add table public.vehicles, public.rentals, public.customers;
+-- Enable Realtime across all POS and Transport tables with full replica identity
+DO $$
+DECLARE
+  t text;
+  tables text[] := ARRAY[
+    'vehicle_types', 'vehicles', 'customers', 'rentals', 'app_settings',
+    'income_expenses', 'user_accounts', 'user_roles', 'customer_groups',
+    'message_templates', 'mgr_transport_requests', 'mgr_transport_listings',
+    'mgr_transport_notifications', 'transport_owners', 'transport_vehicles',
+    'transport_drivers', 'transport_routes', 'transport_schedules',
+    'transport_bookings', 'transport_requests', 'transport_quotes'
+  ];
+BEGIN
+  FOREACH t IN ARRAY tables
+  LOOP
+    BEGIN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', t);
+    EXCEPTION WHEN duplicate_object THEN
+      NULL;
+    WHEN undefined_table THEN
+      NULL;
+    END;
+    BEGIN
+      EXECUTE format('ALTER TABLE public.%I REPLICA IDENTITY FULL', t);
+    EXCEPTION WHEN undefined_table THEN
+      NULL;
+    END;
+  END LOOP;
+END $$;
 `;
 
   const copySql = () => {

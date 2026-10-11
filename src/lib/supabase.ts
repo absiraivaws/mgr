@@ -26,13 +26,21 @@ export function getSupabaseCredentials(): { url: string; anonKey: string } {
   const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
   const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
 
-  // Default to the provided Supabase project
+  // Default to the active project (pmowtdktjmejisggngsp)
   const defaultUrl = 'https://pmowtdktjmejisggngsp.supabase.co';
   const defaultKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBtb3d0ZGt0am1lamlzZ2duZ3NwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0ODA1MjAsImV4cCI6MjEwNTA1NjUyMH0.Dat7Pae2QlORFll9tGhDrwjO1m-ACmK7OZW-1cqUAVs';
 
-  const rawUrl = (localUrl || envUrl || defaultUrl).trim();
+  // If localUrl was set to the old legacy project (szzhzpjfmyeulxjhbbov), purge it
+  if (localUrl && localUrl.includes('szzhzpjfmyeulxjhbbov')) {
+    try {
+      localStorage.removeItem('v_supabase_url');
+      localStorage.removeItem('v_supabase_anon_key');
+    } catch {}
+  }
+
+  const rawUrl = (localUrl && !localUrl.includes('szzhzpjfmyeulxjhbbov') ? localUrl : envUrl || defaultUrl).trim();
   const url = normalizeSupabaseUrl(rawUrl);
-  const anonKey = (localKey || envKey || defaultKey).trim();
+  const anonKey = (localKey && !localUrl?.includes('szzhzpjfmyeulxjhbbov') ? localKey : envKey || defaultKey).trim();
 
   return { url, anonKey };
 }

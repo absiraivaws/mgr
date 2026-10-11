@@ -61,7 +61,7 @@ export async function fetchSupabaseData(): Promise<{
       messageTemplates?: MessageTemplate[];
     } = {};
 
-    if (typesRes.data && typesRes.data.length > 0) {
+    if (Array.isArray(typesRes.data)) {
       result.vehicleTypes = typesRes.data.map((row) => ({
         id: row.id,
         name: row.name,
@@ -74,7 +74,7 @@ export async function fetchSupabaseData(): Promise<{
       }));
     }
 
-    if (vehiclesRes.data && vehiclesRes.data.length > 0) {
+    if (Array.isArray(vehiclesRes.data)) {
       result.vehicles = vehiclesRes.data.map((row) => {
         let cleanNotes = row.notes || '';
         let costPrice = row.cost_price !== undefined ? Number(row.cost_price) : undefined;
@@ -236,7 +236,7 @@ export async function fetchSupabaseData(): Promise<{
       }));
     }
 
-    if (incomeRes && incomeRes.data && incomeRes.data.length > 0) {
+    if (Array.isArray(incomeRes?.data)) {
       result.incomeEntries = incomeRes.data.map((row: any) => ({
         id: row.id,
         date: row.date,
@@ -254,7 +254,7 @@ export async function fetchSupabaseData(): Promise<{
       }));
     }
 
-    if (rolesRes.data && rolesRes.data.length > 0) {
+    if (Array.isArray(rolesRes.data)) {
       result.roles = rolesRes.data.map((row) => ({
         id: row.id,
         name: row.name,
@@ -265,7 +265,7 @@ export async function fetchSupabaseData(): Promise<{
       }));
     }
 
-    if (groupsRes && groupsRes.data && groupsRes.data.length > 0) {
+    if (Array.isArray(groupsRes?.data)) {
       result.customerGroups = groupsRes.data.map((row: any) => ({
         id: row.id,
         name: row.name,
@@ -276,7 +276,7 @@ export async function fetchSupabaseData(): Promise<{
       }));
     }
 
-    if (templatesRes && templatesRes.data && templatesRes.data.length > 0) {
+    if (Array.isArray(templatesRes?.data)) {
       const configRow = templatesRes.data.find((row: any) => row.id === '__cycly_notification_config__');
       if (configRow && configRow.content) {
         try {
@@ -1079,26 +1079,57 @@ export async function pushAllLocalDataToSupabase(params: {
   }
 }
 
+export type RealtimeChangeCallback = (
+  table?: string,
+  eventType?: 'INSERT' | 'UPDATE' | 'DELETE' | string,
+  newRow?: any,
+  oldRow?: any
+) => void;
+
 /**
- * Setup Realtime Subscription to live changes from Supabase
+ * Setup Realtime Subscription to live changes from Supabase across all modules
  */
-export function subscribeToSupabaseRealtime(onDataChanged: () => void) {
+export function subscribeToSupabaseRealtime(onDataChanged: RealtimeChangeCallback) {
   const supabase = getSupabase();
   if (!supabase) return () => {};
 
+  const channelName = `cycly-db-realtime-${Date.now()}`;
+
   const channel = supabase
-    .channel('schema-db-changes')
+    .channel(channelName)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public' },
-      () => {
-        onDataChanged();
+      (payload) => {
+        try {
+          const { table, eventType, new: newRow, old: oldRow } = payload;
+          onDataChanged(table, eventType, newRow, oldRow);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('supabase-realtime-update', {
+                detail: { table, eventType, newRow, oldRow, timestamp: Date.now() },
+              })
+            );
+          }
+        } catch (err) {
+          console.error('[Supabase Realtime] Error processing event:', err);
+          onDataChanged();
+        }
       }
     )
-    .subscribe();
+    .subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') {
+        // Immediate sync on connect to guarantee zero missed mutations
+        onDataChanged();
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.warn(`[Supabase Realtime] Channel status: ${status}`, err);
+      }
+    });
 
   return () => {
-    supabase.removeChannel(channel);
+    try {
+      supabase.removeChannel(channel);
+    } catch {}
   };
 }
 

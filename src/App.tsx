@@ -1054,257 +1054,125 @@ export default function App() {
     if (!isSupabaseConfigured()) return;
 
     const loadData = async () => {
-      const [cloudData, cloudIncome, cloudTemplates] = await Promise.all([
-        fetchSupabaseData(),
-        fetchIncomeEntries(),
-        fetchMessageTemplatesFromSupabase(),
-      ]);
-      if (cloudData) {
-        const deletedTypeIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_type_ids') || '[]'));
-        const deletedVehicleIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_ids') || '[]'));
-        const deletedVehicleSerials = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_serials') || '[]'));
+      try {
+        const [cloudData, cloudIncome, cloudTemplates] = await Promise.all([
+          fetchSupabaseData(),
+          fetchIncomeEntries(),
+          fetchMessageTemplatesFromSupabase(),
+        ]);
 
-        if (cloudData.vehicleTypes && cloudData.vehicleTypes.length > 0) {
-          const cleanCloudTypes = (cloudData.vehicleTypes || []).filter((t) => !deletedTypeIds.has(t.id));
-          setVehicleTypes((prev) => {
-            const cleanPrev = prev.filter((t) => !deletedTypeIds.has(t.id));
-            const unsynced = cleanPrev.filter(
-              (pt) => !cleanCloudTypes.some((ct) => ct.id === pt.id || ct.name.trim().toLowerCase() === pt.name.trim().toLowerCase())
-            );
-            unsynced.forEach((t) => syncVehicleTypeToSupabase(t));
-            const merged = [...cleanCloudTypes, ...unsynced];
+        if (cloudData) {
+          // Authoritative Vehicle Types
+          if (cloudData.vehicleTypes !== undefined) {
+            setVehicleTypes(cloudData.vehicleTypes);
             try {
-              localStorage.setItem('v_rental_types', JSON.stringify(merged));
+              localStorage.setItem('v_rental_types', JSON.stringify(cloudData.vehicleTypes));
             } catch {}
-            return merged;
-          });
-        }
-        if (cloudData.vehicles && cloudData.vehicles.length > 0) {
-          const cleanCloudVehicles = (cloudData.vehicles || []).filter(
-            (cv) => !deletedVehicleIds.has(cv.id) && !deletedVehicleSerials.has(cv.serialNumber?.trim().toUpperCase() || '')
-          );
-          setVehicles((prev) => {
-            const cleanPrev = prev.filter(
-              (pv) => !deletedVehicleIds.has(pv.id) && !deletedVehicleSerials.has(pv.serialNumber?.trim().toUpperCase() || '')
-            );
-            const cloudList = cleanCloudVehicles.map((cv) => {
-              const local = cleanPrev.find((pv) => pv.id === cv.id || pv.serialNumber === cv.serialNumber);
-              return {
-                ...cv,
-                costPrice: cv.costPrice !== undefined ? cv.costPrice : local?.costPrice,
-                purchaseRef: cv.purchaseRef || local?.purchaseRef,
-              };
-            });
-            const unsynced = cleanPrev.filter(
-              (pv) =>
-                !cloudList.some(
-                  (cv) =>
-                    cv.id === pv.id ||
-                    (cv.serialNumber &&
-                      pv.serialNumber &&
-                      cv.serialNumber.trim().toUpperCase() === pv.serialNumber.trim().toUpperCase())
-                )
-            );
-            unsynced.forEach((v) => syncVehicleToSupabase(v));
-            const merged = [...cloudList, ...unsynced];
-            try {
-              localStorage.setItem('v_rental_vehicles', JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
-        }
-        const settledIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_settled_ids') || '[]'));
-        const deletedRentalIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_rental_ids') || '[]'));
-        const deletedCustIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_customers') || '[]'));
-
-        if (cloudData.customers && cloudData.customers.length > 0) {
-          const cleanCloudCustomers = (cloudData.customers || []).filter((c) => !deletedCustIds.has(c.id));
-          setCustomers((prev) => {
-            const unsynced = prev.filter(
-              (pc) =>
-                !deletedCustIds.has(pc.id) &&
-                !cleanCloudCustomers.some(
-                  (cc) =>
-                    cc.id === pc.id ||
-                    (cc.nicPassport &&
-                      pc.nicPassport &&
-                      cc.nicPassport.trim().toUpperCase() === pc.nicPassport.trim().toUpperCase())
-                )
-            );
-            unsynced.forEach((c) => syncCustomerToSupabase(c));
-            const merged = [...cleanCloudCustomers, ...unsynced];
-            try {
-              localStorage.setItem('v_rental_customers', JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
-        }
-        // Always load rentals from Supabase to ensure history is up to date, respecting settled and deleted tombstones
-        if (cloudData.activeRentals !== undefined) {
-          const filteredActive = cloudData.activeRentals
-            .filter((r) => !settledIds.has(r.id) && !deletedRentalIds.has(r.id))
-            .map(sanitizeRentalRecordNumber);
-          setActiveRentals(filteredActive);
-          try {
-            localStorage.setItem('v_rental_active', JSON.stringify(filteredActive));
-          } catch {}
-        }
-        if (cloudData.completedRentals !== undefined) {
-          const filteredCompleted = cloudData.completedRentals
-            .filter((r) => !deletedRentalIds.has(r.id))
-            .map(sanitizeRentalRecordNumber);
-          setCompletedRentals(filteredCompleted);
-          try {
-            localStorage.setItem('v_rental_history', JSON.stringify(filteredCompleted));
-          } catch {}
-        }
-        if (cloudData.settings) {
-          setSettings(cloudData.settings);
-          localStorage.setItem('v_rental_settings', JSON.stringify(cloudData.settings));
-        }
-
-        if (cloudData.userAccounts !== undefined) {
-          // Cloud is authoritative for user accounts. Only keep the built-in accounts
-          // locally when they are missing from the cloud, so deleted users do not linger
-          // or get re-created in Supabase.
-          const standardEmails = new Set(
-            [DEFAULT_USER, ...MGR_INITIAL_ACCOUNTS].map((u) => u.email.toLowerCase())
-          );
-          const mergedMap = new Map<string, UserAccount>();
-          for (const u of cloudData.userAccounts) {
-            if (u && u.email) mergedMap.set(u.email.toLowerCase(), u);
           }
-          for (const u of getStoredUsers()) {
-            const email = u?.email?.toLowerCase();
-            if (email && standardEmails.has(email) && !mergedMap.has(email)) {
-              mergedMap.set(email, u);
+
+          // Authoritative Vehicles
+          if (cloudData.vehicles !== undefined) {
+            setVehicles(cloudData.vehicles);
+            try {
+              localStorage.setItem('v_rental_vehicles', JSON.stringify(cloudData.vehicles));
+            } catch {}
+          }
+
+          // Authoritative Customers
+          if (cloudData.customers !== undefined) {
+            setCustomers(cloudData.customers);
+            try {
+              localStorage.setItem('v_rental_customers', JSON.stringify(cloudData.customers));
+            } catch {}
+          }
+
+          // Authoritative Rentals
+          if (cloudData.activeRentals !== undefined) {
+            const sanitizedActive = cloudData.activeRentals.map(sanitizeRentalRecordNumber);
+            setActiveRentals(sanitizedActive);
+            try {
+              localStorage.setItem('v_rental_active', JSON.stringify(sanitizedActive));
+            } catch {}
+          }
+
+          if (cloudData.completedRentals !== undefined) {
+            const sanitizedCompleted = cloudData.completedRentals.map(sanitizeRentalRecordNumber);
+            setCompletedRentals(sanitizedCompleted);
+            try {
+              localStorage.setItem('v_rental_history', JSON.stringify(sanitizedCompleted));
+            } catch {}
+          }
+
+          // Authoritative App Settings
+          if (cloudData.settings) {
+            setSettings(cloudData.settings);
+            try {
+              localStorage.setItem('v_rental_settings', JSON.stringify(cloudData.settings));
+            } catch {}
+          }
+
+          // Authoritative User Accounts
+          if (cloudData.userAccounts !== undefined) {
+            saveStoredUsers(cloudData.userAccounts);
+            // Check active session
+            const current = getCurrentUser();
+            if (current) {
+              const matched = cloudData.userAccounts.find(
+                (u) => u.id === current.id || u.email.toLowerCase() === current.email.toLowerCase()
+              );
+              if (!matched) {
+                logoutUser();
+                setCurrentUser(null);
+                setIsFullLoginPage(true);
+              } else if (matched.role !== current.role || matched.status !== current.status) {
+                setCurrentUser(matched);
+                setCurrentUserSession(matched);
+              }
             }
           }
-          saveStoredUsers(Array.from(mergedMap.values()));
-        }
 
-        if (cloudData.roles && cloudData.roles.length > 0) {
-          saveStoredRoles(cloudData.roles);
-          const refreshed = getCurrentUser();
-          if (refreshed) setCurrentUser({ ...refreshed });
-        } else {
-          syncAllRolesToSupabase(getStoredRoles());
-        }
-
-        if (cloudData.messageTemplates && cloudData.messageTemplates.length > 0) {
-          const merged = new Map<string, MessageTemplate>();
-          for (const def of DEFAULT_MESSAGE_TEMPLATES) {
-            merged.set(def.id, def);
+          // Authoritative Roles
+          if (cloudData.roles !== undefined) {
+            saveStoredRoles(cloudData.roles);
+            const refreshed = getCurrentUser();
+            if (refreshed) setCurrentUser({ ...refreshed });
           }
-          for (const ct of cloudData.messageTemplates) {
-            merged.set(ct.id, ct);
+
+          // Authoritative Customer Groups
+          if (cloudData.customerGroups !== undefined) {
+            setCustomerGroups(cloudData.customerGroups);
+            saveStoredCustomerGroups(cloudData.customerGroups);
           }
-          const fullList = Array.from(merged.values());
-          setMessageTemplates(fullList);
-          saveStoredMessageTemplates(fullList);
         }
 
-        // Load customer groups from Supabase
-        if (cloudData.customerGroups && cloudData.customerGroups.length > 0) {
-          setCustomerGroups(cloudData.customerGroups);
-          saveStoredCustomerGroups(cloudData.customerGroups);
+        // Authoritative Income / Finance Entries
+        if (cloudIncome !== null && Array.isArray(cloudIncome)) {
+          setIncomeEntries(cloudIncome);
+          try {
+            localStorage.setItem('v_rental_income', JSON.stringify(cloudIncome));
+            localStorage.setItem('v_rental_income_entries', JSON.stringify(cloudIncome));
+          } catch {}
         }
-      }
-      // If cloud data is empty/missing, keep local initial data as fallback
-      else {
-        console.log('No cloud data found, keeping local data as fallback');
-      }
 
-      // Reconcile rental history with income entries
-      const effectiveRentals = cloudData?.completedRentals !== undefined
-        ? cloudData.completedRentals.map(sanitizeRentalRecordNumber)
-        : completedRentals;
-
-      // Merge local incomeEntries with cloudIncome so newly added local entries are preserved while respecting deleted tombstones
-      let deletedIncomeIds: string[] = [];
-      try {
-        deletedIncomeIds = JSON.parse(localStorage.getItem('v_rental_deleted_income_ids') || '[]');
-      } catch {}
-      const isEntryDeleted = (item: IncomeEntry | null | undefined): boolean => {
-        return isIncomeEntryDeleted(item, deletedIncomeIds);
-      };
-
-      const mergedIncomesMap = new Map<string, IncomeEntry>();
-
-      // 1. Load latest from localStorage first
-      let storedLocalIncomes: IncomeEntry[] = [];
-      try {
-        const raw = localStorage.getItem('v_rental_income');
-        if (raw) storedLocalIncomes = JSON.parse(raw);
-      } catch {}
-
-      const localPool = (storedLocalIncomes.length > 0 ? storedLocalIncomes : incomeEntries).filter(
-        (item) => !isEntryDeleted(item)
-      );
-      for (const item of localPool) {
-        if (item && item.id) mergedIncomesMap.set(item.id, item);
-      }
-
-      // 2. Overlay cloud income entries while keeping rich local details if present
-      const cloudList = (cloudIncome || []).filter((item) => !isEntryDeleted(item));
-      const unsyncedLocalItems: IncomeEntry[] = [];
-      for (const cloudItem of cloudList) {
-        if (cloudItem && cloudItem.id) {
-          const localItem = mergedIncomesMap.get(cloudItem.id);
-          mergedIncomesMap.set(cloudItem.id, {
-            ...cloudItem,
-            ...(localItem ? {
-              reference: localItem.reference || cloudItem.reference,
-              paymentMethod: localItem.paymentMethod || cloudItem.paymentMethod,
-              remarks: localItem.remarks || cloudItem.remarks,
-            } : {}),
-          });
+        // Authoritative Message Templates
+        if (cloudTemplates && Array.isArray(cloudTemplates)) {
+          setMessageTemplates(cloudTemplates);
+          saveStoredMessageTemplates(cloudTemplates);
         }
-      }
 
-      // 3. Identify local entries that are not yet in cloud and queue them for sync
-      const cloudIdSet = new Set(cloudList.map((c) => c.id));
-      for (const localItem of localPool) {
-        if (localItem && localItem.id && !cloudIdSet.has(localItem.id) && !isEntryDeleted(localItem)) {
-          unsyncedLocalItems.push(localItem);
+        // Broadcast refresh event to all child components and tabs
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('supabase-data-refreshed'));
         }
-      }
-
-      const mergedIncomesList = Array.from(mergedIncomesMap.values()).filter((item) => !isEntryDeleted(item));
-      const effectiveIncome = mergedIncomesList.length > 0 ? mergedIncomesList : incomeEntries.filter((item) => !isEntryDeleted(item));
-
-      const { reconciledIncomes, hasChanges, newItems, updatedItems } = reconcileRentalIncomeLedger(
-        effectiveRentals,
-        effectiveIncome,
-        currentUser?.name || settings.cashierName || 'Staff'
-      );
-
-      const finalIncomes = (hasChanges ? reconciledIncomes : effectiveIncome).filter((item) => !isEntryDeleted(item));
-      setIncomeEntries(finalIncomes);
-      try {
-        localStorage.setItem('v_rental_income', JSON.stringify(finalIncomes));
-        localStorage.setItem('v_rental_income_entries', JSON.stringify(finalIncomes));
-      } catch {}
-
-      if (isSupabaseConfigured()) {
-        const itemsToSync = [...unsyncedLocalItems, ...(hasChanges ? [...newItems, ...updatedItems] : [])].filter(
-          (item) => !isEntryDeleted(item)
-        );
-        itemsToSync.forEach((entry) => {
-          syncIncomeEntryToSupabase(entry);
-        });
-      }
-
-      if (cloudTemplates && cloudTemplates.length > 0) {
-        setMessageTemplates(cloudTemplates);
-        saveStoredMessageTemplates(cloudTemplates);
+      } catch (err) {
+        console.error('[SupabaseSync] Error during loadData:', err);
       }
     };
 
     loadData();
 
     // Live subscription across devices / tabs
-    const unsubscribe = subscribeToSupabaseRealtime(() => {
+    const unsubscribe = subscribeToSupabaseRealtime((table, eventType) => {
       loadData();
     });
 
@@ -1317,8 +1185,16 @@ export default function App() {
     window.addEventListener('focus', handleVisibilityOrFocus);
     document.addEventListener('visibilitychange', handleVisibilityOrFocus);
 
+    // Periodic safety check every 15 seconds
+    const safetyTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadData();
+      }
+    }, 15000);
+
     return () => {
       unsubscribe();
+      clearInterval(safetyTimer);
       window.removeEventListener('focus', handleVisibilityOrFocus);
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
     };
@@ -1337,6 +1213,16 @@ export default function App() {
           setVehicleTypes(types);
         } else if (type === 'VEHICLES_UPDATED' && newVehicles) {
           setVehicles(newVehicles);
+        } else if (type === 'CUSTOMERS_UPDATED') {
+          try {
+            const raw = localStorage.getItem('v_rental_customers');
+            if (raw) setCustomers(JSON.parse(raw));
+          } catch {}
+        } else if (type === 'INCOME_UPDATED') {
+          try {
+            const raw = localStorage.getItem('v_rental_income');
+            if (raw) setIncomeEntries(JSON.parse(raw));
+          } catch {}
         } else if (type === 'LOGOUT') {
           setCurrentUser(null);
           setIsFullLoginPage(true);
@@ -1378,6 +1264,22 @@ export default function App() {
         try {
           setVehicles(JSON.parse(e.newValue));
         } catch {}
+      } else if (e.key === 'v_rental_customers' && e.newValue) {
+        try {
+          setCustomers(JSON.parse(e.newValue));
+        } catch {}
+      } else if (e.key === 'v_rental_income' && e.newValue) {
+        try {
+          setIncomeEntries(JSON.parse(e.newValue));
+        } catch {}
+      } else if (e.key === 'v_rental_active' && e.newValue) {
+        try {
+          setActiveRentals(JSON.parse(e.newValue));
+        } catch {}
+      } else if (e.key === 'v_rental_history' && e.newValue) {
+        try {
+          setCompletedRentals(JSON.parse(e.newValue));
+        } catch {}
       } else if (e.key === 'v_rental_current_user') {
         if (!e.newValue) {
           setCurrentUser(null);
@@ -1416,18 +1318,10 @@ export default function App() {
     const newIds = new Set(newTypes.map(t => t.id));
     const deleted = vehicleTypes.filter(t => !newIds.has(t.id));
 
-    if (deleted.length > 0) {
-      try {
-        const deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_type_ids') || '[]');
-        for (const t of deleted) {
-          if (t.id && !deletedIds.includes(t.id)) deletedIds.push(t.id);
-        }
-        localStorage.setItem('v_rental_deleted_type_ids', JSON.stringify(deletedIds));
-      } catch {}
-    }
-
     setVehicleTypes(newTypes);
-    localStorage.setItem('v_rental_types', JSON.stringify(newTypes));
+    try {
+      localStorage.setItem('v_rental_types', JSON.stringify(newTypes));
+    } catch {}
 
     if (isSupabaseConfigured()) {
       for (const t of newTypes) {
@@ -1435,17 +1329,6 @@ export default function App() {
       }
       for (const t of deleted) {
         await deleteVehicleTypeFromSupabase(t.id);
-      }
-      try {
-        const fresh = await fetchSupabaseData();
-        if (fresh?.vehicleTypes) {
-          const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_type_ids') || '[]'));
-          const cleanTypes = fresh.vehicleTypes.filter(t => !deletedIds.has(t.id));
-          setVehicleTypes(cleanTypes);
-          localStorage.setItem('v_rental_types', JSON.stringify(cleanTypes));
-        }
-      } catch (err) {
-        console.error('[Types] Error reloading from Supabase:', err);
       }
     }
     try {
@@ -1460,36 +1343,10 @@ export default function App() {
     const newSerials = new Set(newVehicles.map(v => v.serialNumber?.trim().toUpperCase()).filter(Boolean));
     const deleted = vehicles.filter(v => !newIds.has(v.id) && !newSerials.has(v.serialNumber?.trim().toUpperCase() || ''));
 
-    // Persistent tombstones for deleted inventory items
-    try {
-      let deletedIds: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_ids') || '[]');
-      let deletedSerials: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_serials') || '[]');
-
-      if (deleted.length > 0) {
-        for (const v of deleted) {
-          if (v.id && !deletedIds.includes(v.id)) deletedIds.push(v.id);
-          if (v.serialNumber) {
-            const upper = v.serialNumber.trim().toUpperCase();
-            if (!deletedSerials.includes(upper)) deletedSerials.push(upper);
-          }
-        }
-      }
-
-      // If any vehicle is newly added or existing, remove it from tombstones
-      for (const nv of newVehicles) {
-        deletedIds = deletedIds.filter(id => id !== nv.id);
-        if (nv.serialNumber) {
-          const upper = nv.serialNumber.trim().toUpperCase();
-          deletedSerials = deletedSerials.filter(s => s !== upper);
-        }
-      }
-
-      localStorage.setItem('v_rental_deleted_vehicle_ids', JSON.stringify(deletedIds));
-      localStorage.setItem('v_rental_deleted_vehicle_serials', JSON.stringify(deletedSerials));
-    } catch {}
-
     setVehicles(newVehicles);
-    localStorage.setItem('v_rental_vehicles', JSON.stringify(newVehicles));
+    try {
+      localStorage.setItem('v_rental_vehicles', JSON.stringify(newVehicles));
+    } catch {}
 
     if (isSupabaseConfigured()) {
       for (const v of newVehicles) {
@@ -1497,42 +1354,6 @@ export default function App() {
       }
       for (const v of deleted) {
         await deleteVehicleFromSupabase(v.id, v.serialNumber);
-      }
-      try {
-        const fresh = await fetchSupabaseData();
-        if (fresh?.vehicles) {
-          const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_ids') || '[]'));
-          const deletedSerials = new Set<string>(JSON.parse(localStorage.getItem('v_rental_deleted_vehicle_serials') || '[]'));
-
-          const cleanCloudVehicles = fresh.vehicles.filter(
-            (fv) => !deletedIds.has(fv.id) && !deletedSerials.has(fv.serialNumber?.trim().toUpperCase() || '')
-          );
-
-          // Keep local user edits with absolute priority over stale cloud reads
-          const merged = newVehicles
-            .filter((lv) => !deletedIds.has(lv.id) && !deletedSerials.has(lv.serialNumber?.trim().toUpperCase() || ''))
-            .map((lv) => {
-              const fv = cleanCloudVehicles.find((c) => c.id === lv.id || (c.serialNumber && c.serialNumber.toUpperCase() === lv.serialNumber.toUpperCase()));
-              if (!fv) return lv;
-              return {
-                ...fv,
-                ...lv, // User's latest edits take precedence!
-                costPrice: lv.costPrice !== undefined ? lv.costPrice : fv.costPrice,
-                purchaseRef: lv.purchaseRef || fv.purchaseRef,
-              };
-            });
-          const localIds = new Set(merged.map((v) => v.id));
-          const localSerials = new Set(merged.map((v) => v.serialNumber?.trim().toUpperCase()).filter(Boolean));
-          const extraFromCloud = cleanCloudVehicles.filter(
-            (fv) => !localIds.has(fv.id) && !localSerials.has(fv.serialNumber?.trim().toUpperCase() || '')
-          );
-          const finalVehicles = [...merged, ...extraFromCloud];
-
-          setVehicles(finalVehicles);
-          localStorage.setItem('v_rental_vehicles', JSON.stringify(finalVehicles));
-        }
-      } catch (err) {
-        console.error('[Vehicles] Error reloading from Supabase:', err);
       }
     }
     try {
@@ -1859,13 +1680,6 @@ export default function App() {
       return updated;
     });
 
-    // Remove from deleted tombstones if it was previously deleted
-    try {
-      const deletedSet: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_customers') || '[]');
-      const filtered = deletedSet.filter((id) => id !== newCustomer.id);
-      localStorage.setItem('v_rental_deleted_customers', JSON.stringify(filtered));
-    } catch {}
-
     if (isSupabaseConfigured()) {
       try {
         await syncCustomerToSupabase(newCustomer);
@@ -1873,6 +1687,11 @@ export default function App() {
         console.error('[Customers] Error syncing added customer to Supabase:', err);
       }
     }
+    try {
+      const bc = new BroadcastChannel('bicycle_pos_channel');
+      bc.postMessage({ type: 'CUSTOMERS_UPDATED', customer: newCustomer });
+      bc.close();
+    } catch {}
   };
 
   const handleUpdateCustomer = async (updatedCustomer: Customer) => {
@@ -1891,10 +1710,14 @@ export default function App() {
         console.error('[Customers] Error syncing updated customer to Supabase:', err);
       }
     }
+    try {
+      const bc = new BroadcastChannel('bicycle_pos_channel');
+      bc.postMessage({ type: 'CUSTOMERS_UPDATED', customer: updatedCustomer });
+      bc.close();
+    } catch {}
   };
 
   const handleDeleteCustomer = async (customerId: string, _nicPassport?: string) => {
-    // Delete ONLY this specific customer record by customerId (vital for removing duplicates without deleting both!)
     setCustomers((prev) => {
       const updated = prev.filter((c) => c.id !== customerId);
       try {
@@ -1903,15 +1726,6 @@ export default function App() {
       return updated;
     });
 
-    // Record customerId in local deleted tombstone list so cloud fetch will NEVER resurrect it
-    try {
-      const deletedSet: string[] = JSON.parse(localStorage.getItem('v_rental_deleted_customers') || '[]');
-      if (!deletedSet.includes(customerId)) {
-        deletedSet.push(customerId);
-        localStorage.setItem('v_rental_deleted_customers', JSON.stringify(deletedSet));
-      }
-    } catch {}
-
     if (isSupabaseConfigured()) {
       try {
         await deleteCustomerFromSupabase(customerId);
@@ -1919,6 +1733,11 @@ export default function App() {
         console.error('[Customers] Error deleting customer from Supabase:', err);
       }
     }
+    try {
+      const bc = new BroadcastChannel('bicycle_pos_channel');
+      bc.postMessage({ type: 'CUSTOMERS_UPDATED', customerId });
+      bc.close();
+    } catch {}
   };
 
   const handleBulkImportCustomers = (importedCustomers: Customer[]) => {

@@ -1310,6 +1310,14 @@ export function saveStoredUsers(users: UserAccount[]): void {
       return clean as UserAccount;
     });
     localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(sanitized));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('cycly_users_updated', { detail: sanitized }));
+      try {
+        const bc = new BroadcastChannel('bicycle_pos_channel');
+        bc.postMessage({ type: 'USERS_UPDATED', users: sanitized, timestamp: Date.now() });
+        bc.close();
+      } catch {}
+    }
   } catch (err) {
     console.error('Failed to save users to localStorage', err);
   }

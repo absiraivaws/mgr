@@ -198,149 +198,96 @@ export const MGRBookingHub: React.FC<MGRBookingHubProps> = ({
     syncMarketplaceSettingsToSupabase(settings);
   }, [settings]);
 
-  // Initial load from Supabase if connected
-  // Initial load from Supabase if connected with bidirectional merge
+  // Load from Supabase if connected with authoritative sync & Realtime listener
   useEffect(() => {
-    fetchMGRTransportData().then((remote) => {
-      if (!remote) return;
+    let cancelled = false;
 
-      // Vehicles sync: bidirectional merge
-      setVehicles((prevVehicles) => {
-        const remoteList = remote.vehicles || [];
-        const unsynced = prevVehicles.filter(
-          (pv) =>
-            !remoteList.some(
-              (rv) =>
-                rv.id === pv.id ||
-                (rv.registrationNumber &&
-                  pv.registrationNumber &&
-                  rv.registrationNumber.trim().toUpperCase() === pv.registrationNumber.trim().toUpperCase())
-            )
-        );
-        unsynced.forEach((v) => syncTransportVehicleToSupabase(v));
-        const merged = [...remoteList, ...unsynced];
-        try {
-          localStorage.setItem('mgr_transport_vehicles', JSON.stringify(merged));
-        } catch {}
-        return merged;
-      });
+    const hydrateFromRemote = () => {
+      fetchMGRTransportData().then((remote) => {
+        if (cancelled || !remote) return;
 
-      // Owners sync: bidirectional merge
-      setOwners((prevOwners) => {
-        const remoteList = remote.owners || [];
-        const unsynced = prevOwners.filter(
-          (po) =>
-            !remoteList.some(
-              (ro) =>
-                ro.id === po.id ||
-                (ro.email && po.email && ro.email.trim().toLowerCase() === po.email.trim().toLowerCase())
-            )
-        );
-        unsynced.forEach((o) => syncTransportOwnerToSupabase(o));
-        const merged = [...remoteList, ...unsynced];
-        try {
-          localStorage.setItem('mgr_transport_owners', JSON.stringify(merged));
-        } catch {}
-        return merged;
-      });
-
-      // Drivers sync: bidirectional merge
-      setDrivers((prevDrivers) => {
-        const remoteList = remote.drivers || [];
-        const unsynced = prevDrivers.filter(
-          (pd) =>
-            !remoteList.some(
-              (rd) =>
-                rd.id === pd.id ||
-                (rd.licenceNumber &&
-                  pd.licenceNumber &&
-                  rd.licenceNumber.trim().toUpperCase() === pd.licenceNumber.trim().toUpperCase())
-            )
-        );
-        unsynced.forEach((d) => syncTransportDriverToSupabase(d));
-        const merged = [...remoteList, ...unsynced];
-        try {
-          localStorage.setItem('mgr_transport_drivers', JSON.stringify(merged));
-        } catch {}
-        return merged;
-      });
-
-      // Routes sync: bidirectional merge
-      setRoutes((prevRoutes) => {
-        const remoteList = remote.routes || [];
-        const unsynced = prevRoutes.filter((pr) => !remoteList.some((rr) => rr.id === pr.id));
-        unsynced.forEach((r) => syncTransportRouteToSupabase(r));
-        const merged = [...remoteList, ...unsynced];
-        try {
-          localStorage.setItem('mgr_transport_routes', JSON.stringify(merged));
-        } catch {}
-        return merged;
-      });
-
-      // Schedules sync
-      if (remote.schedules && remote.schedules.length > 0) {
-        setSchedules(remote.schedules);
-        try {
-          localStorage.setItem('mgr_transport_schedules', JSON.stringify(remote.schedules));
-        } catch {}
-      }
-
-      // Bookings sync: bidirectional merge
-      setBookings((prevBookings) => {
-        const remoteList = remote.bookings || [];
-        const unsynced = prevBookings.filter(
-          (pb) =>
-            !remoteList.some(
-              (rb) =>
-                rb.id === pb.id ||
-                (rb.bookingNumber && pb.bookingNumber && rb.bookingNumber === pb.bookingNumber)
-            )
-        );
-        unsynced.forEach((b) => syncTransportBookingToSupabase(b));
-        const merged = [...remoteList, ...unsynced];
-        try {
-          localStorage.setItem('mgr_transport_bookings', JSON.stringify(merged));
-        } catch {}
-        return merged;
-      });
-
-      if (remote.settings) {
-        setSettings(remote.settings);
-        try {
-          localStorage.setItem('mgr_marketplace_settings', JSON.stringify(remote.settings));
-        } catch {}
-      }
-    });
-  }, []);
-
-  // Periodic background data sync based on Admin Settings (10s, 30s, 1m, 2m)
-  useEffect(() => {
-    const intervalMs = settings.dataSyncInterval || 30000;
-    const timer = setInterval(() => {
-      fetchMGRTransportData().then(remote => {
-        if (!remote) return;
-        if (remote.vehicles && remote.vehicles.length > 0) {
+        if (Array.isArray(remote.vehicles)) {
           setVehicles(remote.vehicles);
+          try {
+            localStorage.setItem('mgr_transport_vehicles', JSON.stringify(remote.vehicles));
+          } catch {}
         }
-        if (remote.owners && remote.owners.length > 0) {
+
+        if (Array.isArray(remote.owners)) {
           setOwners(remote.owners);
+          try {
+            localStorage.setItem('mgr_transport_owners', JSON.stringify(remote.owners));
+          } catch {}
         }
-        if (remote.bookings && remote.bookings.length > 0) {
-          setBookings(prev => {
-            const remoteList = remote.bookings || [];
-            const unsynced = prev.filter(
-              pb => !remoteList.some(rb => rb.id === pb.id || (rb.bookingNumber && pb.bookingNumber && rb.bookingNumber === pb.bookingNumber))
-            );
-            return [...remoteList, ...unsynced];
-          });
+
+        if (Array.isArray(remote.drivers)) {
+          setDrivers(remote.drivers);
+          try {
+            localStorage.setItem('mgr_transport_drivers', JSON.stringify(remote.drivers));
+          } catch {}
         }
+
+        if (Array.isArray(remote.routes)) {
+          setRoutes(remote.routes);
+          try {
+            localStorage.setItem('mgr_transport_routes', JSON.stringify(remote.routes));
+          } catch {}
+        }
+
+        if (Array.isArray(remote.schedules)) {
+          setSchedules(remote.schedules);
+          try {
+            localStorage.setItem('mgr_transport_schedules', JSON.stringify(remote.schedules));
+          } catch {}
+        }
+
+        if (Array.isArray(remote.bookings)) {
+          setBookings(remote.bookings);
+          try {
+            localStorage.setItem('mgr_transport_bookings', JSON.stringify(remote.bookings));
+          } catch {}
+        }
+
         if (remote.settings) {
           setSettings(remote.settings);
+          try {
+            localStorage.setItem('mgr_marketplace_settings', JSON.stringify(remote.settings));
+          } catch {}
         }
       });
-    }, intervalMs);
+    };
 
-    return () => clearInterval(timer);
+    hydrateFromRemote();
+
+    const handleRealtimeChange = (e: any) => {
+      const table = e?.detail?.table;
+      if (!table || table.includes('transport')) {
+        hydrateFromRemote();
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        hydrateFromRemote();
+      }
+    };
+
+    window.addEventListener('supabase-realtime-update', handleRealtimeChange);
+    window.addEventListener('supabase-data-refreshed', hydrateFromRemote);
+    window.addEventListener('focus', handleVisibility);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    const intervalMs = settings.dataSyncInterval || 15000;
+    const timer = setInterval(hydrateFromRemote, intervalMs);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      window.removeEventListener('supabase-realtime-update', handleRealtimeChange);
+      window.removeEventListener('supabase-data-refreshed', hydrateFromRemote);
+      window.removeEventListener('focus', handleVisibility);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [settings.dataSyncInterval]);
 
   const handleUpdateBookingStatus = async (bookingId: string, newStatus: BookingStatus) => {

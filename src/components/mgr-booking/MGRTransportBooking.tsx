@@ -258,7 +258,7 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
   });
   const [requestsHydrated, setRequestsHydrated] = useState(false);
 
-  // Hydrate from Supabase and auto-poll on configured Data Sync Interval
+  // Hydrate from Supabase and listen to real-time changes
   useEffect(() => {
     let cancelled = false;
 
@@ -266,17 +266,12 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
       fetchTransportRequestsV2()
         .then((remote) => {
           if (cancelled) return;
-          setRequests((prev) => {
-            const remoteList = remote || [];
-            // Retain any local requests that haven't synced to remote yet, and push them up
-            const unsynced = prev.filter((p) => !remoteList.some((r) => r.id === p.id));
-            unsynced.forEach((r) => syncTransportRequestV2ToSupabase(r));
-            const merged = [...remoteList, ...unsynced];
+          if (remote !== null && Array.isArray(remote)) {
+            setRequests(remote);
             try {
-              localStorage.setItem('mgr_transport_v2_requests', JSON.stringify(merged));
+              localStorage.setItem('mgr_transport_v2_requests', JSON.stringify(remote));
             } catch {}
-            return merged;
-          });
+          }
         })
         .finally(() => {
           if (!cancelled) setRequestsHydrated(true);
@@ -285,20 +280,42 @@ export const MGRTransportBooking: React.FC<MGRTransportBookingProps> = ({
 
     syncRequestsFromRemote();
 
-    const intervalMs = settings?.dataSyncInterval || 30000;
+    const handleRealtimeChange = (e: any) => {
+      const table = e?.detail?.table;
+      if (!table || table.includes('transport') || table.includes('request')) {
+        syncRequestsFromRemote();
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        syncRequestsFromRemote();
+      }
+    };
+
+    window.addEventListener('supabase-realtime-update', handleRealtimeChange);
+    window.addEventListener('supabase-data-refreshed', syncRequestsFromRemote);
+    window.addEventListener('focus', handleVisibility);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    const intervalMs = settings?.dataSyncInterval || 15000;
     const timer = setInterval(syncRequestsFromRemote, intervalMs);
 
     return () => {
       cancelled = true;
       clearInterval(timer);
+      window.removeEventListener('supabase-realtime-update', handleRealtimeChange);
+      window.removeEventListener('supabase-data-refreshed', syncRequestsFromRemote);
+      window.removeEventListener('focus', handleVisibility);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [settings?.dataSyncInterval]);
 
   useEffect(() => {
-    localStorage.setItem('mgr_transport_v2_requests', JSON.stringify(requests));
-    if (!requestsHydrated) return;
-    requests.forEach((r) => syncTransportRequestV2ToSupabase(r));
-  }, [requests, requestsHydrated]);
+    try {
+      localStorage.setItem('mgr_transport_v2_requests', JSON.stringify(requests));
+    } catch {}
+  }, [requests]);
 
   // ─── SEARCH VIEW STATE ─────────────────────────────────────────────
   const [globalSearch, setGlobalSearch] = useState<string>('');

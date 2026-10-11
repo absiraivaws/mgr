@@ -199,6 +199,41 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
 
   useEffect(() => {
     refreshState();
+
+    const handleDataChanged = () => {
+      refreshState();
+    };
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'v_rental_users' || e.key === 'v_rental_roles') {
+        refreshState();
+      }
+    };
+
+    window.addEventListener('cycly_users_updated', handleDataChanged);
+    window.addEventListener('cycly_roles_updated', handleDataChanged);
+    window.addEventListener('supabase-data-refreshed', handleDataChanged);
+    window.addEventListener('supabase-realtime-update', handleDataChanged);
+    window.addEventListener('storage', handleStorage);
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('bicycle_pos_channel');
+      bc.onmessage = (event) => {
+        if (event.data?.type === 'USERS_UPDATED' || event.data?.type === 'ROLES_UPDATED') {
+          refreshState();
+        }
+      };
+    } catch {}
+
+    return () => {
+      window.removeEventListener('cycly_users_updated', handleDataChanged);
+      window.removeEventListener('cycly_roles_updated', handleDataChanged);
+      window.removeEventListener('supabase-data-refreshed', handleDataChanged);
+      window.removeEventListener('supabase-realtime-update', handleDataChanged);
+      window.removeEventListener('storage', handleStorage);
+      bc?.close();
+    };
   }, []);
 
   // Business scope configuration
