@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { to, subject, html, text } = req.body || {};
+    const { to, subject, html, text, attachments } = req.body || {};
     if (!to || (!html && !text)) {
       return res.status(400).json({ error: 'Recipient (to) and content (html or text) are required' });
     }
@@ -44,13 +44,24 @@ export default async function handler(req, res) {
       },
     });
 
-    await transporter.sendMail({
+    const mailOptions = {
       from: `"Mannar Green Ride" <${currentSender}>`,
       to,
       subject,
       text: text || '',
       html: html || '',
-    });
+    };
+
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      mailOptions.attachments = attachments.map((att) => ({
+        filename: att.filename || 'Quotation.pdf',
+        content: att.content,
+        encoding: att.encoding || 'base64',
+        contentType: att.contentType || 'application/pdf',
+      }));
+    }
+
+    await transporter.sendMail(mailOptions);
 
     return res.status(200).json({ success: true, message: 'System email dispatched successfully' });
   } catch (err) {

@@ -352,3 +352,81 @@ export interface BulkCampaignState {
   lastUpdated: number;
 }
 
+// ==========================================
+// BICYCLE POS QUOTATION MODULE (VERSION 3.0.0)
+// ==========================================
+
+export type QuotationType = 'sale' | 'rent';
+export type RentalCalculationType = 'day' | 'hour';
+export type QuotationCurrency = 'LKR' | 'USD';
+export type QuotationStatus = 'draft' | 'saved' | 'sent' | 'accepted' | 'declined';
+export type DiscountType = 'fixed' | 'percentage';
+
+export interface QuotationLineItem {
+  id: string;
+  quotationType: QuotationType;
+  productId?: string;
+  productName: string;
+  productDescription?: string;
+  // If Sale:
+  quantity: number;
+  // If Rent:
+  rentalCalcType?: RentalCalculationType;
+  units?: number;
+  duration?: number; // Days or hours
+  // Financials:
+  unitPrice: number;
+  currency: QuotationCurrency;
+  subtotal: number;
+  discountType?: DiscountType;
+  discountValue?: number;
+  discount: number;
+  finalTotal: number;
+}
+
+export interface QuotationRecord {
+  id: string;
+  quotationNumber: string; // e.g. QUO-0000001
+  date: string; // YYYY-MM-DD
+  validUntil?: string; // YYYY-MM-DD
+  quotationType: QuotationType; // 'sale' | 'rent'
+  
+  // Customer Details:
+  customerId?: string;
+  customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  customerAddress?: string;
+  customerNicPassport?: string;
+
+  // Items:
+  items: QuotationLineItem[];
+
+  // Primary Line Item / Flat representation:
+  productName: string;
+  quantity: number; // Qty for sale, units for rent
+  rentalCalcType?: RentalCalculationType; // 'day' | 'hour'
+  units?: number;
+  duration?: number; // Days or hours
+  unitPrice: number;
+  currency: QuotationCurrency; // 'LKR' | 'USD'
+  subtotal: number;
+  discountType?: DiscountType;
+  discountValue?: number;
+  discount: number;
+  finalTotal: number;
+
+  // Terms and Conditions:
+  termsAndConditions: string;
+
+  // Metadata:
+  cashierName?: string;
+  status: QuotationStatus;
+  notes?: string;
+  lastSentEmailAt?: number;
+  sentEmailCount?: number;
+  createdAt: number;
+  updatedAt?: number;
+}
+
+

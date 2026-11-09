@@ -53,7 +53,7 @@ if (SMTP_PASS) {
 // All system-generated emails must originate from mannargreenride@gmail.com
 app.post('/api/email/send', async (req, res) => {
   try {
-    const { to, subject, html, text } = req.body || {};
+    const { to, subject, html, text, attachments } = req.body || {};
     if (!to || (!html && !text)) {
       return res.status(400).json({ error: 'Recipient (to) and content (html or text) are required' });
     }
@@ -87,13 +87,24 @@ app.post('/api/email/send', async (req, res) => {
       auth: { user: currentUser, pass: currentPass },
     });
 
-    const info = await transporter.sendMail({
+    const mailOptions = {
       from: `"Mannar Green Ride" <${currentSender}>`,
       to,
       subject: subject || 'Mannar Green Ride Notification',
       text,
       html,
-    });
+    };
+
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      mailOptions.attachments = attachments.map((att) => ({
+        filename: att.filename || 'Quotation.pdf',
+        content: att.content,
+        encoding: att.encoding || 'base64',
+        contentType: att.contentType || 'application/pdf',
+      }));
+    }
+
+    const info = await transporter.sendMail(mailOptions);
 
     console.log(`[System Email] Successfully delivered email to ${to}: ${info.messageId}`);
     return res.status(200).json({

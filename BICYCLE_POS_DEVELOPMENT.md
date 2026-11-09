@@ -19,11 +19,33 @@ This document maintains the complete development reference, system specification
 
 ---
 
-## 1.0 Development Tasks & Progress Tracking (Version 2.8.0 - Active Sprint)
+## 1.0 Development Tasks & Progress Tracking (Version 3.0.0 - Active Sprint)
 
-### 📌 Bicycle POS Focused Requirements (Step-by-Step Implementation & Verification)
+### 📌 Bicycle POS – Quotation Additional Changes (Sprint 3.1.0 Implementation & Verification)
 | Req # | Requirement Item | Status | Target Files & Implementation Scope |
 |:---:|---|:---:|---|
+| **1** | **Fix Quotation Layout Spacing (Screen, Print, PDF)**<br>• Fixed padding and margins on Top, Bottom, Left, and Right across screen modal, print view, and PDF view.<br>• Clean, balanced, and readable layout with generous breathing room and zero overlapping content. | **Developed & Verified** | `src/components/QuotationManagementPanel.tsx`<br>• Refined document container padding (`px-8 sm:px-12 md:px-14 pt-10 pb-12`).<br>• Enforced `@page { size: A4 portrait; margin: 15mm; }` in print CSS and isolated `#printable-official-quotation` cleanly.<br>• Standardized table padding (`px-4 py-3.5`) and signature spacing (`pt-10 pb-4 mt-6`). |
+| **2** | **Remove Separate Box (Image 2)**<br>• Removed separate card box (`QUOTATION PREPARED FOR:` / `ISSUED BY:`) from quotation layout.<br>• Cleanly integrated customer information directly into the header metadata block on the right. | **Developed & Verified** | `src/components/QuotationManagementPanel.tsx`<br>• Completely removed the separate card shown in Image 2.<br>• Streamlined layout allowing items table to flow directly below the header.<br>• Customer name and contact displayed cleanly in the header metadata block. |
+| **3** | **Add Reservation Terms & Conditions Line**<br>• Added mandatory advance reservation clause to Terms & Conditions:<br>*"Reservation: 50% advance payment is required to confirm the reservation."* | **Developed & Verified** | `src/utils/quotationUtils.ts`<br>`src/components/QuotationManagementPanel.tsx`<br>• Added line to `DEFAULT_TERMS_AND_CONDITIONS_SALE` and `DEFAULT_TERMS_AND_CONDITIONS_RENT`.<br>• Auto-populated in newly generated quotations and editable in the quotation form modal. |
+| **4** | **Discount Improvement: Percentage (%) vs Fixed Amount**<br>• Toggle for selecting discount as Percentage (%) or Fixed Amount.<br>• Live calculation engine accurately calculates `(Subtotal × %) / 100` or fixed amount and updates final total. | **Developed & Verified** | `src/types.ts`<br>`src/utils/quotationUtils.ts`<br>`src/components/QuotationManagementPanel.tsx`<br>• Added `DiscountType` ('percentage' \| 'fixed') and `discountValue` to types and data model.<br>• Upgraded `calculateSaleQuotation` and `calculateRentQuotation` with percentage math engines.<br>• Added interactive segmented switch (`% Pct` vs `Fixed`) in form modal for both Sale and Rent flows.<br>• Display discount label with percentage (e.g. `Discount (10%): -LK 15,200.00`). |
+| **5** | **Add Website in Contact Details**<br>• Added official website address `https://www.mannargreenride.com/` to quotation contact details. | **Developed & Verified** | `src/components/QuotationManagementPanel.tsx`<br>• Prominently added `Website: https://www.mannargreenride.com/` in quotation document header alongside address, phone, and email. |
+| **6** | **Send Quotation by Email directly with Auto-Attached PDF**<br>• Send Email button in quotation preview modal and table actions.<br>• Auto-attaches quotation as real PDF file.<br>• Auto-fills recipient email from customer details.<br>• Resend option with dispatch tracking. | **Developed & Verified** | `server.js`<br>`api/email/send.js`<br>`src/components/QuotationManagementPanel.tsx`<br>• Added Send Email button in modal header and quick-action icon in table.<br>• Converted quotation canvas to PDF base64 using `html2canvas` + `jsPDF` and attached via Nodemailer.<br>• Added `lastSentEmailAt` and `sentEmailCount` tracking in quotation records.<br>• Supported resending with clear history indicators. |
+| **7** | **Fully Editable Email Subject & Content**<br>• Pre-populated default subject and body with quotation details and 50% reservation reminder.<br>• User can review and edit subject and body before dispatching. | **Developed & Verified** | `src/components/QuotationManagementPanel.tsx`<br>• Dedicated Send Email modal with editable recipient, subject, and body textarea.<br>• Initialized with Mannar Green Ride official template matching user specifications. |
+
+---
+
+### 📌 Multi-Business User Roles & Permissions – PRH Rental Hub Matrix (Sprint 3.1.1 Implementation & Verification)
+| Req # | Requirement Item | Status | Target Files & Implementation Scope |
+|:---:|---|:---:|---|
+| **1** | **PRH Rental Hub Side-Menu Tab Access Matrix**<br>• Provide exact equivalent of Bicycle POS side-menu tab matrix for Pesalai Rental Hub (PRH).<br>• Multi-role tick box grid across all 14 PRH modules (Dashboard, New Rental, Active Rentals, Returns, Customers, Equipment, Inventory, Reservations, Payments, Finance, Maintenance, Reminders, Reports, Settings). | **Developed & Verified** | `src/components/user-role/UserRoleMasterHub.tsx`<br>• Dynamic matrix rendering for `prh_rental` scope with all 14 PRH tab permission toggles.<br>• Full role coverage: Cashier POS, Store Manager, Administrator, MGR Owner, PRH Owner, and Custom Roles.<br>• Supabase & localStorage multi-device persistence via `Save All Roles` and per-role action buttons. |
+| **2** | **In-Page Business Scope Switcher Bar & Section Switchers**<br>• Added prominent business switcher cards right below the master header (Bicycle POS, PRH Rental Hub, MGR Transport).<br>• Added quick inline segmented tab switches inside Section 1 (Top Bar Access), Section 2 (Side-Menu Matrix), and Section 3 (Operational Privileges).<br>• Live routing synchronization with `/user-role/prh-rental`. | **Developed & Verified** | `src/components/user-role/UserRoleMasterHub.tsx`<br>`src/App.tsx`<br>`src/utils/roleRouting.ts`<br>• Real-time reactive state switching between businesses.<br>• High-contrast visual active indicators for clear visibility on both Light and Dark themes. |
+
+---
+
+
+---
+
+## 1.0b Development Tasks & Progress Tracking (Version 2.8.0)
 | **1** | **Automatic WhatsApp Rental Notifications**<br>• Rental-related WhatsApp messages sent automatically, not manually.<br>• Dispatched to customer's saved WhatsApp number and registered WhatsApp Group Link.<br>• Correct templates: `tmpl-welcome-start` (Start) and `tmpl-return-thanks` (End).<br>• Clean line breaks: eliminated literal `\n \n` repeating text, ensuring real paragraph line breaks across customer and group messages. | **Developed & Verified** | `src/utils/bicyclePosUtils.ts`<br>`src/utils/customer.ts`<br>`src/lib/supabaseSync.ts`<br>`src/App.tsx`<br>`src/components/StartRentalCard.tsx`<br>`src/components/StopRentalModal.tsx`<br>• **Message Line Breaks & Formatting**: Upgraded `normalizeMessageText` converting all escaped backslash sequences (`\n`, `\\n`, `\r\n`), stripping trailing whitespace before newlines (` \n\n`), and eliminating blank-whitespace lines so messages render with proper paragraphs instead of single-line text.<br>• Cleaned all 12 templates in Supabase `message_templates` table.<br>• **Group Dispatch Reliability**: Executed `window.open` for customer and registered WhatsApp Group link synchronously during user click (before async `await fetch`), avoiding browser popup blockers.<br>• **Interactive Dispatch Banner**: Added persistent floating action toast in `App.tsx` with 1-click buttons for Customer Chat, WhatsApp Group (with instant clipboard copy), WhatsApp Web direct sharing, and clean message preview. |
 | **2** | **Save WhatsApp Numbers / Group Links**<br>• Admin Add/Edit of WhatsApp numbers or group links immediately persists to database.<br>• Newly saved contacts & groups receive future notifications automatically. | **Developed & Verified** | `src/lib/supabaseSync.ts`<br>`src/components/BicycleMessageTemplatesView.tsx`<br>• Implemented `syncNotificationConfigToSupabase(settings)` persisting contacts, groups, and rule toggles to Supabase `message_templates` table (`id: '__cycly_notification_config__'`).<br>• Added Edit action modals for Contacts & Group Links in Message Templates.<br>• Loaded automatically into `AppSettings` on startup and synced across devices. |
 | **3** | **Inventory Sync**<br>• Add/Edit/Delete inventory (fleet units) updates frontend & database immediately.<br>• Deleted inventory items must NEVER reappear after refresh. | **Developed & Verified** | `src/lib/supabaseSync.ts`<br>`src/App.tsx`<br>`src/components/SettingsPanel.tsx`<br>• Enhanced `deleteVehicleFromSupabase` to delete by `id` AND case-insensitive `serial_number`.<br>• Persistent tombstones (`v_rental_deleted_vehicle_ids`, `v_rental_deleted_vehicle_serials`) strictly exclude deleted vehicles during `loadData()` cloud merges and prevent unsynced local re-uploads.<br>• Immediate post-save database reload displaying only verified saved fleet. |
@@ -830,4 +852,87 @@ When a rental settlement results in a **Refund Due** (i.e. `Advance Paid > Gross
   - Added `refund_amount numeric DEFAULT 0`
   - Added `credited_advance_balance numeric DEFAULT 0`
 - Full bidirectional synchronization implemented in `fetchSupabaseData`, `syncCustomerToSupabase`, and `syncRentalToSupabase`.
+
+---
+
+## 21. Bicycle POS Quotation System Architecture & Workflows (Version 3.0.0)
+
+### 1. Overview & Business Requirements
+The Quotation module equips Bicycle POS with full enterprise quotation capabilities for both retail sales and fleet rentals:
+- **Location**: Under the **Sales** side menu, accessible via the new **“Quotation”** tab positioned alongside **“Direct Sales & Revenue”**.
+- **Quotation Types**:
+  1. **Sale**: Quotations for selling bicycles, equipment, spare parts, safety gear, or merchandise.
+  2. **Rent**: Quotations for hiring fleet units by Day or Hour.
+- **Dual Currency Support**: Instant toggle between Sri Lankan Rupee (**LKR**) and United States Dollar (**USD**), with appropriate symbol and formatting.
+- **Official Branding**: Mannar Green Ride official logo, registered business address, phone, and cashier/sales officer attribution.
+- **Full Operational Lifecycle**: **Save**, **Edit**, **View**, **Print**, and **Download PDF**.
+- **Isolated Execution**: Does not affect active rentals, settled history, direct sales revenue ledgers, or external modules (MGR Transport, PRH, User Role).
+
+### 2. Quotation Numbering Logic
+- Follows the monotonic zero-padded format: `QUO-0000001`, `QUO-0000002`, `QUO-0000003`...
+- Auto-increments from highest existing number in storage and cloud.
+
+### 3. Calculation Mathematical Engine
+
+#### A. Sale Quotation
+- **Input Parameters**:
+  - Selected Product / Item
+  - Quantity ($Q \ge 1$)
+  - Unit Price ($P$) in selected currency (LKR / USD)
+  - Discount Selector: **Percentage (%)** or **Fixed Amount** ($D \ge 0$)
+- **Calculations**:
+  - $\text{Subtotal} = P \times Q$
+  - If Discount is Percentage: $\text{Discount Amount} = \frac{\text{Subtotal} \times \min(100, D)}{100}$
+  - If Discount is Fixed: $\text{Discount Amount} = \min(\text{Subtotal}, D)$
+  - $\text{Final Total} = \max(0, \text{Subtotal} - \text{Discount Amount})$
+
+#### B. Rent Quotation
+- **Input Parameters**:
+  - Selected Product / Vehicle Type / Fleet Model
+  - Rental Calculation Type: **Day** or **Hour**
+  - Number of Units ($U \ge 1$)
+  - Number of Days or Hours ($T \ge 1$)
+  - Unit Rental Price ($P$) per Day/Hour in selected currency (LKR / USD)
+  - Discount Selector: **Percentage (%)** or **Fixed Amount** ($D \ge 0$)
+- **Calculations**:
+  - $\text{Subtotal} = P \times U \times T$
+  - If Discount is Percentage: $\text{Discount Amount} = \frac{\text{Subtotal} \times \min(100, D)}{100}$
+  - If Discount is Fixed: $\text{Discount Amount} = \min(\text{Subtotal}, D)$
+  - $\text{Final Total} = \max(0, \text{Subtotal} - \text{Discount Amount})$
+
+### 4. Customizable Terms & Conditions
+Each quotation includes an editable Terms & Conditions section initialized with standard Mannar Green Ride policies:
+- Quotation validity period (e.g. 14 days from issue).
+- **Reservation Guarantee**: *50% advance payment is required to confirm the reservation.*
+- Payment terms (advance deposit required for rentals, full settlement upon collection/delivery for sales).
+- Equipment liability & security deposit terms for fleet hire.
+- Customizable per client requirement before finalizing.
+
+### 5. Document Layout & Official PDF Print Engine
+- Clean, high-contrast, professional invoice-style quotation layout:
+  - Header: Mannar Green Ride logo, trading name, address (`MM-10, Mannar UC New Building, Madawachiya Road, Mannar`), contact telephone (`+94776574418`), email (`mannargreenride@gmail.com`), and official website (`https://www.mannargreenride.com/`).
+  - Document Title & Meta: "OFFICIAL QUOTATION", Quotation Number, Date, Expiry/Validity Date, Currency, and Customer name & contact cleanly integrated in top-right metadata.
+  - Eliminated the separate card box (Image 2) to ensure a clean, unbroken vertical rhythm directly to the items table.
+  - Balanced padding and margin across Top, Bottom, Left, and Right on Screen, Print, and PDF views.
+  - Itemized Specification Table:
+    - Item Name & Description
+    - Type (Sale vs Rent [Day/Hour])
+    - Units / Quantity
+    - Duration / Period (for rental)
+    - Unit Rate
+    - Currency
+    - Line Total
+  - Summary Box: Subtotal, Discount (with percentage indicator when applicable), Grand Total.
+  - Terms & Conditions block.
+  - Signature and Stamp authorization lines with generous breathing room (`pt-10 pb-4 mt-6`).
+- **Print**: Injects strict `@media print` rules enforcing A4 portrait sizing (`@page { size: A4; margin: 15mm; }`) and isolating `#printable-official-quotation` without borders, shadows, or background artifacts.
+- **Download PDF**: Direct in-browser PDF generation via `html2canvas` + `jsPDF` producing an authentic `.pdf` file with 12mm balanced margins.
+
+### 6. Email Dispatch & Attachment Architecture
+- **Send Email Modal**: Direct email dispatching accessible from the quotation preview modal and table actions.
+- **Auto-attachment**: Automatically renders and attaches the quotation as a high-resolution PDF (`Quotation-[QuotationNo].pdf`) using base64 encoding sent to `/api/email/send`.
+- **Pre-filled & Editable Content**: Auto-fills customer email address, default subject (`Quotation from Mannar Green Ride – [Quotation No]`), and official email body mentioning the 50% reservation payment requirement, fully editable before sending.
+- **Resend & Dispatch Tracking**: Tracks `lastSentEmailAt` and `sentEmailCount` in the quotation record for complete audit trail and resending flexibility.
+
+
 

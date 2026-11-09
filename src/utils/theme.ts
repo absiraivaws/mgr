@@ -128,6 +128,7 @@ export function getThemeClasses(mode: ThemeMode | string = 'dark', accent: Accen
     modalBg: isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900 shadow-2xl',
     divider: isDark ? 'border-slate-800' : 'border-slate-200',
     border: isDark ? 'border-slate-700' : 'border-slate-200',
+    borderMain: isDark ? 'border-slate-700' : 'border-slate-200',
     textMuted: isDark ? 'text-slate-400' : 'text-slate-600',
     textMain: isDark ? 'text-slate-100' : 'text-slate-900',
     textHeading: isDark ? 'text-white' : 'text-slate-900',

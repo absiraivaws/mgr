@@ -240,7 +240,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     },
     {
       id: 'sale' as const,
-      label: 'Sale',
+      label: 'Sales',
       icon: <TrendingUp className="w-4 h-4 shrink-0" />,
       show: isAdmin ? true : Boolean(userPerms.accessSale),
       badge: null as number | null,

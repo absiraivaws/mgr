@@ -31,7 +31,8 @@ import {
   Boxes, 
   UserCheck,
   ShoppingBag,
-  TrendingUp
+  TrendingUp,
+  Calendar
 } from 'lucide-react';
 import { 
   DEFAULT_USER, 
@@ -303,7 +304,7 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
         { key: 'accessPRHCustomers' as keyof RolePermissionSet, label: 'Customers & Contractors', desc: 'Contractor accounts, company BR numbers, credit accounts', icon: <Users className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessPRHEquipment' as keyof RolePermissionSet, label: 'Equipment & Rates', desc: 'Machinery catalog, daily/weekly rates, operator hire pricing', icon: <Boxes className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessPRHInventory' as keyof RolePermissionSet, label: 'Inventory / Units', desc: 'Physical machinery units, serial numbers, engine hours', icon: <Boxes className="w-4 h-4 text-emerald-600" /> },
-        { key: 'accessPRHReservations' as keyof RolePermissionSet, label: 'Reservations', desc: 'Future contractor bookings, project advance reservations', icon: <History className="w-4 h-4 text-emerald-600" /> },
+        { key: 'accessPRHReservations' as keyof RolePermissionSet, label: 'Reservations', desc: 'Future contractor bookings, project advance reservations', icon: <Calendar className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessPRHPayments' as keyof RolePermissionSet, label: 'Payments & Deposits', desc: 'Cash, bank deposits, contractor invoices, security bonds', icon: <DollarSign className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessPRHFinance' as keyof RolePermissionSet, label: 'PRH Finance & P&L', desc: 'Equipment rental gross margins, diesel/fuel & repair ledger', icon: <DollarSign className="w-4 h-4 text-emerald-600" /> },
         { key: 'accessPRHMaintenance' as keyof RolePermissionSet, label: 'Maintenance Workshop', desc: 'Scheduled service, engine oil changes, breakdown work orders', icon: <Wrench className="w-4 h-4 text-emerald-600" /> },
@@ -321,7 +322,23 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
     },
   };
 
-  const currentBusinessConfig = businessConfig[activeBusiness];
+  // Active business scope selection (Bicycle POS, PRH Rental Hub, MGR Transport)
+  const [selectedBusiness, setSelectedBusiness] = useState<BusinessScope>(activeBusiness || 'bicycle_pos');
+
+  useEffect(() => {
+    if (activeBusiness && activeBusiness !== selectedBusiness) {
+      setSelectedBusiness(activeBusiness);
+    }
+  }, [activeBusiness]);
+
+  const handleSwitchBusiness = (scope: BusinessScope) => {
+    setSelectedBusiness(scope);
+    if (onSelectBusiness) {
+      onSelectBusiness(scope);
+    }
+  };
+
+  const currentBusinessConfig = businessConfig[selectedBusiness] || businessConfig.bicycle_pos;
 
   // Toggle Top Menu Access for a role
   const handleToggleTopMenuAccess = (roleId: string, business: BusinessScope) => {
@@ -828,6 +845,156 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
         )}
       </div>
 
+      {/* 1.5. PRIMARY BUSINESS SCOPE SWITCHER BAR */}
+      <div className={`${styles.cardBg} rounded-2xl p-4 sm:p-5 border shadow-xs space-y-3`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${styles.purpleBadge}`}>
+              <Layers className="w-4 h-4 text-purple-600" />
+            </div>
+            <div>
+              <h3 className={`text-sm font-extrabold uppercase tracking-wider ${styles.textHeading}`}>
+                Select Business Access Matrix
+              </h3>
+              <p className={`text-xs ${styles.textMuted}`}>
+                Choose a business below to view and configure its Top Switcher, Side-Menu Tab Matrix, and Operational Privileges.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <span className="text-[11px] font-bold text-slate-500">Currently Editing:</span>
+            <span className={`px-2.5 py-1 rounded-lg text-xs font-extrabold border ${
+              selectedBusiness === 'prh_rental'
+                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                : selectedBusiness === 'mgr_transport'
+                ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700'
+                : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+            }`}>
+              {currentBusinessConfig.name}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          {/* Bicycle POS */}
+          <button
+            type="button"
+            id="tab-scope-bicycle-pos"
+            onClick={() => handleSwitchBusiness('bicycle_pos')}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+              selectedBusiness === 'bicycle_pos'
+                ? (isLight
+                    ? 'bg-emerald-50 border-emerald-400 shadow-sm text-emerald-950 ring-2 ring-emerald-400'
+                    : 'bg-emerald-500/20 border-emerald-500 shadow-sm text-emerald-100 ring-2 ring-emerald-500')
+                : `${styles.cardSubtleBg} ${styles.textMuted} hover:${styles.textHeading} border-slate-200 dark:border-slate-800`
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                selectedBusiness === 'bicycle_pos' ? 'bg-emerald-600 text-white' : 'bg-emerald-500/15 text-emerald-600'
+              }`}>
+                <Bike className="w-5 h-5" />
+              </div>
+              <div>
+                <span className={`font-extrabold text-sm block ${selectedBusiness === 'bicycle_pos' ? (isLight ? 'text-emerald-950' : 'text-white') : styles.textHeading}`}>
+                  Bicycle POS
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                  10 Side-Menu Tabs
+                </span>
+              </div>
+            </div>
+            {selectedBusiness === 'bicycle_pos' ? (
+              <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase bg-emerald-600 text-white shadow-xs">
+                Active
+              </span>
+            ) : (
+              <span className="text-[11px] font-bold text-slate-400 hover:text-emerald-600">
+                Switch →
+              </span>
+            )}
+          </button>
+
+          {/* PRH Rental Hub */}
+          <button
+            type="button"
+            id="tab-scope-prh-rental"
+            onClick={() => handleSwitchBusiness('prh_rental')}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+              selectedBusiness === 'prh_rental'
+                ? (isLight
+                    ? 'bg-amber-50 border-amber-400 shadow-sm text-amber-950 ring-2 ring-amber-400'
+                    : 'bg-amber-500/20 border-amber-500 shadow-sm text-amber-100 ring-2 ring-amber-500')
+                : `${styles.cardSubtleBg} ${styles.textMuted} hover:${styles.textHeading} border-slate-200 dark:border-slate-800`
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                selectedBusiness === 'prh_rental' ? 'bg-amber-600 text-white' : 'bg-amber-500/15 text-amber-600'
+              }`}>
+                <HardHat className="w-5 h-5" />
+              </div>
+              <div>
+                <span className={`font-extrabold text-sm block ${selectedBusiness === 'prh_rental' ? (isLight ? 'text-amber-950' : 'text-white') : styles.textHeading}`}>
+                  PRH Rental Hub
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                  14 Side-Menu Tabs
+                </span>
+              </div>
+            </div>
+            {selectedBusiness === 'prh_rental' ? (
+              <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase bg-amber-600 text-white shadow-xs">
+                Active
+              </span>
+            ) : (
+              <span className="text-[11px] font-bold text-slate-400 hover:text-amber-600">
+                Switch →
+              </span>
+            )}
+          </button>
+
+          {/* MGR Transport */}
+          <button
+            type="button"
+            id="tab-scope-mgr-transport"
+            onClick={() => handleSwitchBusiness('mgr_transport')}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+              selectedBusiness === 'mgr_transport'
+                ? (isLight
+                    ? 'bg-blue-50 border-blue-400 shadow-sm text-blue-950 ring-2 ring-blue-400'
+                    : 'bg-blue-500/20 border-blue-500 shadow-sm text-blue-100 ring-2 ring-blue-500')
+                : `${styles.cardSubtleBg} ${styles.textMuted} hover:${styles.textHeading} border-slate-200 dark:border-slate-800`
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                selectedBusiness === 'mgr_transport' ? 'bg-blue-600 text-white' : 'bg-blue-500/15 text-blue-600'
+              }`}>
+                <Car className="w-5 h-5" />
+              </div>
+              <div>
+                <span className={`font-extrabold text-sm block ${selectedBusiness === 'mgr_transport' ? (isLight ? 'text-blue-950' : 'text-white') : styles.textHeading}`}>
+                  MGR Transport
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                  8 Side-Menu Tabs
+                </span>
+              </div>
+            </div>
+            {selectedBusiness === 'mgr_transport' ? (
+              <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase bg-blue-600 text-white shadow-xs">
+                Active
+              </span>
+            ) : (
+              <span className="text-[11px] font-bold text-slate-400 hover:text-blue-600">
+                Switch →
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
       {/* 2. SECTION 1: TOP/MAIN MENU SWITCHER ACCESS */}
       <div className={`${styles.cardBg} rounded-2xl p-5 border space-y-4`}>
         <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b ${styles.divider}`}>
@@ -844,6 +1011,46 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
               </p>
             </div>
           </div>
+
+          {/* Quick inline switcher */}
+          <div className={`flex items-center p-1 rounded-xl border ${styles.cardSubtleBg}`}>
+            <button
+              type="button"
+              onClick={() => handleSwitchBusiness('bicycle_pos')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                selectedBusiness === 'bicycle_pos'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : `${styles.textMuted} hover:${styles.textHeading}`
+              }`}
+            >
+              <Bike className="w-3 h-3" />
+              <span>Bicycle POS</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchBusiness('prh_rental')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                selectedBusiness === 'prh_rental'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : `${styles.textMuted} hover:${styles.textHeading}`
+              }`}
+            >
+              <HardHat className="w-3 h-3" />
+              <span>PRH</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchBusiness('mgr_transport')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                selectedBusiness === 'mgr_transport'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : `${styles.textMuted} hover:${styles.textHeading}`
+              }`}
+            >
+              <Car className="w-3 h-3" />
+              <span>Transport</span>
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
@@ -855,7 +1062,7 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
             return (
               <div
                 key={role.id}
-                onClick={() => !isRoleAdmin && handleToggleTopMenuAccess(role.id, activeBusiness as BusinessScope)}
+                onClick={() => !isRoleAdmin && handleToggleTopMenuAccess(role.id, selectedBusiness)}
                 className={`p-3.5 rounded-xl border transition cursor-pointer flex items-center justify-between ${
                   isAllowed
                     ? (isLight
@@ -894,22 +1101,76 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
 
       {/* 3. SECTION 2: SIDE-MENU ACCESS MATRIX (TICK BOXES) */}
       <div className={`${styles.cardBg} rounded-2xl p-5 sm:p-6 border space-y-5`}>
-        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b ${styles.divider}`}>
+        <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b ${styles.divider}`}>
           <div className="flex items-center gap-2.5">
             <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${styles.emeraldBadge}`}>
               <Sliders className="w-4 h-4 text-emerald-600" />
             </div>
             <div>
-              <h2 className={`text-base sm:text-lg font-bold tracking-tight ${styles.textHeading}`}>
-                2. Side-Menu Tab Access Matrix — {currentBusinessConfig.name}
-              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className={`text-base sm:text-lg font-bold tracking-tight ${styles.textHeading}`}>
+                  2. Side-Menu Tab Access Matrix — {currentBusinessConfig.name}
+                </h2>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border ${
+                  selectedBusiness === 'prh_rental'
+                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                    : selectedBusiness === 'mgr_transport'
+                    ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700'
+                    : styles.emeraldBadge
+                }`}>
+                  {currentBusinessConfig.tabs.length} Tabs Configurable
+                </span>
+              </div>
               <p className={`text-xs ${styles.textMuted} mt-0.5`}>
-                Tick each box to allow or restrict side-menu access for specific user roles.
+                Tick each box to allow or restrict side-menu access for specific user roles in {currentBusinessConfig.name}.
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Quick Switcher inside Section 2 */}
+            <div className={`flex items-center p-1 rounded-xl border ${styles.cardSubtleBg}`}>
+              <button
+                type="button"
+                id="btn-matrix-scope-bicycle_pos"
+                onClick={() => handleSwitchBusiness('bicycle_pos')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                  selectedBusiness === 'bicycle_pos'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : `${styles.textMuted} hover:${styles.textHeading}`
+                }`}
+              >
+                <Bike className="w-3.5 h-3.5" />
+                <span>Bicycle POS</span>
+              </button>
+              <button
+                type="button"
+                id="btn-matrix-scope-prh_rental"
+                onClick={() => handleSwitchBusiness('prh_rental')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                  selectedBusiness === 'prh_rental'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : `${styles.textMuted} hover:${styles.textHeading}`
+                }`}
+              >
+                <HardHat className="w-3.5 h-3.5" />
+                <span>PRH Rental Hub</span>
+              </button>
+              <button
+                type="button"
+                id="btn-matrix-scope-mgr_transport"
+                onClick={() => handleSwitchBusiness('mgr_transport')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                  selectedBusiness === 'mgr_transport'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : `${styles.textMuted} hover:${styles.textHeading}`
+                }`}
+              >
+                <Car className="w-3.5 h-3.5" />
+                <span>MGR Transport</span>
+              </button>
+            </div>
+
             <button
               type="button"
               onClick={handleSaveAllRoles}
@@ -1026,17 +1287,59 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
 
       {/* 4. SECTION 3: OPERATIONAL PRIVILEGES */}
       <div className={`${styles.cardBg} rounded-2xl p-5 border space-y-4`}>
-        <div className={`flex items-center gap-2.5 pb-3 border-b ${styles.divider}`}>
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${styles.purpleBadge}`}>
-            <Lock className="w-4 h-4 text-purple-600" />
+        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b ${styles.divider}`}>
+          <div className="flex items-center gap-2.5">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${styles.purpleBadge}`}>
+              <Lock className="w-4 h-4 text-purple-600" />
+            </div>
+            <div>
+              <h2 className={`text-base font-bold ${styles.textHeading}`}>
+                3. Operational Privileges & Action Levels — {currentBusinessConfig.name}
+              </h2>
+              <p className={`text-xs ${styles.textMuted}`}>
+                Configure functional action privileges (rental creation, settlement, pricing edits, and report exports) per role for {currentBusinessConfig.name}.
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className={`text-base font-bold ${styles.textHeading}`}>
-              3. Operational Privileges & Action Levels — {currentBusinessConfig.name}
-            </h2>
-            <p className={`text-xs ${styles.textMuted}`}>
-              Configure functional action privileges (rental creation, settlement, pricing edits, and report exports) per role.
-            </p>
+
+          {/* Quick inline switcher */}
+          <div className={`flex items-center p-1 rounded-xl border ${styles.cardSubtleBg}`}>
+            <button
+              type="button"
+              onClick={() => handleSwitchBusiness('bicycle_pos')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                selectedBusiness === 'bicycle_pos'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : `${styles.textMuted} hover:${styles.textHeading}`
+              }`}
+            >
+              <Bike className="w-3 h-3" />
+              <span>Bicycle POS</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchBusiness('prh_rental')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                selectedBusiness === 'prh_rental'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : `${styles.textMuted} hover:${styles.textHeading}`
+              }`}
+            >
+              <HardHat className="w-3 h-3" />
+              <span>PRH</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchBusiness('mgr_transport')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                selectedBusiness === 'mgr_transport'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : `${styles.textMuted} hover:${styles.textHeading}`
+              }`}
+            >
+              <Car className="w-3 h-3" />
+              <span>Transport</span>
+            </button>
           </div>
         </div>
 
@@ -1138,8 +1441,8 @@ export const UserRoleMasterHub: React.FC<UserRoleMasterHubProps> = ({
                 const initials = u.name
                   ? u.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
                   : 'U';
-                const bStatus = getUserBusinessStatus(u, activeBusiness as BusinessScope);
-                const bUpdatedAt = u.businessStatusUpdatedAt?.[activeBusiness as BusinessScope] || u.statusUpdatedAt;
+                const bStatus = getUserBusinessStatus(u, selectedBusiness);
+                const bUpdatedAt = u.businessStatusUpdatedAt?.[selectedBusiness] || u.statusUpdatedAt;
 
                 return (
                   <tr key={u.id} className={`transition ${styles.tableRowHover}`}>

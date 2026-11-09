@@ -38,12 +38,14 @@ import {
   UserCheck,
   UserPlus,
   Edit2,
+  FileText,
 } from 'lucide-react';
 import { AccentColor, ThemeMode, getThemeClasses } from '../utils/theme';
 import { AppSettings, Customer, IncomeEntry, SaleRecord, Vehicle, VehicleStatus, VehicleType } from '../types';
 import { UserAccount } from '../utils/auth';
 import { formatCurrency } from '../utils/pricing';
 import { VehicleIcon } from './VehicleIcon';
+import { QuotationManagementPanel } from './QuotationManagementPanel';
 
 interface SaleManagementPanelProps {
   entries: IncomeEntry[];
@@ -54,6 +56,7 @@ interface SaleManagementPanelProps {
   customers?: Customer[];
   vehicleTypes?: VehicleType[];
   vehicles?: Vehicle[];
+  initialSection?: 'direct_sales' | 'quotation';
   onAddEntry: (entry: IncomeEntry) => Promise<void> | void;
   onUpdateEntry?: (entry: IncomeEntry) => Promise<void> | void;
   onDeleteEntry?: (id: string, entry?: IncomeEntry) => Promise<void> | void;
@@ -80,6 +83,7 @@ export const SaleManagementPanel: React.FC<SaleManagementPanelProps> = ({
   customers = [],
   vehicleTypes = [],
   vehicles = [],
+  initialSection = 'direct_sales',
   onAddEntry,
   onUpdateEntry,
   onDeleteEntry,
@@ -90,6 +94,9 @@ export const SaleManagementPanel: React.FC<SaleManagementPanelProps> = ({
   const isAdmin = currentUser.role === 'admin' || currentUser.email === 'absiraiva@gmail.com';
 
   const todayStr = new Date().toISOString().slice(0, 10);
+
+  // Top-level tab switcher under Sales side menu: 'direct_sales' vs 'quotation'
+  const [salesSection, setSalesSection] = useState<'direct_sales' | 'quotation'>(initialSection);
 
   // Subtab navigation: Default to 'available' (Available for Sale & Direct Sale)
   const [subTab, setSubTab] = useState<'available' | 'history'>('available');
@@ -819,13 +826,66 @@ export const SaleManagementPanel: React.FC<SaleManagementPanelProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Header & Subtab Navigation */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold flex items-center gap-2.5">
-            <TrendingUp className={`w-7 h-7 ${t.accentText}`} />
-            Direct Sales & Revenue
-          </h2>
+      {/* Sales Module Navigation Header & Tab Switcher */}
+      <div className={`p-1.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs ${
+        themeMode === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-100/90 border-slate-200'
+      }`}>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            id="tab-direct-sales-revenue"
+            onClick={() => setSalesSection('direct_sales')}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              salesSection === 'direct_sales'
+                ? `${t.accentBg} text-white shadow-md`
+                : `${t.textMuted} hover:${t.textMain}`
+            }`}
+          >
+            <TrendingUp className="w-4 h-4" />
+            <span>Direct Sales & Revenue</span>
+          </button>
+
+          <button
+            type="button"
+            id="tab-sales-quotation"
+            onClick={() => setSalesSection('quotation')}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              salesSection === 'quotation'
+                ? `${t.accentBg} text-white shadow-md`
+                : `${t.textMuted} hover:${t.textMain}`
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>Quotation</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+              salesSection === 'quotation' ? 'bg-black/25 text-white' : 'bg-emerald-500/15 text-emerald-400'
+            }`}>
+              Sale & Rent
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {salesSection === 'quotation' ? (
+        <QuotationManagementPanel
+          settings={settings}
+          currentUser={currentUser}
+          themeMode={themeMode}
+          accent={accent}
+          customers={customers}
+          vehicleTypes={vehicleTypes}
+          vehicles={vehicles}
+          onNavigateTab={onNavigateTab}
+        />
+      ) : (
+        <>
+          {/* Top Header & Subtab Navigation */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold flex items-center gap-2.5">
+                <TrendingUp className={`w-7 h-7 ${t.accentText}`} />
+                Direct Sales & Revenue
+              </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Sell available inventory items with automatic 20% markup, audit tracking, and instant financial revenue posting.
           </p>
@@ -2695,6 +2755,8 @@ export const SaleManagementPanel: React.FC<SaleManagementPanelProps> = ({
             </form>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );
